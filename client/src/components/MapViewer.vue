@@ -580,9 +580,11 @@ const renderHexagons = (hexagons) => {
       // CAPA JUGADOR: Si player_color existe, usar como borde (prioridad alta)
       const playerColor = hex.player_color || null;
       const isCapital = hex.is_capital === true;
+      const isMyTerritory = hex.player_id === playerId.value; // Check if belongs to current player
       let borderColor = terrainColor;
       let finalBorderWeight = borderWeight;
       let finalFillOpacity = hexagonOpacity.value / 100;
+      let finalFillColor = terrainColor;
       let borderOpacityValue = borderOpacity;
 
       // PRIORITY 1: CAPITAL - Estilo ultra prominente
@@ -590,25 +592,42 @@ const renderHexagons = (hexagons) => {
         // Borde ROJO PURO y GRUESO para la capital (máxima prominencia)
         borderColor = '#ff0000';  // Rojo puro brillante
         finalBorderWeight = 6;     // Doble que territorios normales
-        finalFillOpacity = 0.8;    // Más sólido
         borderOpacityValue = 1.0;  // Totalmente opaco
+
+        // Relleno rojo sombreado para capital (más opaco)
+        if (isMyTerritory) {
+          finalFillColor = '#ff0000';
+          finalFillOpacity = 0.5;  // Capital más opaca que territorios normales
+        }
       }
-      // PRIORITY 2: VISTA POLÍTICA - Resaltar territorios de jugadores
-      else if (isPoliticalView.value && hex.player_id) {
-        // Modo político: borde rojo intenso para territorios controlados
+      // PRIORITY 2: TERRITORIO DEL JUGADOR - Relleno rojo sombreado
+      else if (isMyTerritory) {
+        // Borde rojo intenso para territorios del jugador
         borderColor = '#d32f2f';
         finalBorderWeight = 3;
-        finalFillOpacity = 0.7;
         borderOpacityValue = 1.0;
+
+        // Relleno rojo sombreado semi-transparente
+        finalFillColor = '#ff0000';
+        finalFillOpacity = 0.3;  // Semi-transparente para ver el terreno debajo
       }
-      // PRIORITY 3: Vista normal con dueño
+      // PRIORITY 3: VISTA POLÍTICA - Resaltar territorios de otros jugadores
+      else if (isPoliticalView.value && hex.player_id) {
+        // Modo político: borde del color del jugador para territorios enemigos
+        borderColor = playerColor || '#d32f2f';
+        finalBorderWeight = 3;
+        finalFillOpacity = 0.05;  // Muy poca opacidad para territorios enemigos
+        borderOpacityValue = 0.8;
+      }
+      // PRIORITY 4: Vista normal con dueño (territorio enemigo)
       else if (playerColor) {
-        // Vista normal: borde grueso con color del reino
+        // Vista normal: borde grueso con color del reino enemigo
         borderColor = playerColor;
         finalBorderWeight = baseBorderWeight * 3;
+        finalFillOpacity = 0.05;  // Muy poca opacidad
         borderOpacityValue = 0.95;
       }
-      // PRIORITY 4: Camino histórico
+      // PRIORITY 5: Camino histórico
       else if (hasRoad) {
         // Sin dueño pero con camino: borde dorado
         borderColor = '#d4af37';
@@ -618,26 +637,27 @@ const renderHexagons = (hexagons) => {
       // Create Leaflet polygon with estilos ajustados
       const polygon = L.polygon(boundary, {
         color: borderColor,
-        fillColor: terrainColor,
+        fillColor: finalFillColor,
         fillOpacity: finalFillOpacity,
+        fill: true, // Always enable fill
         weight: finalBorderWeight,
         opacity: borderOpacityValue,
         // zIndexOffset for capitals to render on top
         ...(isCapital && { className: 'capital-hexagon' })
       });
 
-      // Add hover effect
+      // Add hover effect (maintain fillColor for player territories)
       polygon.on('mouseover', function () {
         this.setStyle({
           weight: finalBorderWeight * 1.5,
-          fillOpacity: Math.min(hexagonOpacity.value / 100 + 0.2, 1.0),
+          fillOpacity: Math.min(finalFillOpacity + 0.2, 1.0),
         });
       });
 
       polygon.on('mouseout', function () {
         this.setStyle({
           weight: finalBorderWeight,
-          fillOpacity: hexagonOpacity.value / 100,
+          fillOpacity: finalFillOpacity,
         });
       });
 
