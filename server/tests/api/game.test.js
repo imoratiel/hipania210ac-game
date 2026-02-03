@@ -610,6 +610,75 @@ describe('POST /api/game/claim', () => {
   });
 });
 
+describe('GET /api/game/capital', () => {
+  it('debería devolver la capital del jugador cuando existe', async () => {
+    // Mock query result with capital
+    pool.query.mockResolvedValueOnce({
+      rows: [{ h3_index: '88185ba635fffff' }]
+    });
+
+    const response = await request(app)
+      .get('/api/game/capital')
+      .query({ player_id: 1 });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveProperty('success', true);
+    expect(response.body).toHaveProperty('h3_index', '88185ba635fffff');
+    expect(response.body).toHaveProperty('message', 'Capital encontrada');
+    expect(pool.query).toHaveBeenCalledWith(
+      expect.stringContaining('is_capital = TRUE'),
+      [1]
+    );
+  });
+
+  it('debería devolver 404 cuando el jugador no tiene capital', async () => {
+    // Mock query result with no capital
+    pool.query.mockResolvedValueOnce({
+      rows: []
+    });
+
+    const response = await request(app)
+      .get('/api/game/capital')
+      .query({ player_id: 1 });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toHaveProperty('success', false);
+    expect(response.body).toHaveProperty('h3_index', null);
+    expect(response.body.message).toMatch(/no has colonizado tu primer territorio/i);
+  });
+
+  it('debería rechazar peticiones sin player_id', async () => {
+    const response = await request(app)
+      .get('/api/game/capital');
+
+    expect(response.status).toBe(400);
+    expect(response.body).toHaveProperty('success', false);
+    expect(response.body.message).toMatch(/falta.*player_id/i);
+  });
+
+  it('debería rechazar player_id inválido', async () => {
+    const response = await request(app)
+      .get('/api/game/capital')
+      .query({ player_id: 'invalid' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toHaveProperty('success', false);
+  });
+
+  it('debería manejar errores de base de datos correctamente', async () => {
+    // Mock database error
+    pool.query.mockRejectedValueOnce(new Error('Database connection failed'));
+
+    const response = await request(app)
+      .get('/api/game/capital')
+      .query({ player_id: 1 });
+
+    expect(response.status).toBe(500);
+    expect(response.body).toHaveProperty('success', false);
+    expect(response.body.message).toMatch(/error interno/i);
+  });
+});
+
 describe('GET /health', () => {
   it('debería devolver status 200 y estado OK', async () => {
     const response = await request(app).get('/health');

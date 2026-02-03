@@ -552,6 +552,63 @@ app.post('/api/game/claim', async (req, res) => {
 });
 
 /**
+ * GET /api/game/capital?player_id=X
+ * Returns the h3_index of the player's capital territory
+ *
+ * Query params:
+ *   player_id: number (required)
+ *
+ * Response: {
+ *   success: boolean,
+ *   h3_index: string | null,
+ *   message: string
+ * }
+ */
+app.get('/api/game/capital', async (req, res) => {
+  try {
+    const player_id = parseInt(req.query.player_id);
+
+    if (!player_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Falta el parámetro player_id'
+      });
+    }
+
+    const query = `
+      SELECT h3_index
+      FROM h3_map
+      WHERE player_id = $1 AND is_capital = TRUE
+      LIMIT 1
+    `;
+
+    const result = await pool.query(query, [player_id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        h3_index: null,
+        message: 'Aún no has colonizado tu primer territorio'
+      });
+    }
+
+    res.json({
+      success: true,
+      h3_index: result.rows[0].h3_index,
+      message: 'Capital encontrada'
+    });
+
+  } catch (error) {
+    console.error('Error fetching capital:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+});
+
+/**
  * GET /api/map/cell-details/:h3_index
  * Returns detailed information about a specific hexagon cell
  *

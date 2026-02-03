@@ -3,8 +3,18 @@
     <!-- Sidebar Panel -->
     <div class="sidebar">
       <!-- Legend -->
-      <div class="legend">
-        <h3>Leyenda de Terrenos</h3>
+      <div class="legend" :class="{ 'legend-collapsed': legendCollapsed }">
+        <div class="legend-header">
+          <h3>Leyenda de Terrenos</h3>
+          <button
+            id="toggle-legend"
+            @click="toggleLegend"
+            class="btn-toggle"
+            :title="legendCollapsed ? 'Expandir leyenda' : 'Colapsar leyenda'"
+          >
+            {{ legendCollapsed ? '▼' : '▲' }}
+          </button>
+        </div>
         <div v-if="terrainTypes.length === 0" class="legend-loading">
           Cargando tipos de terreno...
         </div>
@@ -186,31 +196,6 @@
           <span class="toast-message">{{ toast.message }}</span>
         </div>
       </div>
-
-      <!-- Settlements Navigation Panel - Medieval Style -->
-      <div class="settlements-sidebar">
-        <div class="settlements-header">
-          <h3>Asentamientos Históricos</h3>
-          <p class="subtitle">Galicia, Asturias y León</p>
-        </div>
-        <div class="settlements-list">
-          <div v-if="settlements.length === 0" class="settlements-loading">
-            Cargando asentamientos...
-          </div>
-          <a
-            v-for="settlement in settlements"
-            :key="settlement.name"
-            href="#"
-            class="settlement-link"
-            :data-type="settlement.type"
-            @click.prevent="navigateToSettlement(settlement)"
-          >
-            <span class="settlement-icon">{{ getSettlementIcon(settlement.type) }}</span>
-            <span class="settlement-name">{{ settlement.name }}</span>
-            <span class="settlement-type-label">{{ settlement.type }}</span>
-          </a>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -232,7 +217,6 @@ const currentResolution = ref(8); // H3 resolution (8 or 10)
 const terrainTypes = ref([]);
 const showH3Layer = ref(true);
 const isPoliticalView = ref(true); // Vista política para resaltar territorios de jugadores (activada por defecto)
-const settlements = ref([]);
 
 // Player state (hardcoded for testing)
 const playerId = ref(1); // Simular que somos el jugador 1
@@ -247,6 +231,9 @@ const actionPanelPosition = ref({ x: 0, y: 0 });
 // Navigation search state
 const searchH3Input = ref('');
 const capitalH3Index = ref(null); // Cache capital location
+
+// Legend toggle state
+const legendCollapsed = ref(true); // Collapsed by default
 
 // Toast notifications state
 const toasts = ref([]);
@@ -549,79 +536,6 @@ const fetchTerrainTypes = async () => {
   }
 };
 
-/**
- * Fetch settlements list for navigation panel
- * Solo puebla el menú si la respuesta es exitosa (200 OK)
- */
-const fetchSettlements = async () => {
-  try {
-    console.log('Fetching settlements from API...');
-    const response = await axios.get(`${API_URL}/api/settlements`);
-
-    // Verificar que la respuesta sea exitosa (status 200)
-    if (response.status === 200 && Array.isArray(response.data)) {
-      settlements.value = response.data; // Already sorted alphabetically by backend
-      console.log(`✓ Loaded ${settlements.value.length} settlements for navigation`);
-
-      if (settlements.value.length === 0) {
-        console.warn('⚠️ API returned empty array - no settlements in database');
-      }
-    } else {
-      console.error('❌ Unexpected API response format:', response);
-      settlements.value = [];
-    }
-  } catch (err) {
-    console.error('❌ Failed to fetch settlements:', err.message);
-    if (err.response) {
-      console.error('Response status:', err.response.status);
-      console.error('Response data:', err.response.data);
-    }
-    settlements.value = []; // Ensure menu stays empty on error
-  }
-};
-
-/**
- * Get icon for settlement type
- */
-const getSettlementIcon = (type) => {
-  const icons = {
-    city: '🏛️',
-    town: '🏘️',
-    village: '🏡',
-    fort: '⚔️',
-    monastery: '⛪'
-  };
-  return icons[type] || '📍';
-};
-
-/**
- * Navigate to a settlement with smooth animation
- * @param {Object} settlement - Settlement with name, lat, lng
- */
-const navigateToSettlement = (settlement) => {
-  if (!map) return;
-
-  console.log(`Navigating to settlement: ${settlement.name} at [${settlement.lat}, ${settlement.lng}]`);
-
-  // Fly to settlement with smooth animation (2 seconds)
-  map.flyTo([settlement.lat, settlement.lng], 14, {
-    duration: 2,
-    easeLinearity: 0.25
-  });
-
-  // Wait for animation to complete, then try to open popup
-  setTimeout(() => {
-    // Find the marker for this settlement and open its popup
-    const marker = settlementMarkersMap[settlement.name];
-    if (marker) {
-      marker.openPopup();
-      console.log(`✓ Opened popup for ${settlement.name}`);
-    } else {
-      // If marker not found (zoom < 12), just log
-      console.log(`Marker for ${settlement.name} not visible (zoom < ${MIN_ZOOM_SETTLEMENTS})`);
-    }
-  }, 2100); // Slightly after animation completes
-};
 
 /**
  * Render H3 hexagons on the map
@@ -749,26 +663,27 @@ const renderHexagons = (hexagons) => {
 
   console.log(`✓ Finished rendering ${hexagons.length} hexagons at resolution ${currentResolution.value}`);
 
-  // Render capital star markers
+  // Render capital star markers (high priority - rendered AFTER hexagons)
   hexagons.forEach(hex => {
     if (hex.is_capital === true) {
       try {
         // Calculate center of hexagon
         const [lat, lng] = cellToLatLng(hex.h3_index);
 
-        // Create star icon using divIcon
+        // Create star icon using divIcon with enhanced visibility
         const starIcon = L.divIcon({
-          className: 'capital-star-label',
+          className: 'capital-star-marker',
           html: '⭐',
           iconSize: [30, 30],
           iconAnchor: [15, 15] // Center the icon perfectly
         });
 
-        // Add marker to map with high z-index
+        // Add marker to map with VERY high z-index and explicit pane to be on top of everything
         L.marker([lat, lng], {
           icon: starIcon,
           interactive: false, // Don't block clicks to hexagon below
-          zIndexOffset: 1000
+          zIndexOffset: 3000, // Extremely high value to ensure it's on top
+          pane: 'markerPane' // Explicit pane for maximum visibility
         }).addTo(hexagonLayer);
 
         console.log(`✓ Rendered capital star at ${hex.h3_index}`);
@@ -1184,6 +1099,14 @@ const togglePoliticalView = () => {
 };
 
 /**
+ * Toggle legend collapsed/expanded state
+ */
+const toggleLegend = () => {
+  legendCollapsed.value = !legendCollapsed.value;
+  console.log(`✓ Leyenda ${legendCollapsed.value ? 'colapsada' : 'expandida'}`);
+};
+
+/**
  * Focus on a specific hexagon with highlight
  * @param {string} h3Index - H3 index to focus on
  */
@@ -1260,28 +1183,30 @@ const goToCapital = async () => {
       return;
     }
 
-    // Fetch capital from settlements endpoint
-    const response = await axios.get(`${API_URL}/api/settlements`);
-    const settlements = response.data;
+    // Fetch capital from game/capital endpoint (uses is_capital flag in h3_map)
+    const response = await axios.get(`${API_URL}/api/game/capital`, {
+      params: { player_id: playerId.value }
+    });
 
-    // Find player's capital
-    const capital = settlements.find(s =>
-      s.player_id === playerId.value && s.is_capital === true
-    );
-
-    if (!capital) {
-      showToast('No tienes una capital establecida aún. Coloniza tu primer territorio.', 'warning');
+    if (!response.data.success) {
+      showToast(response.data.message, 'warning');
       return;
     }
 
     // Cache the capital location
-    capitalH3Index.value = capital.h3_index;
+    capitalH3Index.value = response.data.h3_index;
 
-    await focusOnHex(capital.h3_index);
+    await focusOnHex(response.data.h3_index);
     showToast('Navegando a tu capital ⭐', 'success');
   } catch (err) {
     console.error('Error navigating to capital:', err);
-    showToast('Error al buscar la capital', 'error');
+
+    // Handle 404 specifically (no capital yet)
+    if (err.response?.status === 404) {
+      showToast('Aún no has colonizado tu primer territorio', 'warning');
+    } else {
+      showToast('Error al buscar la capital', 'error');
+    }
   }
 };
 
@@ -1342,10 +1267,17 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
     // Build popup HTML content
     let popupContent = '<div class="cell-inspector" style="font-family: \'Cinzel\', Georgia, serif; min-width: 250px;">';
 
+    // CAPITAL BADGE - Show if this is the capital
+    if (cell.is_capital) {
+      popupContent += '<div class="capital-badge">⭐ CAPITAL DEL REINO ⭐</div>';
+    }
+
     // TITLE - Settlement name or "Territorio Salvaje"
     const title = cell.settlement_name || (cell.player_id ? `Territorio de ${cell.player_name}` : 'Territorio Salvaje');
     const titleIcon = cell.is_capital ? '👑' : (cell.settlement_name ? '🏛️' : '🗺️');
-    popupContent += `<h3 style="margin: 0 0 10px 0; color: #2c1810; font-size: 16px; border-bottom: 2px solid #8b7355; padding-bottom: 8px;">${titleIcon} ${title}</h3>`;
+    const titleColor = cell.is_capital ? '#8B6914' : '#2c1810';
+    const titleBorder = cell.is_capital ? '#FFD700' : '#8b7355';
+    popupContent += `<h3 style="margin: 0 0 10px 0; color: ${titleColor}; font-size: 16px; border-bottom: 2px solid ${titleBorder}; padding-bottom: 8px;">${titleIcon} ${title}</h3>`;
 
     // OWNER - Player name or "Sin reclamar"
     const ownerText = cell.player_name
@@ -1518,7 +1450,6 @@ const colonizeFromPopup = async (h3_index) => {
 onMounted(() => {
   initMap();
   fetchTerrainTypes();
-  fetchSettlements();
 });
 
 onBeforeUnmount(() => {
@@ -1557,15 +1488,54 @@ onBeforeUnmount(() => {
   padding: 15px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.legend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  border-bottom: 2px solid #3498db;
+  padding-bottom: 8px;
 }
 
 .legend h3 {
-  margin: 0 0 15px 0;
+  margin: 0;
   font-size: 18px;
   font-weight: bold;
   color: #333;
-  border-bottom: 2px solid #3498db;
-  padding-bottom: 8px;
+}
+
+.btn-toggle {
+  background: transparent;
+  border: 1px solid #3498db;
+  color: #3498db;
+  font-size: 14px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: bold;
+}
+
+.btn-toggle:hover {
+  background: #3498db;
+  color: white;
+  transform: scale(1.05);
+}
+
+.btn-toggle:active {
+  transform: scale(0.95);
+}
+
+/* Collapsed state - hide legend items */
+.legend-collapsed .legend-items {
+  display: none;
+}
+
+.legend-collapsed .legend-loading {
+  display: none;
 }
 
 .legend-loading {
@@ -1786,18 +1756,20 @@ onBeforeUnmount(() => {
 
 .search-container {
   display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: 4px;
+  margin-bottom: 6px;
 }
 
 .search-input {
   flex: 1;
-  padding: 8px 12px;
-  border: 2px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
+  padding: 4px 8px;
+  height: 26px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  font-size: 12px;
   font-family: monospace;
   transition: border-color 0.2s;
+  box-sizing: border-box;
 }
 
 .search-input:focus {
@@ -1805,15 +1777,25 @@ onBeforeUnmount(() => {
   border-color: #4CAF50;
 }
 
+.search-input::placeholder {
+  font-size: 11px;
+  color: #999;
+}
+
 .search-button {
-  padding: 8px 15px;
+  padding: 4px 10px;
+  height: 26px;
   background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
   border: none;
-  border-radius: 4px;
+  border-radius: 3px;
   color: white;
-  font-size: 16px;
+  font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .search-button:hover {
@@ -1827,16 +1809,21 @@ onBeforeUnmount(() => {
 
 .capital-link {
   width: 100%;
-  padding: 10px 15px;
+  padding: 6px 12px;
+  height: 30px;
   background: linear-gradient(135deg, #FFD700 0%, #FFC107 100%);
   border: 2px solid #FF8F00;
-  border-radius: 4px;
+  border-radius: 3px;
   color: #5D4E37;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: bold;
   font-family: 'Cinzel', 'Georgia', serif;
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2080,130 +2067,6 @@ onBeforeUnmount(() => {
 /* Import Google Font - Cinzel (Medieval/Roman Style) */
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&display=swap');
 
-/* Settlements Navigation Sidebar - Medieval Parchment Style */
-.settlements-sidebar {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  width: 320px;
-  max-height: calc(100vh - 40px);
-  background: #f4e4bc; /* Parchment color */
-  border: 3px solid #5d4e37; /* Dark brown border */
-  border-radius: 8px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.settlements-header {
-  background: linear-gradient(to bottom, #8b7355, #6d5a47);
-  color: #f4e4bc;
-  padding: 15px 20px;
-  border-bottom: 2px solid #5d4e37;
-  text-align: center;
-}
-
-.settlements-header h3 {
-  margin: 0;
-  font-family: 'Cinzel', 'Georgia', serif;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
-}
-
-.settlements-header .subtitle {
-  margin: 5px 0 0 0;
-  font-family: 'Cinzel', 'Georgia', serif;
-  font-size: 12px;
-  font-weight: 400;
-  opacity: 0.9;
-  font-style: italic;
-}
-
-.settlements-list {
-  overflow-y: auto;
-  padding: 10px 0;
-  flex: 1;
-}
-
-.settlements-loading {
-  padding: 20px;
-  text-align: center;
-  font-family: 'Cinzel', 'Georgia', serif;
-  color: #5d4e37;
-  font-size: 14px;
-}
-
-.settlement-link {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 20px;
-  text-decoration: none;
-  color: #2c1810;
-  font-family: 'Cinzel', 'Georgia', serif;
-  font-size: 14px;
-  border-bottom: 1px solid #d4c4a8;
-  transition: all 0.3s ease;
-  cursor: pointer;
-}
-
-.settlement-link:hover {
-  background: #e8d4a8;
-  padding-left: 25px;
-  border-left: 4px solid #8b7355;
-}
-
-.settlement-link:active {
-  background: #d4c4a8;
-}
-
-.settlement-icon {
-  font-size: 20px;
-  flex-shrink: 0;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
-}
-
-.settlement-name {
-  flex: 1;
-  font-weight: 600;
-  line-height: 1.3;
-}
-
-.settlement-type-label {
-  font-size: 11px;
-  color: #6d5a47;
-  font-style: italic;
-  text-transform: capitalize;
-  flex-shrink: 0;
-}
-
-/* Scrollbar styling for settlements list */
-.settlements-list::-webkit-scrollbar {
-  width: 8px;
-}
-
-.settlements-list::-webkit-scrollbar-track {
-  background: #e8d4a8;
-}
-
-.settlements-list::-webkit-scrollbar-thumb {
-  background: #8b7355;
-  border-radius: 4px;
-}
-
-.settlements-list::-webkit-scrollbar-thumb:hover {
-  background: #6d5a47;
-}
-
-/* Adjust Leaflet zoom controls position to avoid overlap */
-:deep(.leaflet-top.leaflet-left) {
-  left: 300px; /* Move zoom controls away from settlements sidebar */
-}
-
 /* Responsive Design */
 @media (max-width: 768px) {
   .sidebar {
@@ -2231,42 +2094,13 @@ onBeforeUnmount(() => {
     font-size: 24px;
   }
 
-  /* Settlements sidebar for mobile */
-  .settlements-sidebar {
-    top: auto;
-    bottom: 0;
-    right: 0;
-    left: 0;
-    width: 100%;
-    max-height: 40vh;
-    border-radius: 8px 8px 0 0;
-    border-bottom: none;
-  }
-
-  .settlements-header h3 {
-    font-size: 16px;
-  }
-
-  .settlements-header .subtitle {
-    font-size: 11px;
-  }
-
-  .settlement-link {
-    font-size: 13px;
-    padding: 10px 15px;
-  }
-
-  /* Reset zoom controls position */
-  :deep(.leaflet-top.leaflet-left) {
-    left: 10px;
-  }
 }
 
 /* Player Gold Indicator - Top Right Corner */
 .player-gold-indicator {
   position: fixed;
   top: 20px;
-  right: 360px; /* Offset to avoid settlements sidebar */
+  right: 20px; /* Aligned to right edge */
   background: linear-gradient(135deg, #f4e4bc 0%, #e8d4a8 100%);
   border: 3px solid #8b7355;
   border-radius: 12px;
@@ -2552,6 +2386,31 @@ onBeforeUnmount(() => {
   border-right: none;
 }
 
+/* Capital Badge - Highlighted banner in popup */
+.capital-badge {
+  background: linear-gradient(45deg, #ffd700, #ff8c00);
+  color: #000;
+  text-align: center;
+  font-weight: bold;
+  padding: 6px 4px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  animation: pulse-gold 2s ease-in-out infinite;
+}
+
+@keyframes pulse-gold {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(255, 215, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 15px rgba(255, 215, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  }
+}
+
 /* Mobile adjustments for toasts */
 @media (max-width: 768px) {
   .toast-container {
@@ -2583,12 +2442,29 @@ onBeforeUnmount(() => {
   filter: drop-shadow(0 0 8px rgba(255, 0, 0, 0.6));
 }
 
-/* Capital star marker styling */
-:deep(.capital-star-label) {
-  font-size: 30px;
+/* Capital star marker styling - Enhanced visibility */
+:deep(.capital-star-marker) {
+  font-size: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   text-align: center;
   line-height: 30px;
-  filter: drop-shadow(0px 0px 4px black);
+  filter: drop-shadow(0 0 3px gold) drop-shadow(0 0 6px rgba(255, 215, 0, 0.8));
   pointer-events: none; /* Allow clicks to pass through to hexagon below */
+  z-index: 10000 !important;
+}
+
+/* Legacy support for old class name */
+:deep(.capital-star-label) {
+  font-size: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  line-height: 30px;
+  filter: drop-shadow(0 0 3px gold) drop-shadow(0 0 6px rgba(255, 215, 0, 0.8));
+  pointer-events: none;
+  z-index: 10000 !important;
 }
 </style>
