@@ -1,128 +1,7 @@
 <template>
   <div class="app-container">
-    <!-- Sidebar Panel -->
-    <div class="sidebar">
-      <!-- Legend -->
-      <div class="legend" :class="{ 'legend-collapsed': legendCollapsed }">
-        <div class="legend-header">
-          <h3>Leyenda de Terrenos</h3>
-          <button
-            id="toggle-legend"
-            @click="toggleLegend"
-            class="btn-toggle"
-            :title="legendCollapsed ? 'Expandir leyenda' : 'Colapsar leyenda'"
-          >
-            {{ legendCollapsed ? '▼' : '▲' }}
-          </button>
-        </div>
-        <div v-if="terrainTypes.length === 0" class="legend-loading">
-          Cargando tipos de terreno...
-        </div>
-        <div v-else class="legend-items">
-          <div
-            v-for="terrain in terrainTypes"
-            :key="terrain.terrain_type_id"
-            class="legend-item"
-          >
-            <div
-              class="legend-color"
-              :style="{ backgroundColor: terrain.color }"
-            ></div>
-            <span class="legend-name">{{ terrain.name }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Transparency Control -->
-      <div class="transparency-control">
-        <h4>Transparencia</h4>
-        <div class="slider-container">
-          <input
-            id="opacity-slider"
-            type="range"
-            min="10"
-            max="100"
-            v-model="hexagonOpacity"
-            @input="updateHexagonOpacity"
-          />
-          <span class="opacity-value">{{ hexagonOpacity }}%</span>
-        </div>
-      </div>
-
-      <!-- H3 Layer Toggle -->
-      <div class="h3-toggle-control">
-        <h4>Visualización</h4>
-        <div class="toggle-container">
-          <label class="toggle-label">
-            <input
-              type="checkbox"
-              v-model="showH3Layer"
-              @change="toggleH3Layer"
-              class="toggle-checkbox"
-            />
-            <span class="toggle-slider"></span>
-            <span class="toggle-text">Mostrar Malla H3</span>
-          </label>
-        </div>
-        <div class="toggle-container">
-          <label class="toggle-label">
-            <input
-              id="toggle-political-view"
-              type="checkbox"
-              v-model="isPoliticalView"
-              @change="togglePoliticalView"
-              class="toggle-checkbox"
-            />
-            <span class="toggle-slider"></span>
-            <span class="toggle-text">Vista Política</span>
-          </label>
-        </div>
-      </div>
-
-      <!-- Map Info -->
-      <div class="map-info">
-        <h4>Información</h4>
-        <p><strong>Hexágonos:</strong> {{ hexagonCount }}</p>
-        <p><strong>Zoom:</strong> {{ currentZoom }}</p>
-        <p><strong>Resolución H3:</strong> {{ currentResolution }}</p>
-        <p v-if="currentZoom < MIN_ZOOM" class="warning">
-          ⚠️ Zoom mínimo: {{ MIN_ZOOM }}
-        </p>
-      </div>
-
-      <!-- Navigation Section -->
-      <div class="navigation-control">
-        <h4>Navegación</h4>
-        <div class="search-container">
-          <input
-            id="search-h3-input"
-            type="text"
-            v-model="searchH3Input"
-            placeholder="Índice H3..."
-            @keyup.enter="goToH3Index"
-            class="search-input"
-          />
-          <button
-            id="btn-go-to-h3"
-            @click="goToH3Index"
-            class="search-button"
-          >
-            🔍
-          </button>
-        </div>
-        <button
-          id="link-to-capital"
-          @click="goToCapital"
-          class="capital-link"
-        >
-          Ir a la Capital ⭐
-        </button>
-      </div>
-
-    </div>
-
-    <!-- Map Container -->
-    <div class="map-container">
+    <!-- Full Background Map -->
+    <div class="map-background">
       <div v-if="loading" class="loading-overlay">
         <div class="spinner"></div>
         <p>Cargando mapa...</p>
@@ -131,183 +10,354 @@
         <p>❌ Error: {{ error }}</p>
       </div>
       <div id="map" ref="mapContainer"></div>
+    </div>
 
-      <!-- Player Gold Indicator - Top Right -->
-      <div class="player-gold-indicator">
-        <div class="gold-icon">💰</div>
-        <div class="gold-amount">{{ playerGold }}</div>
-        <div class="gold-label">Oro</div>
-      </div>
-
-      <!-- Time Control Panel - Medieval Style -->
-      <div id="time-control" class="time-control">
-        <div class="time-info">
-          <div class="time-row">
-            <span class="time-icon">📅</span>
-            <span class="time-label">Fecha:</span>
-            <span class="time-value date-display">{{ formattedDate }}</span>
-          </div>
-          <div class="time-row">
-            <span class="time-icon">⚔️</span>
-            <span class="time-label">Turno:</span>
-            <span class="time-value">{{ currentTurn }}</span>
-          </div>
-          <div class="time-row harvest-info">
-            <span class="time-icon">🌾</span>
-            <span class="harvest-label">{{ nextHarvestLabel }}</span>
+    <!-- Main Sidebar -->
+    <aside id="main-sidebar" class="main-sidebar">
+      <!-- Sidebar Header -->
+      <div class="sidebar-header">
+        <div class="header-stat">
+          <span class="stat-icon gold-icon">💰</span>
+          <div class="stat-info">
+            <span class="stat-value">{{ playerGold }}</span>
+            <span class="stat-label">Oro</span>
           </div>
         </div>
-
-        <!-- Server Time Info -->
-        <div class="server-time-info">
-          <div class="sync-status">
-            <span class="sync-icon">🔄</span>
-            <span class="sync-text">Sincronizando con servidor...</span>
+        <div class="header-date">
+          <div class="date-row">
+            <span class="date-icon">📅</span>
+            <span class="date-value">{{ formattedDate }}</span>
+          </div>
+          <div class="date-row">
+            <span class="date-icon">⚔️</span>
+            <span class="date-label">Turno {{ currentTurn }}</span>
+          </div>
+          <div class="date-row harvest-row">
+            <span class="date-icon">🌾</span>
+            <span class="harvest-text">{{ nextHarvestLabel }}</span>
           </div>
         </div>
       </div>
 
-      <!-- Fiefs Monitoring Panel -->
-      <div id="fiefs-panel" class="fiefs-panel">
-        <div class="fiefs-header">
-          <h3>🏰 Mis Feudos</h3>
-          <span class="fiefs-count">{{ myFiefs.length }}</span>
-        </div>
-        <div id="fiefs-list" class="fiefs-list">
-          <div
-            v-if="loadingFiefs"
-            class="fiefs-empty"
-          >
-            Cargando feudos...
-          </div>
-          <div
-            v-else-if="myFiefs.length === 0"
-            class="fiefs-empty"
-          >
-            No tienes feudos aún. ¡Coloniza territorios para comenzar!
-          </div>
-          <div
-            v-for="fief in myFiefs"
-            :key="fief.h3_index"
-            class="fief-card"
-            :class="{ 'fief-low-food': Number(fief.food_stored || 0) < 5.0 }"
-            @click="focusOnFief(fief.h3_index)"
-          >
-            <div class="fief-name">
-              {{ fief.location_name || fief.h3_index?.substring(0, 8) || 'Territorio' }}
-            </div>
-            <div class="fief-terrain">{{ fief.terrain_name || 'Desconocido' }}</div>
-            <div class="fief-stats">
-              <span class="fief-stat">
-                <span class="fief-icon">👥</span>
-                <span class="fief-value">{{ Math.floor(Number(fief.population || 0)) }}</span>
-              </span>
-              <span class="fief-stat">
-                <span class="fief-icon">🌾</span>
-                <span
-                  class="fief-value fief-food"
-                  :data-h3="fief.h3_index"
-                >{{ Number(fief.food_stored || 0).toFixed(1) }}</span>
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Messages Panel -->
-      <div id="messages-panel" class="messages-panel">
-        <div class="messages-header">
-          <h3>📜 Mensajes</h3>
-          <span class="messages-count">{{ unreadCount }}</span>
-        </div>
-        <div id="messages-list" class="messages-list">
-          <div
-            v-if="loadingMessages"
-            class="messages-empty"
-          >
-            Cargando mensajes...
-          </div>
-          <div
-            v-else-if="myMessages.length === 0"
-            class="messages-empty"
-          >
-            No tienes mensajes.
-          </div>
-          <div
-            v-for="message in myMessages"
-            :key="message.id"
-            class="message-card"
-            :class="{ 'message-unread': !message.is_read }"
-            @click="readMessage(message)"
-          >
-            <div class="message-header">
-              <span class="message-sender">
-                {{ message.sender_name || '🏰 Sistema' }}
-              </span>
-              <span class="message-date">{{ formatMessageDate(message.sent_at) }}</span>
-            </div>
-            <div class="message-subject">{{ message.subject }}</div>
-            <div class="message-preview">{{ message.body.substring(0, 80) }}...</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Admin Link (only visible for admins) -->
-      <div
-        v-if="currentUser && currentUser.role === 'admin'"
-        class="admin-link-container"
-      >
-        <a href="/admin.html" class="admin-link">
-          ⚙️ Panel de Administración
-        </a>
-      </div>
-
-      <!-- Logout Button -->
-      <div
-        v-if="currentUser"
-        class="logout-container"
-      >
-        <button class="logout-button" @click="handleLogout">
-          <span class="logout-icon">🚪</span>
-          <span class="logout-text">Cerrar Sesión</span>
+      <!-- Sidebar Navigation -->
+      <nav class="sidebar-nav">
+        <button
+          class="nav-button"
+          :class="{ active: activePanel === 'economy' }"
+          @click="togglePanel('economy')"
+          title="Economía"
+        >
+          <span class="nav-icon">💰</span>
+          <span class="nav-label">Economía</span>
         </button>
-        <div class="user-info">{{ currentUser.username }}</div>
+        <button
+          class="nav-button"
+          :class="{ active: activePanel === 'layers' }"
+          @click="togglePanel('layers')"
+          title="Capas del Mapa"
+        >
+          <span class="nav-icon">🗺️</span>
+          <span class="nav-label">Capas</span>
+        </button>
+        <button
+          class="nav-button"
+          :class="{ active: activePanel === 'troops' }"
+          @click="togglePanel('troops')"
+          title="Tropas"
+        >
+          <span class="nav-icon">⚔️</span>
+          <span class="nav-label">Tropas</span>
+        </button>
+        <button
+          class="nav-button"
+          :class="{ active: activePanel === 'market' }"
+          @click="togglePanel('market')"
+          title="Mercado"
+        >
+          <span class="nav-icon">🏪</span>
+          <span class="nav-label">Mercado</span>
+        </button>
+        <button
+          class="nav-button"
+          :class="{ active: activePanel === 'kingdom' }"
+          @click="togglePanel('kingdom')"
+          title="Reino"
+        >
+          <span class="nav-icon">🏰</span>
+          <span class="nav-label">Reino</span>
+        </button>
+        <button
+          class="nav-button"
+          :class="{ active: activePanel === 'messages' }"
+          @click="togglePanel('messages')"
+          title="Mensajes"
+        >
+          <span class="nav-icon">📜</span>
+          <span class="nav-label">Mensajes</span>
+          <span v-if="unreadCount > 0" class="nav-badge">{{ unreadCount }}</span>
+        </button>
+        <button
+          class="nav-button"
+          :class="{ active: activePanel === 'notifications' }"
+          @click="togglePanel('notifications')"
+          title="Notificaciones"
+        >
+          <span class="nav-icon">🔔</span>
+          <span class="nav-label">Notificaciones</span>
+        </button>
+      </nav>
+
+      <!-- Sidebar Footer -->
+      <div class="sidebar-footer">
+        <div v-if="currentUser" class="user-info-footer">
+          <span class="username">{{ currentUser.username }}</span>
+        </div>
+        <a
+          v-if="currentUser && currentUser.role === 'admin'"
+          href="/admin.html"
+          class="footer-button admin-button"
+          title="Panel de Administración"
+        >
+          <span class="footer-icon">⚙️</span>
+        </a>
+        <button
+          v-if="currentUser"
+          class="footer-button logout-button"
+          @click="handleLogout"
+          title="Cerrar Sesión"
+        >
+          <span class="footer-icon">🚪</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Context Panel -->
+    <aside id="context-panel" class="context-panel" :class="{ open: activePanel }">
+      <div class="panel-header">
+        <h3 class="panel-title">{{ panelTitle }}</h3>
+        <button class="panel-close" @click="closePanel">✕</button>
       </div>
 
-      <!-- Message Detail Panel -->
-      <div
-        v-if="selectedMessage"
-        id="message-detail"
-        class="message-detail-panel"
-      >
-        <div class="message-detail-header">
-          <h3>📜 Detalle del Mensaje</h3>
-          <button class="close-button" @click="closeMessageDetail">✕</button>
+      <div class="panel-content">
+        <!-- Economy Panel -->
+        <div v-if="activePanel === 'economy'" class="panel-section economy-panel">
+          <p class="panel-placeholder">Contenido de Economía (próximamente)</p>
         </div>
-        <div class="message-detail-body">
-          <div class="message-detail-meta">
-            <span class="message-detail-sender">
-              De: {{ selectedMessage.sender_name || '🏰 Sistema' }}
-            </span>
-            <span class="message-detail-date">
-              {{ formatMessageDate(selectedMessage.sent_at) }}
-            </span>
+
+        <!-- Layers Panel -->
+        <div v-if="activePanel === 'layers'" class="panel-section layers-panel">
+          <!-- Legend -->
+          <div class="legend-section">
+            <h4 class="section-title">Leyenda de Terrenos</h4>
+            <div v-if="terrainTypes.length === 0" class="section-loading">
+              Cargando tipos de terreno...
+            </div>
+            <div v-else class="legend-items">
+              <div
+                v-for="terrain in terrainTypes"
+                :key="terrain.terrain_type_id"
+                class="legend-item"
+              >
+                <div
+                  class="legend-color"
+                  :style="{ backgroundColor: terrain.color }"
+                ></div>
+                <span class="legend-name">{{ terrain.name }}</span>
+              </div>
+            </div>
           </div>
-          <h4 class="message-detail-subject">{{ selectedMessage.subject }}</h4>
-          <div class="message-detail-content">
-            {{ selectedMessage.body }}
+
+          <!-- Visibility Controls -->
+          <div class="visibility-section">
+            <h4 class="section-title">Visualización</h4>
+            <div class="toggle-container">
+              <label class="toggle-label">
+                <input
+                  type="checkbox"
+                  v-model="showH3Layer"
+                  @change="toggleH3Layer"
+                  class="toggle-checkbox"
+                />
+                <span class="toggle-slider"></span>
+                <span class="toggle-text">Mostrar Malla H3</span>
+              </label>
+            </div>
+            <div class="toggle-container">
+              <label class="toggle-label">
+                <input
+                  type="checkbox"
+                  v-model="isPoliticalView"
+                  @change="togglePoliticalView"
+                  class="toggle-checkbox"
+                />
+                <span class="toggle-slider"></span>
+                <span class="toggle-text">Vista Política</span>
+              </label>
+            </div>
           </div>
-          <button
-            v-if="selectedMessage.h3_index"
-            class="message-detail-map-button"
-            @click="focusOnHexFromMessage(selectedMessage.h3_index)"
-          >
-            🗺️ Ver en Mapa
-          </button>
+
+          <!-- Transparency Slider -->
+          <div class="transparency-section">
+            <h4 class="section-title">Transparencia</h4>
+            <div class="slider-container">
+              <input
+                type="range"
+                min="10"
+                max="100"
+                v-model="hexagonOpacity"
+                @input="updateHexagonOpacity"
+                class="opacity-slider"
+              />
+              <span class="opacity-value">{{ hexagonOpacity }}%</span>
+            </div>
+          </div>
+
+          <!-- Map Info -->
+          <div class="map-info-section">
+            <h4 class="section-title">Información</h4>
+            <p><strong>Hexágonos:</strong> {{ hexagonCount }}</p>
+            <p><strong>Zoom:</strong> {{ currentZoom }}</p>
+            <p><strong>Resolución H3:</strong> {{ currentResolution }}</p>
+          </div>
+
+          <!-- Navigation -->
+          <div class="navigation-section">
+            <h4 class="section-title">Navegación</h4>
+            <div class="search-container">
+              <input
+                type="text"
+                v-model="searchH3Input"
+                placeholder="Índice H3..."
+                @keyup.enter="goToH3Index"
+                class="search-input"
+              />
+              <button @click="goToH3Index" class="search-button">
+                🔍
+              </button>
+            </div>
+            <button @click="goToCapital" class="capital-button">
+              Ir a la Capital ⭐
+            </button>
+          </div>
+        </div>
+
+        <!-- Troops Panel -->
+        <div v-if="activePanel === 'troops'" class="panel-section troops-panel">
+          <p class="panel-placeholder">Contenido de Tropas (próximamente)</p>
+        </div>
+
+        <!-- Market Panel -->
+        <div v-if="activePanel === 'market'" class="panel-section market-panel">
+          <p class="panel-placeholder">Contenido de Mercado (próximamente)</p>
+        </div>
+
+        <!-- Kingdom Panel (Fiefs) -->
+        <div v-if="activePanel === 'kingdom'" class="panel-section kingdom-panel">
+          <div class="fiefs-list" @scroll="handleFiefsScroll">
+            <div v-if="loadingFiefs" class="fiefs-empty">
+              Cargando feudos...
+            </div>
+            <div v-else-if="myFiefs.length === 0" class="fiefs-empty">
+              No tienes feudos aún. ¡Coloniza territorios para comenzar!
+            </div>
+            <div
+              v-for="fief in displayedFiefs"
+              :key="fief.h3_index"
+              class="fief-card"
+              :class="{ 'fief-low-food': Number(fief.food_stored || 0) < 5.0 }"
+              @click="focusOnFief(fief.h3_index)"
+            >
+              <div class="fief-name">
+                {{ fief.location_name || fief.h3_index?.substring(0, 8) || 'Territorio' }}
+              </div>
+              <div class="fief-terrain">{{ fief.terrain_name || 'Desconocido' }}</div>
+              <div class="fief-stats">
+                <span class="fief-stat">
+                  <span class="fief-icon">👥</span>
+                  <span class="fief-value">{{ Math.floor(Number(fief.population || 0)) }}</span>
+                </span>
+                <span class="fief-stat">
+                  <span class="fief-icon">🌾</span>
+                  <span class="fief-value fief-food">{{ Number(fief.food_stored || 0).toFixed(1) }}</span>
+                </span>
+              </div>
+            </div>
+            <div v-if="loadingMoreFiefs" class="loading-more">
+              Cargando más feudos...
+            </div>
+          </div>
+        </div>
+
+        <!-- Messages Panel -->
+        <div v-if="activePanel === 'messages'" class="panel-section messages-panel-container">
+          <div class="messages-split">
+            <!-- Message List -->
+            <div class="messages-list-column">
+              <div v-if="loadingMessages" class="messages-empty">
+                Cargando mensajes...
+              </div>
+              <div v-else-if="myMessages.length === 0" class="messages-empty">
+                No tienes mensajes.
+              </div>
+              <div
+                v-for="message in myMessages"
+                :key="message.id"
+                class="message-card"
+                :class="{
+                  'message-unread': !message.is_read,
+                  'message-selected': selectedMessage && selectedMessage.id === message.id
+                }"
+                @click="readMessage(message)"
+              >
+                <div class="message-header">
+                  <span class="message-sender">
+                    {{ message.sender_name || '🏰 Sistema' }}
+                  </span>
+                  <span class="message-date">{{ formatMessageDate(message.sent_at) }}</span>
+                </div>
+                <div class="message-subject">{{ message.subject }}</div>
+                <div class="message-preview">{{ message.body.substring(0, 60) }}...</div>
+              </div>
+            </div>
+
+            <!-- Message Viewer -->
+            <div class="messages-viewer-column">
+              <div v-if="!selectedMessage" class="no-message-selected">
+                Selecciona un mensaje para ver su contenido
+              </div>
+              <div v-else class="message-detail">
+                <div class="message-detail-meta">
+                  <span class="message-detail-sender">
+                    De: {{ selectedMessage.sender_name || '🏰 Sistema' }}
+                  </span>
+                  <span class="message-detail-date">
+                    {{ formatMessageDate(selectedMessage.sent_at) }}
+                  </span>
+                </div>
+                <h4 class="message-detail-subject">{{ selectedMessage.subject }}</h4>
+                <div class="message-detail-content">
+                  {{ selectedMessage.body }}
+                </div>
+                <button
+                  v-if="selectedMessage.h3_index"
+                  class="message-map-button"
+                  @click="focusOnHexFromMessage(selectedMessage.h3_index)"
+                >
+                  🗺️ Ver en Mapa
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notifications Panel -->
+        <div v-if="activePanel === 'notifications'" class="panel-section notifications-panel">
+          <p class="panel-placeholder">Contenido de Notificaciones (próximamente)</p>
         </div>
       </div>
+    </aside>
 
-      <!-- Action Panel - Medieval Style -->
+    <!-- Action Panel (floating, for hex clicks) -->
       <div
         v-if="showActionPanel && selectedHexData"
         class="action-panel"
@@ -353,16 +403,15 @@
         </div>
       </div>
 
-      <!-- Toast Notifications Container -->
-      <div class="toast-container">
-        <div
-          v-for="(toast, index) in toasts"
-          :key="toast.id"
-          :class="['toast', `toast-${toast.type}`, toast.isLeaving ? 'toast-leaving' : '']"
-        >
-          <span class="toast-icon">{{ getToastIcon(toast.type) }}</span>
-          <span class="toast-message">{{ toast.message }}</span>
-        </div>
+    <!-- Toast Notifications Container -->
+    <div class="toast-container">
+      <div
+        v-for="(toast, index) in toasts"
+        :key="toast.id"
+        :class="['toast', `toast-${toast.type}`, toast.isLeaving ? 'toast-leaving' : '']"
+      >
+        <span class="toast-icon">{{ getToastIcon(toast.type) }}</span>
+        <span class="toast-message">{{ toast.message }}</span>
       </div>
     </div>
   </div>
@@ -447,6 +496,29 @@ const capitalH3Index = ref(null); // Cache capital location
 
 // Legend toggle state
 const legendCollapsed = ref(true); // Collapsed by default
+
+// Panel system state
+const activePanel = ref(null); // Currently open panel: 'economy', 'layers', 'troops', 'market', 'kingdom', 'messages', 'notifications'
+const panelTitle = computed(() => {
+  const titles = {
+    economy: '💰 Economía',
+    layers: '🗺️ Capas del Mapa',
+    troops: '⚔️ Tropas',
+    market: '🏪 Mercado',
+    kingdom: '🏰 Reino',
+    messages: '📜 Mensajes',
+    notifications: '🔔 Notificaciones'
+  };
+  return titles[activePanel.value] || '';
+});
+
+// Infinite scroll for fiefs (Kingdom panel)
+const FIEFS_PER_PAGE = 20;
+const displayedFiefsCount = ref(FIEFS_PER_PAGE);
+const loadingMoreFiefs = ref(false);
+const displayedFiefs = computed(() => {
+  return myFiefs.value.slice(0, displayedFiefsCount.value);
+});
 
 // Toast notifications state
 const toasts = ref([]);
@@ -561,8 +633,13 @@ const initMap = () => {
   map = L.map('map', {
     center: center,
     zoom: zoom,
-    zoomControl: true,
+    zoomControl: false,
   });
+
+  // Add zoom control on the right side
+  L.control.zoom({
+    position: 'topright'
+  }).addTo(map);
 
   // Create custom Panes to ensure correct stacking order
   // Territory Pane (Fill) - Bottom
@@ -610,7 +687,7 @@ const initMap = () => {
     'Satélite': satelliteLayer,
     'Relieve': terrainLayer,
   };
-  L.control.layers(baseMaps).addTo(map);
+  L.control.layers(baseMaps, null, { position: 'topright' }).addTo(map);
 
   // Create a layer group for hexagons with canvas renderer for better performance
   hexagonLayer = L.layerGroup({ renderer: L.canvas() }).addTo(map);
@@ -1722,6 +1799,59 @@ const toggleLegend = () => {
 };
 
 /**
+ * Toggle panel visibility
+ * @param {string} panelName - Name of the panel to toggle
+ */
+const togglePanel = (panelName) => {
+  if (activePanel.value === panelName) {
+    // Close if already open
+    activePanel.value = null;
+    console.log(`✓ Panel cerrado: ${panelName}`);
+  } else {
+    // Open the new panel (closes any other)
+    activePanel.value = panelName;
+    console.log(`✓ Panel abierto: ${panelName}`);
+
+    // Reset infinite scroll when opening kingdom panel
+    if (panelName === 'kingdom') {
+      displayedFiefsCount.value = FIEFS_PER_PAGE;
+    }
+  }
+};
+
+/**
+ * Close the active panel
+ */
+const closePanel = () => {
+  activePanel.value = null;
+  console.log('✓ Panel cerrado');
+};
+
+/**
+ * Handle scroll event in fiefs list for infinite scroll
+ * @param {Event} event - Scroll event
+ */
+const handleFiefsScroll = (event) => {
+  const element = event.target;
+  const scrollBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+
+  // If scrolled near bottom (within 100px) and not currently loading
+  if (scrollBottom < 100 && !loadingMoreFiefs.value && displayedFiefsCount.value < myFiefs.value.length) {
+    loadingMoreFiefs.value = true;
+
+    // Simulate loading delay
+    setTimeout(() => {
+      displayedFiefsCount.value = Math.min(
+        displayedFiefsCount.value + FIEFS_PER_PAGE,
+        myFiefs.value.length
+      );
+      loadingMoreFiefs.value = false;
+      console.log(`✓ Feudos cargados: ${displayedFiefsCount.value} / ${myFiefs.value.length}`);
+    }, 300);
+  }
+};
+
+/**
  * Focus on a specific hexagon with highlight
  * @param {string} h3Index - H3 index to focus on
  */
@@ -2170,89 +2300,1009 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* ============================================
+   MEDIEVAL VISUAL LANGUAGE - COLOR PALETTE
+   ============================================ */
+:root {
+  --color-bg-dark: #1a1612;        /* Negro carbón (fondo menús) */
+  --color-accent-gold: #c5a059;    /* Dorado envejecido (acentos) */
+  --color-text-cream: #e8d5b5;     /* Hueso/Crema (textos) */
+  --color-text-dim: #a89875;       /* Texto secundario */
+  --color-border: #3d3428;         /* Bordes sutiles */
+  --color-hover: #d4b06a;          /* Hover dorado */
+
+  --font-serif: 'Cinzel', 'Georgia', serif;
+  --font-sans: 'Inter', 'Segoe UI', sans-serif;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(197, 160, 89, 0.5);
+  border-radius: 5px;
+  border: 2px solid rgba(0, 0, 0, 0.3);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(197, 160, 89, 0.7);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(197, 160, 89, 0.5) rgba(0, 0, 0, 0.3);
+}
+
+/* Parchment/Manuscript Texture */
+.parchment-style {
+  background-color: var(--color-bg-dark);
+  background-image:
+    url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' /%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E");
+  border: 2px solid var(--color-accent-gold);
+  box-shadow:
+    inset 0 0 20px rgba(0, 0, 0, 0.6),
+    0 0 15px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(197, 160, 89, 0.2);
+  color: var(--color-text-cream);
+}
+
+.parchment-border {
+  border: 2px solid var(--color-accent-gold);
+  border-image: repeating-linear-gradient(
+    45deg,
+    var(--color-accent-gold),
+    var(--color-accent-gold) 10px,
+    transparent 10px,
+    transparent 20px
+  ) 1;
+  position: relative;
+}
+
+.parchment-border::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  right: -4px;
+  bottom: -4px;
+  border: 1px solid rgba(197, 160, 89, 0.3);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
 .app-container {
-  display: flex;
+  position: relative;
   width: 100%;
   height: 100vh;
   overflow: hidden;
+  background: #0d0b09;
 }
 
-/* Sidebar */
-.sidebar {
-  width: 280px;
-  background: #f5f5f5;
-  border-right: 2px solid #ddd;
-  padding: 20px;
+/* Full Background Map */
+.map-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+}
+
+/* 1. SIDEBAR IZQUIERDO: Asegurar que no se corte y tenga contraste */
+#main-sidebar,
+.main-sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 260px; /* Ancho amplio para legibilidad */
+  height: 100vh; /* Ocupa todo el alto */
+  background: #110f0d; /* Fondo oscuro medieval */
+  background-image:
+    url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' /%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E");
+  border-right: 3px solid #c5a059; /* Borde dorado */
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  color: #e8d5b5; /* Letras color hueso (Alto contraste) */
+  box-shadow: 10px 0 30px rgba(0, 0, 0, 0.9);
+}
+
+/* Sidebar Header */
+.sidebar-header {
+  padding: 25px 20px;
+  border-bottom: 2px solid #c5a059;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: linear-gradient(135deg, rgba(26, 22, 18, 0.95) 0%, rgba(13, 11, 9, 0.95) 100%);
+  box-shadow:
+    inset 0 -1px 0 rgba(197, 160, 89, 0.3),
+    0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+.header-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  border: 2px solid var(--color-accent-gold);
+}
+
+.stat-icon {
+  font-size: 24px;
+  filter: sepia(1) saturate(2) hue-rotate(5deg);
+}
+
+.stat-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: bold;
+  color: #c5a059;
+  font-family: 'Inter', sans-serif;
+  text-shadow: 0 0 10px rgba(197, 160, 89, 0.4);
+}
+
+.stat-label {
+  font-size: 11px;
+  color: #a89875;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: 'Cinzel', serif;
+}
+
+.header-date {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.date-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-cream);
+}
+
+.date-icon {
+  font-size: 14px;
+  filter: sepia(1) saturate(2) hue-rotate(5deg);
+}
+
+.date-value,
+.date-label {
+  font-size: 11px;
+  font-family: var(--font-sans);
+  color: var(--color-text-cream);
+}
+
+.harvest-row {
+  border-top: 1px solid var(--color-border);
+  padding-top: 8px;
+  margin-top: 6px;
+}
+
+/* Sidebar harvest text - specific selector to override banner style */
+.header-date .harvest-text {
+  font-size: 11px;
+  font-family: var(--font-sans);
+  color: #c5a059;
+  line-height: 1.3;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+  font-weight: normal;
+}
+
+/* Sidebar Navigation */
+.sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-button {
+  position: relative;
+  display: flex;
+  flex-direction: row; /* Horizontal con el nuevo ancho */
+  align-items: center;
+  justify-content: flex-start;
+  gap: 15px;
+  padding: 18px 20px;
+  background: transparent;
+  border: none;
+  border-left: 3px solid transparent;
+  color: #e8d5b5;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: 'Cinzel', serif;
+  width: 100%;
+}
+
+.nav-button:hover {
+  background: rgba(197, 160, 89, 0.15);
+  border-left-color: #c5a059;
+  color: #c5a059;
+  padding-left: 25px;
+}
+
+.nav-button.active {
+  background: rgba(197, 160, 89, 0.2);
+  border-left-color: #c5a059;
+  color: #c5a059;
+}
+
+.nav-icon {
+  font-size: 24px;
+  filter: sepia(1) saturate(1.5) hue-rotate(5deg);
+  transition: filter 0.3s ease;
+  flex-shrink: 0;
+}
+
+.nav-button:hover .nav-icon,
+.nav-button.active .nav-icon {
+  filter: sepia(1) saturate(2) hue-rotate(10deg) drop-shadow(0 0 8px rgba(197, 160, 89, 0.6));
+}
+
+.nav-label {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-align: left;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.nav-badge {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: #e74c3c;
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(231, 76, 60, 0.5);
+}
+
+/* Sidebar Footer */
+.sidebar-footer {
+  padding: 12px;
+  border-top: 2px solid var(--color-accent-gold);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: linear-gradient(135deg, rgba(13, 11, 9, 0.95) 0%, rgba(26, 22, 18, 0.95) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(197, 160, 89, 0.3),
+    0 -2px 10px rgba(0, 0, 0, 0.5);
+}
+
+.user-info-footer {
+  font-size: 10px;
+  color: var(--color-text-dim);
+  text-align: center;
+  padding: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.username {
+  font-family: var(--font-sans);
+}
+
+.footer-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-cream);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-decoration: none;
+}
+
+.footer-button:hover {
+  background: rgba(197, 160, 89, 0.2);
+  border-color: var(--color-accent-gold);
+  transform: translateY(-2px);
+}
+
+.footer-icon {
+  font-size: 20px;
+  filter: sepia(1) saturate(1.5) hue-rotate(5deg);
+}
+
+.logout-button:hover {
+  background: rgba(231, 76, 60, 0.2);
+  border-color: #e74c3c;
+}
+
+/* 2. SUBMENÚ: Gran tamaño y estilo pergamino oscuro */
+#submenu-panel,
+#context-panel,
+.context-panel {
+  position: fixed;
+  left: 260px; /* Justo después del sidebar de 260px */
+  top: 0;
+  width: calc(50vw - 260px); /* Ocupa la mitad del espacio restante */
+  height: 100vh;
+  background: #1c1814; /* Marrón oscuro (estilo pergamino viejo) */
+  background-image:
+    url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' /%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E");
+  border-right: 2px solid #4d3d2b;
+  box-shadow: 10px 0 20px rgba(0, 0, 0, 0.5);
+  z-index: 999;
+  padding: 30px;
+  color: #e8d5b5; /* Texto crema legible */
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
 }
 
-/* Legend */
-.legend {
-  background: white;
-  padding: 15px;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+.context-panel.open {
+  transform: translateX(0);
+}
+
+.panel-header {
+  padding: 20px;
+  margin: -20px -20px 20px -20px; /* Extiende hasta los bordes */
+  border-bottom: 2px solid #c5a059;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, #1a1612 0%, #0d0b09 100%);
+  box-shadow:
+    inset 0 -1px 0 rgba(197, 160, 89, 0.3),
+    0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 20px;
+  color: #f2e6d0; /* Texto crema brillante */
+  font-family: var(--font-serif);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  text-shadow:
+    0 0 15px rgba(197, 160, 89, 0.6),
+    0 2px 3px rgba(0, 0, 0, 0.9);
+  font-weight: bold;
+}
+
+.panel-close {
+  background: transparent;
+  border: 2px solid var(--color-border);
+  color: var(--color-text-cream);
+  font-size: 18px;
+  font-weight: bold;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.panel-close:hover {
+  background: rgba(231, 76, 60, 0.2);
+  border-color: #e74c3c;
+  color: #e74c3c;
+}
+
+.panel-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0; /* Sin padding extra, el context-panel ya tiene padding */
+}
+
+.panel-section {
+  padding: 0; /* Sin padding extra */
+}
+
+.panel-placeholder {
+  color: var(--color-text-dim);
+  font-style: italic;
+  text-align: center;
+  padding: 40px 20px;
+}
+
+/* Layers Panel Sections */
+.layers-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.legend-section,
+.visibility-section,
+.transparency-section,
+.map-info-section,
+.navigation-section {
+  padding: 16px;
+  margin-bottom: 20px;
+  background-color: rgba(0, 0, 0, 0.4);
+  background-image:
+    url("data:image/svg+xml,%3Csvg width='50' height='50' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='3' /%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='50' height='50' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  border-radius: 6px;
+  border: 1px solid #4d3d2b;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+.section-title {
+  font-size: 15px;
+  color: #f2e6d0; /* Texto crema brillante */
+  font-family: var(--font-serif);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  margin: 0 0 12px 0;
+  border-bottom: 1px solid #4d3d2b;
+  padding-bottom: 8px;
+  font-weight: 600;
+  text-shadow:
+    0 0 10px rgba(197, 160, 89, 0.4),
+    0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.section-loading {
+  font-size: 12px;
+  color: var(--color-text-dim);
+  text-align: center;
+  padding: 10px;
+  font-style: italic;
+}
+
+/* Legend Items */
+.legend-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
   transition: all 0.3s ease;
 }
 
-.legend-header {
+.legend-item:hover {
+  background: rgba(197, 160, 89, 0.1);
+}
+
+.legend-color {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 2px solid var(--color-border);
+  flex-shrink: 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.legend-name {
+  font-size: 13px;
+  color: #f2e6d0; /* Texto crema brillante */
+  font-family: var(--font-sans);
+}
+
+/* Toggle Controls */
+.toggle-container {
+  margin-bottom: 12px;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  position: relative;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  transition: all 0.3s ease;
+}
+
+.toggle-label:hover {
+  background: rgba(197, 160, 89, 0.1);
+}
+
+.toggle-checkbox {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+  height: 0;
+  width: 0;
+}
+
+.toggle-slider {
+  width: 44px;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 24px;
+  position: relative;
+  transition: background 0.3s ease;
+  border: 2px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  top: 2px;
+  background: var(--color-text-dim);
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.toggle-checkbox:checked ~ .toggle-slider {
+  background: var(--color-accent-gold);
+  border-color: var(--color-accent-gold);
+}
+
+.toggle-checkbox:checked ~ .toggle-slider::before {
+  transform: translateX(20px);
+  background: var(--color-bg-dark);
+}
+
+.toggle-text {
+  font-size: 13px;
+  color: #f2e6d0; /* Texto crema brillante */
+  font-family: var(--font-sans);
+}
+
+/* Transparency Slider */
+.slider-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.opacity-slider {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.4);
+  outline: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--color-border);
+}
+
+.opacity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-accent-gold);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(197, 160, 89, 0.5);
+  transition: all 0.2s ease;
+}
+
+.opacity-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 3px 8px rgba(197, 160, 89, 0.7);
+}
+
+.opacity-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-accent-gold);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 6px rgba(197, 160, 89, 0.5);
+  transition: all 0.2s ease;
+}
+
+.opacity-slider::-moz-range-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 3px 8px rgba(197, 160, 89, 0.7);
+}
+
+.opacity-value {
+  font-size: 13px;
+  font-weight: bold;
+  color: var(--color-accent-gold);
+  font-family: var(--font-sans);
+  min-width: 40px;
+  text-align: right;
+}
+
+/* Map Info Section */
+.map-info-section p {
+  font-size: 12px;
+  color: var(--color-text-cream);
+  margin: 6px 0;
+  font-family: var(--font-sans);
+}
+
+.map-info-section strong {
+  color: var(--color-accent-gold);
+}
+
+/* Navigation Section */
+.search-container {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.search-input {
+  flex: 1;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 2px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-cream);
+  font-size: 13px;
+  font-family: var(--font-sans);
+  transition: all 0.3s ease;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--color-accent-gold);
+  box-shadow: 0 0 8px rgba(197, 160, 89, 0.3);
+}
+
+.search-button {
+  padding: 10px 14px;
+  background: var(--color-accent-gold);
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(197, 160, 89, 0.4);
+}
+
+.search-button:hover {
+  background: var(--color-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(197, 160, 89, 0.6);
+}
+
+.capital-button {
+  width: 100%;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 2px solid var(--color-accent-gold);
+  border-radius: 4px;
+  color: var(--color-accent-gold);
+  font-size: 13px;
+  font-family: var(--font-serif);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.capital-button:hover {
+  background: rgba(197, 160, 89, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(197, 160, 89, 0.3);
+}
+
+/* Kingdom Panel - Fiefs List */
+.kingdom-panel {
+  padding: 0;
+}
+
+.kingdom-panel .fiefs-list {
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.fiefs-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--color-text-dim);
+  font-style: italic;
+  font-size: 13px;
+}
+
+.fief-card {
+  background-color: rgba(0, 0, 0, 0.4);
+  background-image:
+    url("data:image/svg+xml,%3Csvg width='50' height='50' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='3' /%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='50' height='50' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  border: 1px solid #4d3d2b;
+  border-radius: 6px;
+  padding: 14px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+.fief-card:hover {
+  background: rgba(197, 160, 89, 0.15);
+  border-color: var(--color-accent-gold);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(197, 160, 89, 0.3);
+}
+
+.fief-card.fief-low-food {
+  border-color: #e74c3c;
+  box-shadow: 0 0 8px rgba(231, 76, 60, 0.2);
+}
+
+.fief-name {
+  font-size: 15px;
+  font-weight: bold;
+  color: #f2e6d0; /* Texto crema brillante */
+  margin-bottom: 6px;
+  font-family: var(--font-serif);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.fief-terrain {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  margin-bottom: 10px;
+  font-family: var(--font-sans);
+}
+
+.fief-stats {
+  display: flex;
+  gap: 16px;
+}
+
+.fief-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fief-icon {
+  font-size: 16px;
+  filter: sepia(1) saturate(1.5) hue-rotate(5deg);
+}
+
+.fief-value {
+  font-size: 14px;
+  font-weight: bold;
+  color: #f2e6d0; /* Texto crema brillante */
+  font-family: var(--font-sans);
+}
+
+.fief-food {
+  color: var(--color-accent-gold);
+}
+
+.loading-more {
+  text-align: center;
+  padding: 20px;
+  color: var(--color-text-dim);
+  font-style: italic;
+  font-size: 12px;
+}
+
+/* Messages Panel - Split View */
+.messages-panel-container {
+  padding: 0;
+  height: calc(100vh - 80px);
+}
+
+.messages-split {
+  display: flex;
+  height: 100%;
+}
+
+.messages-list-column {
+  width: 45%;
+  border-right: 2px solid var(--color-border);
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.messages-viewer-column {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.messages-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--color-text-dim);
+  font-style: italic;
+  font-size: 13px;
+}
+
+.message-card {
+  background-color: rgba(0, 0, 0, 0.4);
+  background-image:
+    url("data:image/svg+xml,%3Csvg width='50' height='50' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='3' /%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='50' height='50' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  border: 1px solid #4d3d2b;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+.message-card:hover {
+  background: rgba(197, 160, 89, 0.1);
+  border-color: var(--color-accent-gold);
+}
+
+.message-card.message-unread {
+  border-left: 4px solid var(--color-accent-gold);
+  background: rgba(197, 160, 89, 0.05);
+}
+
+.message-card.message-selected {
+  background: rgba(197, 160, 89, 0.2);
+  border-color: var(--color-accent-gold);
+}
+
+.message-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 15px;
-  border-bottom: 2px solid #3498db;
-  padding-bottom: 8px;
+  margin-bottom: 6px;
 }
 
-.legend h3 {
-  margin: 0;
-  font-size: 18px;
+.message-sender {
+  font-size: 12px;
   font-weight: bold;
-  color: #333;
+  color: var(--color-accent-gold);
+  font-family: var(--font-sans);
 }
 
-.btn-toggle {
-  background: transparent;
-  border: 1px solid #3498db;
-  color: #3498db;
+.message-date {
+  font-size: 10px;
+  color: var(--color-text-dim);
+  font-family: var(--font-sans);
+}
+
+.message-subject {
   font-size: 14px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s ease;
   font-weight: bold;
+  color: #f2e6d0; /* Texto crema brillante */
+  margin-bottom: 4px;
+  font-family: var(--font-serif);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
-.btn-toggle:hover {
-  background: #3498db;
-  color: white;
-  transform: scale(1.05);
+.message-preview {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  font-family: var(--font-sans);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.btn-toggle:active {
-  transform: scale(0.95);
-}
-
-/* Collapsed state - hide legend items */
-.legend-collapsed .legend-items {
-  display: none;
-}
-
-.legend-collapsed .legend-loading {
-  display: none;
-}
-
-.legend-loading {
-  font-size: 13px;
-  color: #666;
+.no-message-selected {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-dim);
+  font-style: italic;
   text-align: center;
-  padding: 10px;
+  padding: 40px;
 }
 
-.legend-items {
+.message-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.message-detail-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--color-border);
+}
+
+.message-detail-sender {
+  font-size: 12px;
+  font-weight: bold;
+  color: var(--color-accent-gold);
+  font-family: var(--font-sans);
+}
+
+.message-detail-date {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  font-family: var(--font-sans);
+}
+
+.message-detail-subject {
+  font-size: 17px;
+  font-weight: bold;
+  color: #f2e6d0; /* Texto crema brillante */
+  margin: 0;
+  font-family: var(--font-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.message-detail-content {
+  font-size: 13px;
+  color: var(--color-text-cream);
+  line-height: 1.6;
+  font-family: var(--font-sans);
+  white-space: pre-wrap;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+
+.message-map-button {
+  padding: 12px 20px;
+  background: var(--color-accent-gold);
+  border: none;
+  border-radius: 4px;
+  color: var(--color-bg-dark);
+  font-size: 13px;
+  font-family: var(--font-serif);
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 8px rgba(197, 160, 89, 0.4);
+}
+
+.message-map-button:hover {
+  background: var(--color-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(197, 160, 89, 0.6);
+}
+
+.old-legend-items {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2548,16 +3598,10 @@ onBeforeUnmount(() => {
 }
 
 /* Map Container */
-.map-container {
-  position: relative;
-  flex: 1;
-  height: 100vh;
-}
-
+/* Map Background */
 #map {
   width: 100%;
   height: 100%;
-  z-index: 1;
 }
 
 .loading-overlay {
@@ -2566,30 +3610,33 @@ onBeforeUnmount(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(26, 22, 18, 0.95);
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  z-index: 10;
+}
+
+.loading-overlay p {
+  color: var(--color-text-cream);
+  margin-top: 20px;
+  font-family: var(--font-serif);
+  font-size: 16px;
 }
 
 .spinner {
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #3498db;
+  border: 4px solid rgba(197, 160, 89, 0.2);
+  border-top: 4px solid var(--color-accent-gold);
   border-radius: 50%;
-  width: 40px;
-  height: 40px;
+  width: 50px;
+  height: 50px;
   animation: spin 1s linear infinite;
 }
 
 @keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 .error-message {
@@ -2597,12 +3644,14 @@ onBeforeUnmount(() => {
   top: 20px;
   left: 50%;
   transform: translateX(-50%);
-  background: #f44336;
+  background: rgba(231, 76, 60, 0.95);
   color: white;
-  padding: 15px 25px;
-  border-radius: 5px;
-  z-index: 1001;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  padding: 16px 28px;
+  border-radius: 6px;
+  z-index: 20;
+  box-shadow: 0 4px 16px rgba(231, 76, 60, 0.4);
+  border: 2px solid #e74c3c;
+  font-family: var(--font-sans);
 }
 
 /* Building Markers - Game Buildings (Farms, Castles, Mines, etc.) */
@@ -2807,52 +3856,53 @@ onBeforeUnmount(() => {
   position: fixed;
   top: 20px;
   left: 20px; /* Moved to left edge */
-  background: linear-gradient(135deg, #f4e4bc 0%, #e8d4a8 100%);
-  border: 3px solid #8b7355;
-  border-radius: 12px;
-  padding: 12px 20px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  background: var(--color-bg-dark);
+  border: 2px solid var(--color-accent-gold);
+  border-radius: 6px;
+  padding: 10px 18px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(197, 160, 89, 0.2);
   z-index: 1001;
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-family: 'Cinzel', 'Georgia', serif;
+  gap: 12px;
+  font-family: var(--font-serif);
   min-width: 150px;
 }
 
 .gold-icon {
   font-size: 28px;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+  filter: sepia(1) saturate(2) hue-rotate(5deg) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
 }
 
 .gold-amount {
   font-size: 24px;
   font-weight: 700;
-  color: #8b6914;
-  text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8);
+  color: var(--color-accent-gold);
+  text-shadow: 0 0 8px rgba(197, 160, 89, 0.4);
+  font-family: var(--font-sans);
 }
 
 .gold-label {
-  font-size: 12px;
-  color: #5d4e37;
+  font-size: 11px;
+  color: var(--color-text-dim);
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
   font-weight: 600;
 }
 
-/* Time Control Panel - Medieval Stone Style */
+/* Time Control Panel - Medieval Dark Style */
 .time-control {
   position: fixed;
   top: 20px;
   right: 200px; /* Positioned left of gold indicator */
-  background: linear-gradient(135deg, #3e3e3e 0%, #2a2a2a 100%);
-  border: 3px solid #5d5d5d;
-  border-radius: 8px;
-  padding: 12px 15px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+  background: var(--color-bg-dark);
+  border: 2px solid var(--color-accent-gold);
+  border-radius: 6px;
+  padding: 14px 18px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(197, 160, 89, 0.15);
   z-index: 1001;
-  font-family: 'Cinzel', 'Georgia', serif;
-  min-width: 200px;
+  font-family: var(--font-serif);
+  min-width: 220px;
 }
 
 .time-info {
@@ -2865,34 +3915,37 @@ onBeforeUnmount(() => {
 .time-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: #f4e4bc;
+  gap: 8px;
+  color: var(--color-text-cream);
 }
 
 .time-icon {
   font-size: 16px;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+  filter: sepia(1) saturate(2) hue-rotate(5deg) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 }
 
 .time-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  color: #b8a882;
-  min-width: 45px;
+  color: var(--color-text-dim);
+  min-width: 50px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .time-value {
   font-size: 13px;
   font-weight: 700;
-  color: #f4e4bc;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+  color: var(--color-text-cream);
+  text-shadow: 0 0 6px rgba(232, 213, 181, 0.3);
+  font-family: var(--font-sans);
 }
 
 .date-display {
   font-size: 14px;
   font-weight: 700;
-  color: #FFD700;
-  text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
+  color: var(--color-accent-gold);
+  text-shadow: 0 0 8px rgba(197, 160, 89, 0.4);
   letter-spacing: 0.3px;
 }
 
@@ -3094,10 +4147,10 @@ onBeforeUnmount(() => {
   right: 20px;
   width: 350px;
   max-height: 400px;
-  background: rgba(30, 30, 40, 0.95);
-  border: 2px solid rgba(200, 180, 130, 0.6);
-  border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  background: var(--color-bg-dark);
+  border: 2px solid var(--color-accent-gold);
+  border-radius: 6px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(197, 160, 89, 0.15);
   backdrop-filter: blur(10px);
   z-index: 999;
   display: flex;
@@ -3109,16 +4162,19 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 15px;
-  background: rgba(0, 0, 0, 0.3);
-  border-bottom: 1px solid rgba(200, 180, 130, 0.3);
+  padding: 14px 18px;
+  background: rgba(0, 0, 0, 0.4);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .messages-header h3 {
   margin: 0;
   font-size: 14px;
-  color: #f4e4bc;
+  color: var(--color-text-cream);
   font-weight: bold;
+  font-family: var(--font-serif);
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
 .messages-count {
@@ -3523,23 +4579,28 @@ onBeforeUnmount(() => {
 }
 
 /* Action Panel - Medieval Floating Panel */
+/* Action Panel (Floating hex action panel) */
 .action-panel {
   position: fixed;
   width: 300px;
-  background: linear-gradient(135deg, #f4e4bc 0%, #e8d4a8 100%);
-  border: 3px solid #5d4e37;
-  border-radius: 8px;
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
-  z-index: 1002;
-  font-family: 'Cinzel', 'Georgia', serif;
+  background-color: var(--color-bg-dark);
+  background-image:
+    url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulance type='fractalNoise' baseFrequency='0.9' numOctaves='4' /%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E");
+  border: 2px solid var(--color-accent-gold);
+  border-radius: 6px;
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.8),
+    inset 0 0 20px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(197, 160, 89, 0.2);
+  z-index: 1100;
   overflow: hidden;
 }
 
 .action-panel-header {
-  background: linear-gradient(to bottom, #8b7355, #6d5a47);
-  color: #f4e4bc;
-  padding: 12px 15px;
-  border-bottom: 2px solid #5d4e37;
+  background: linear-gradient(135deg, rgba(26, 22, 18, 0.98) 0%, rgba(13, 11, 9, 0.98) 100%);
+  color: var(--color-accent-gold);
+  padding: 16px;
+  border-bottom: 2px solid var(--color-accent-gold);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -3550,50 +4611,55 @@ onBeforeUnmount(() => {
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 1px;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+  text-transform: uppercase;
+  font-family: var(--font-serif);
+  color: var(--color-accent-gold);
 }
 
-.close-button {
+.action-panel .close-button {
   background: transparent;
-  border: none;
-  color: #f4e4bc;
-  font-size: 20px;
+  border: 2px solid var(--color-border);
+  color: var(--color-text-cream);
+  font-size: 18px;
+  font-weight: bold;
   cursor: pointer;
   padding: 0;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  transition: all 0.2s;
+  border-radius: 4px;
+  transition: all 0.3s;
 }
 
-.close-button:hover {
-  background: rgba(255, 255, 255, 0.2);
-  transform: scale(1.1);
+.action-panel .close-button:hover {
+  background: rgba(231, 76, 60, 0.2);
+  border-color: #e74c3c;
+  color: #e74c3c;
 }
 
 .action-panel-body {
-  padding: 15px;
+  padding: 16px;
 }
 
 .hex-info {
-  margin-bottom: 15px;
-  padding: 10px;
-  background: rgba(255, 255, 255, 0.5);
-  border-radius: 5px;
-  border: 1px solid #d4c4a8;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  border: 2px solid var(--color-border);
 }
 
 .hex-info p {
-  margin: 5px 0;
+  margin: 6px 0;
   font-size: 13px;
-  color: #2c1810;
+  color: var(--color-text-cream);
+  font-family: var(--font-sans);
 }
 
 .hex-info strong {
-  color: #5d4e37;
+  color: var(--color-accent-gold);
 }
 
 .actions {
@@ -3603,26 +4669,29 @@ onBeforeUnmount(() => {
 }
 
 .action-button {
-  padding: 12px 20px;
-  font-family: 'Cinzel', 'Georgia', serif;
-  font-size: 14px;
+  padding: 14px 20px;
+  font-family: var(--font-serif);
+  font-size: 13px;
   font-weight: 600;
-  border: 2px solid #5d4e37;
-  border-radius: 5px;
+  border: 2px solid;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.3s ease;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
-  letter-spacing: 0.5px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
 }
 
 .colonize-button {
-  background: linear-gradient(135deg, #8b6914 0%, #b8860b 100%);
-  color: #fff;
+  background: var(--color-accent-gold);
+  color: var(--color-bg-dark);
+  border-color: var(--color-accent-gold);
+  box-shadow: 0 4px 12px rgba(197, 160, 89, 0.4);
 }
 
 .colonize-button:hover:not(:disabled) {
-  background: linear-gradient(135deg, #b8860b 0%, #daa520 100%);
+  background: var(--color-hover);
   transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(197, 160, 89, 0.6);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
 }
 
@@ -3632,23 +4701,27 @@ onBeforeUnmount(() => {
 }
 
 .colonize-button:disabled {
-  background: #999;
-  border-color: #666;
+  background: rgba(0, 0, 0, 0.4);
+  border-color: var(--color-border);
+  color: var(--color-text-dim);
   cursor: not-allowed;
-  opacity: 0.6;
+  opacity: 0.5;
+  box-shadow: none;
 }
 
 .owned-message {
-  padding: 10px;
-  background: rgba(255, 255, 255, 0.7);
-  border-radius: 5px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 2px solid var(--color-border);
+  border-radius: 4px;
   text-align: center;
   font-size: 13px;
-  color: #2c1810;
+  color: var(--color-text-cream);
+  font-family: var(--font-sans);
 }
 
 .owned-message p {
-  margin: 5px 0;
+  margin: 6px 0;
 }
 
 /* Mobile adjustments for gold indicator and action panel */
@@ -3727,14 +4800,16 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 15px 20px;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  font-family: 'Cinzel', 'Georgia', serif;
-  font-size: 14px;
-  font-weight: 600;
+  padding: 14px 20px;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
   animation: toast-slide-in 0.3s ease-out;
   transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+  border: 2px solid;
+  backdrop-filter: blur(10px);
 }
 
 .toast-leaving {
@@ -3756,32 +4831,36 @@ onBeforeUnmount(() => {
 .toast-icon {
   font-size: 20px;
   flex-shrink: 0;
+  filter: sepia(1) saturate(1.5) hue-rotate(5deg);
 }
 
 .toast-message {
   flex: 1;
-  color: white;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .toast-success {
-  background: linear-gradient(135deg, #2e7d32 0%, #43a047 100%);
-  border: 2px solid #1b5e20;
+  background: rgba(39, 174, 96, 0.95);
+  border-color: #27ae60;
+  color: white;
 }
 
 .toast-error {
-  background: linear-gradient(135deg, #c62828 0%, #e53935 100%);
-  border: 2px solid #b71c1c;
+  background: rgba(231, 76, 60, 0.95);
+  border-color: #e74c3c;
+  color: white;
 }
 
 .toast-warning {
-  background: linear-gradient(135deg, #f57c00 0%, #fb8c00 100%);
-  border: 2px solid #e65100;
+  background: rgba(230, 126, 34, 0.95);
+  border-color: #e67e22;
+  color: white;
 }
 
 .toast-info {
-  background: linear-gradient(135deg, #1976d2 0%, #2196f3 100%);
-  border: 2px solid #0d47a1;
+  background: rgba(52, 152, 219, 0.95);
+  border-color: #3498db;
+  color: white;
 }
 
 /* Cell Details Popup - Enhanced Styling */
