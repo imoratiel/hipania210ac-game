@@ -298,6 +298,16 @@
         <div id="reset-alert" class="alert"></div>
       </div>
 
+      <!-- Reset Explorations Card -->
+      <div class="card">
+        <h2>⛏️ Resetear Exploraciones</h2>
+        <p style="color: #95a5a6; margin-bottom: 20px;">
+          Marca todos los territorios como "sin explorar". Los recursos físicos (piedra, hierro, oro) permanecen en la base de datos pero se ocultan hasta que cada territorio sea explorado.
+        </p>
+        <button onclick="resetExplorations()">🗺️ Resetear Todas las Exploraciones</button>
+        <div id="reset-explorations-alert" class="alert"></div>
+      </div>
+
       <!-- Configure Turn Interval Card -->
       <div class="card">
         <h2>⚙️ Configurar Intervalo</h2>
@@ -317,6 +327,36 @@
         <button class="success" onclick="updateConfig()">💾 Guardar Configuración</button>
         <div id="config-alert" class="alert"></div>
       </div>
+
+      <!-- Game Config Management Card -->
+      <div class="card">
+        <h2>⚙️ Configuración del Juego</h2>
+        <p style="color: #95a5a6; margin-bottom: 20px;">
+          Configura los parámetros de exploración minera y otros aspectos del juego.
+        </p>
+        <div class="form-group">
+          <label for="exploration-turns">Turnos Requeridos para Exploración</label>
+          <input
+            type="number"
+            id="exploration-turns"
+            placeholder="Ej: 5"
+            min="1"
+            value="5"
+          />
+        </div>
+        <div class="form-group">
+          <label for="exploration-cost">Costo en Oro de la Exploración</label>
+          <input
+            type="number"
+            id="exploration-cost"
+            placeholder="Ej: 100"
+            min="1"
+            value="100"
+          />
+        </div>
+        <button class="success" onclick="updateGameConfig()">💾 Guardar Configuración del Juego</button>
+        <div id="game-config-alert" class="alert"></div>
+      </div>
     </div>
 
     <a href="/" class="back-link">← Volver al Mapa</a>
@@ -329,6 +369,7 @@
     window.addEventListener('load', async () => {
       await checkAuth();
       loadStats();
+      loadGameConfig();
     });
 
     // Check if user is authenticated and is admin
@@ -410,6 +451,31 @@
       }
     }
 
+    async function resetExplorations() {
+      if (!confirm('¿Estás seguro de que quieres resetear todas las exploraciones? Los territorios volverán a estado "sin explorar".')) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_URL}/api/admin/reset-explorations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include'
+        });
+
+        const data = await response.json();
+        const alert = document.getElementById('reset-explorations-alert');
+
+        if (data.success) {
+          showAlert(alert, 'success', data.message);
+        } else {
+          showAlert(alert, 'error', data.message);
+        }
+      } catch (error) {
+        showAlert(document.getElementById('reset-explorations-alert'), 'error', 'Error al conectar con el servidor');
+      }
+    }
+
     async function updateConfig() {
       const interval = parseInt(document.getElementById('turn-interval').value);
 
@@ -439,6 +505,76 @@
         }
       } catch (error) {
         showAlert(document.getElementById('config-alert'), 'error', 'Error al conectar con el servidor');
+      }
+    }
+
+    async function loadGameConfig() {
+      try {
+        const response = await fetch(`${API_URL}/api/admin/game-config`, {
+          credentials: 'include'
+        });
+        const data = await response.json();
+
+        if (data.success && data.config.exploration) {
+          document.getElementById('exploration-turns').value = data.config.exploration.turns_required || 5;
+          document.getElementById('exploration-cost').value = data.config.exploration.gold_cost || 100;
+        }
+      } catch (error) {
+        console.error('Error loading game config:', error);
+      }
+    }
+
+    async function updateGameConfig() {
+      const turnsRequired = parseInt(document.getElementById('exploration-turns').value);
+      const goldCost = parseInt(document.getElementById('exploration-cost').value);
+
+      if (turnsRequired < 1 || goldCost < 1) {
+        showAlert(document.getElementById('game-config-alert'), 'error', 'Los valores deben ser mayores que 0');
+        return;
+      }
+
+      try {
+        // Update turns_required
+        const turnsResponse = await fetch(`${API_URL}/api/admin/game-config`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            group: 'exploration',
+            key: 'turns_required',
+            value: turnsRequired
+          })
+        });
+
+        const turnsData = await turnsResponse.json();
+        if (!turnsData.success) {
+          showAlert(document.getElementById('game-config-alert'), 'error', turnsData.message);
+          return;
+        }
+
+        // Update gold_cost
+        const costResponse = await fetch(`${API_URL}/api/admin/game-config`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            group: 'exploration',
+            key: 'gold_cost',
+            value: goldCost
+          })
+        });
+
+        const costData = await costResponse.json();
+        const alert = document.getElementById('game-config-alert');
+
+        if (costData.success) {
+          showAlert(alert, 'success', 'Configuración del juego actualizada correctamente');
+          loadGameConfig();
+        } else {
+          showAlert(alert, 'error', costData.message);
+        }
+      } catch (error) {
+        showAlert(document.getElementById('game-config-alert'), 'error', 'Error al conectar con el servidor');
       }
     }
 

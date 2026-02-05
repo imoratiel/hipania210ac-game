@@ -627,6 +627,7 @@
                   <th @click="sortKingdomBy('population')">Población</th>
                   <th @click="sortKingdomBy('food')">Comida</th>
                   <th @click="sortKingdomBy('gold')">🪙 Oro</th>
+                  <th @click="sortKingdomBy('explorationStatus')">⛏️ Prospección</th>
                   <th @click="sortKingdomBy('autonomy')">Autonomía (Días)</th>
                   <th @click="sortKingdomBy('distance')">Distancia a Capital</th>
                   <th>Acciones</th>
@@ -649,6 +650,28 @@
                   </td>
                   <td>{{ formatNumber(fief.food) }}</td>
                   <td class="text-gold">{{ formatGold(fief.gold) }}</td>
+                  <td>
+                    <span
+                      :class="{
+                        'exploration-badge': true,
+                        'exploration-badge-completed': fief.explorationStatus === 'completed',
+                        'exploration-badge-exploring': fief.explorationStatus === 'exploring',
+                        'exploration-badge-pending': fief.explorationStatus === 'pending'
+                      }"
+                      :title="fief.explorationStatusText"
+                    >
+                      {{ fief.explorationStatusIcon }} {{ fief.explorationStatusShort }}
+                    </span>
+                    <button
+                      v-if="fief.explorationStatus === 'pending'"
+                      class="btn-micro btn-explore-micro"
+                      @click.stop="exploreFiefFromTable(fief.h3_index)"
+                      :disabled="playerGold < explorationConfig.gold_cost"
+                      :title="`Explorar (${explorationConfig.gold_cost} 💰)`"
+                    >
+                      ⛏️
+                    </button>
+                  </td>
                   <td :class="{
                     'text-danger': fief.autonomy < 30,
                     'text-success': fief.autonomy > 365
@@ -712,6 +735,7 @@ const currentUser = ref(null); // Current logged-in user { player_id, username, 
 const playerId = computed(() => currentUser.value?.player_id || 1); // Player ID from session
 const playerGold = ref(0); // Oro inicial (se carga del servidor)
 const playerHexes = ref(new Set()); // Track player's owned hexagons for adjacency checks
+const explorationConfig = ref({ turns_required: 5, gold_cost: 100 }); // Configuración de exploración
 
 // World state (turn and date)
 const currentTurn = ref(1);
@@ -847,16 +871,51 @@ const filteredAndSortedFiefs = computed(() => {
       }
     }
 
+    // Determine exploration status
+    const isExplored = fief.discovered_resource !== null && fief.discovered_resource !== undefined;
+    const isExploring = fief.exploration_end_turn !== null && !isExplored;
+    let explorationStatus, explorationStatusIcon, explorationStatusShort, explorationStatusText;
+
+    if (isExplored) {
+      explorationStatus = 'completed';
+      explorationStatusIcon = '✅';
+      const resourceNames = {
+        'stone': '⛰️ Piedra',
+        'iron': '⛏️ Hierro',
+        'gold': '🪙 Oro',
+        'none': '❌'
+      };
+      explorationStatusShort = resourceNames[fief.discovered_resource] || '✅';
+      explorationStatusText = `Explorado - ${resourceNames[fief.discovered_resource] || 'Sin recursos'}`;
+    } else if (isExploring) {
+      explorationStatus = 'exploring';
+      explorationStatusIcon = '⏳';
+      const turnsRemaining = fief.exploration_end_turn - currentTurn.value;
+      explorationStatusShort = `${turnsRemaining}t`;
+      explorationStatusText = `Explorando... (Faltan ${turnsRemaining} turno${turnsRemaining !== 1 ? 's' : ''})`;
+    } else {
+      explorationStatus = 'pending';
+      explorationStatusIcon = '⚪';
+      explorationStatusShort = 'Sin explorar';
+      explorationStatusText = 'Sin explorar - Clic para iniciar exploración';
+    }
+
     return {
       h3_index: fief.h3_index,
       name: fief.location_name || fief.h3_index?.substring(0, 8) || 'Territorio',
       terrain: fief.terrain_name || 'Desconocido',
       population,
       food,
-      gold: Number(fief.oro || 0),
+      gold: Number(fief.oro || fief.gold_stored || 0),
       consumption,
       autonomy,
-      distance
+      distance,
+      explorationStatus,
+      explorationStatusIcon,
+      explorationStatusShort,
+      explorationStatusText,
+      discovered_resource: fief.discovered_resource,
+      exploration_end_turn: fief.exploration_end_turn
     };
   });
 
@@ -885,6 +944,13 @@ const filteredAndSortedFiefs = computed(() => {
     // Handle Infinity for autonomy
     if (valA === Infinity) valA = 999999;
     if (valB === Infinity) valB = 999999;
+
+    // Handle exploration status sorting (pending < exploring < completed)
+    if (field === 'explorationStatus') {
+      const statusOrder = { 'pending': 0, 'exploring': 1, 'completed': 2 };
+      valA = statusOrder[valA] || 0;
+      valB = statusOrder[valB] || 0;
+    }
 
     // Handle string comparison for name and terrain
     if (typeof valA === 'string') {
@@ -1295,6 +1361,27 @@ const fetchWorldState = async () => {
     }
   } catch (err) {
     console.error('Failed to fetch world state:', err);
+  }
+};
+
+/**
+ * Load exploration configuration from server
+ */
+const loadExplorationConfig = async () => {
+  try {
+    const response = await axios.get(`${API_URL}/api/admin/game-config`, {
+      withCredentials: true
+    });
+    if (response.data.success && response.data.config.exploration) {
+      explorationConfig.value = {
+        turns_required: Number(response.data.config.exploration.turns_required || 5),
+        gold_cost: Number(response.data.config.exploration.gold_cost || 100)
+      };
+      console.log(`✓ Exploration config loaded:`, explorationConfig.value);
+    }
+  } catch (err) {
+    console.warn('Failed to load exploration config, using defaults:', err.message);
+    // Keep default values
   }
 };
 
@@ -2697,10 +2784,53 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
       popupContent += `<div class="popup-resource-grid">`;
       popupContent += `<span class="resource-item">🌾 Comida: ${cell.territory.food}</span>`;
       popupContent += `<span class="resource-item">🌲 Madera: ${cell.territory.wood}</span>`;
-      popupContent += `<span class="resource-item">⛰️ Piedra: ${cell.territory.stone}</span>`;
-      popupContent += `<span class="resource-item">⛏️ Hierro: ${cell.territory.iron}</span>`;
-      popupContent += `<span class="resource-item resource-gold">🪙 Oro: ${Number(cell.territory.gold || 0).toFixed(2)}</span>`;
+
+      // Mining resources - only show if territory has been explored
+      const isExplored = cell.territory.discovered_resource !== null;
+      const isExploring = cell.territory.exploration_end_turn !== null && !isExplored;
+
+      if (isExplored) {
+        // Show actual values for explored territories
+        if (cell.territory.discovered_resource !== 'none') {
+          if (cell.territory.discovered_resource === 'stone' || cell.territory.stone > 0) {
+            popupContent += `<span class="resource-item">⛰️ Piedra: ${cell.territory.stone}</span>`;
+          }
+          if (cell.territory.discovered_resource === 'iron' || cell.territory.iron > 0) {
+            popupContent += `<span class="resource-item">⛏️ Hierro: ${cell.territory.iron}</span>`;
+          }
+          if (cell.territory.discovered_resource === 'gold' || cell.territory.gold > 0) {
+            popupContent += `<span class="resource-item resource-gold">🪙 Oro: ${Number(cell.territory.gold || 0).toFixed(2)}</span>`;
+          }
+        } else {
+          popupContent += `<span class="resource-item" style="opacity: 0.5;">⛏️ Sin recursos mineros</span>`;
+        }
+      } else {
+        popupContent += `<span class="resource-item" style="opacity: 0.5;">❓ Recursos mineros desconocidos</span>`;
+      }
+
       popupContent += `</div>`;
+
+      // EXPLORATION STATUS - Show prominently
+      popupContent += '<div class="exploration-status-box">';
+      popupContent += '<p class="exploration-status-label">📊 Estado de Prospección:</p>';
+
+      if (isExplored) {
+        const resourceIcon = {
+          'stone': '⛰️ Piedra',
+          'iron': '⛏️ Hierro',
+          'gold': '🪙 Oro',
+          'none': '❌ Sin recursos'
+        };
+        const resourceName = resourceIcon[cell.territory.discovered_resource] || '✅ Explorado';
+        popupContent += `<p class="exploration-status exploration-completed">✅ Explorado - ${resourceName}</p>`;
+      } else if (isExploring) {
+        const turnsRemaining = cell.territory.exploration_end_turn - currentTurn.value;
+        popupContent += `<p class="exploration-status exploration-in-progress">⏳ Explorando... (Faltan ${turnsRemaining} turno${turnsRemaining !== 1 ? 's' : ''})</p>`;
+      } else {
+        popupContent += `<p class="exploration-status exploration-not-started">⚪ Sin explorar</p>`;
+      }
+
+      popupContent += '</div>';
 
       popupContent += '</div>';
     } else if (cell.territory && cell.player_id) {
@@ -2748,6 +2878,32 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
         🏰 Colonizar (100 💰)
       </button>`;
     } else if (cell.player_id === playerId.value) {
+      // Check exploration status
+      const isExplored = cell.territory?.discovered_resource !== null;
+      const isExploring = cell.territory?.exploration_end_turn !== null && !isExplored;
+      const explorationCost = explorationConfig.value.gold_cost;
+
+      if (!isExplored && !isExploring) {
+        // Show exploration button
+        const hasEnoughGold = playerGold.value >= explorationCost;
+        const canExplore = hasEnoughGold;
+
+        popupContent += `<button
+          id="explore-btn-${h3_index}"
+          class="btn-popup ${canExplore ? 'btn-explore' : 'btn-disabled'}"
+          ${!canExplore ? 'disabled' : ''}
+          title="${!canExplore ? 'Oro insuficiente' : 'Iniciar exploración minera'}"
+        >
+          ⛏️ Explorar Terreno (${explorationCost} 💰)
+        </button>`;
+      } else if (isExploring) {
+        // Show exploration status with turns remaining
+        const turnsRemaining = cell.territory.exploration_end_turn - currentTurn.value;
+        popupContent += `<button class="btn-popup btn-exploring" disabled>
+          ⏳ Explorando... (${turnsRemaining} turno${turnsRemaining !== 1 ? 's' : ''})
+        </button>`;
+      }
+
       // Manage button (disabled for now)
       popupContent += `<button
         class="btn-popup btn-manage"
@@ -2776,6 +2932,18 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
         if (colonizeBtn) {
           colonizeBtn.addEventListener('click', () => {
             colonizeFromPopup(h3_index);
+          });
+        }
+      }, 100);
+    }
+
+    // Add event listener to explore button (if exists)
+    if (cell.player_id === playerId.value) {
+      setTimeout(() => {
+        const exploreBtn = document.getElementById(`explore-btn-${h3_index}`);
+        if (exploreBtn) {
+          exploreBtn.addEventListener('click', () => {
+            exploreFromPopup(h3_index);
           });
         }
       }, 100);
@@ -2835,6 +3003,81 @@ const colonizeFromPopup = async (h3_index) => {
     }
   } catch (err) {
     console.error('❌ Error colonizing territory:', err);
+    const errorMsg = err.response?.data?.message || err.message || 'Error desconocido';
+    showToast(errorMsg, 'error');
+  }
+};
+
+/**
+ * Start exploration from popup
+ */
+const exploreFromPopup = async (h3_index) => {
+  try {
+    console.log(`[Explore] Starting exploration for ${h3_index}`);
+
+    // Call API
+    const response = await axios.post(`${API_URL}/api/territory/explore`, {
+      h3_index: h3_index
+    }, {
+      withCredentials: true
+    });
+
+    if (response.data.success) {
+      // Update player gold
+      playerGold.value = response.data.new_gold_balance;
+
+      console.log(`✓ Exploration started! Gold spent: ${response.data.gold_spent}, Ends at turn: ${response.data.exploration_end_turn}`);
+
+      // Close popup
+      map.closePopup();
+
+      // Show success toast
+      showToast(`⛏️ Exploración iniciada. Finalizará en el turno ${response.data.exploration_end_turn}`, 'success');
+
+      // Refresh the map to show exploration status
+      await fetchHexagonData();
+      await updateFiefsUI();
+    } else {
+      showToast(response.data.message, 'error');
+    }
+  } catch (err) {
+    console.error('❌ Error starting exploration:', err);
+    const errorMsg = err.response?.data?.message || err.message || 'Error desconocido';
+    showToast(errorMsg, 'error');
+  }
+};
+
+/**
+ * Start exploration from kingdom table
+ */
+const exploreFiefFromTable = async (h3_index) => {
+  try {
+    console.log(`[Explore] Starting exploration for ${h3_index} from table`);
+
+    // Call API
+    const response = await axios.post(`${API_URL}/api/territory/explore`, {
+      h3_index: h3_index
+    }, {
+      withCredentials: true
+    });
+
+    if (response.data.success) {
+      // Update player gold
+      playerGold.value = response.data.new_gold_balance;
+
+      console.log(`✓ Exploration started! Gold spent: ${response.data.gold_spent}, Ends at turn: ${response.data.exploration_end_turn}`);
+
+      // Show success toast
+      showToast(`⛏️ Exploración iniciada. Finalizará en el turno ${response.data.exploration_end_turn}`, 'success');
+
+      // Refresh the fiefs list to show exploration status
+      await updateFiefsUI();
+      await fetchHexagonData();
+    } else {
+      showToast(response.data.message, 'error');
+    }
+  } catch (err) {
+    console.error('❌ Error starting exploration:', err);
     const errorMsg = err.response?.data?.message || err.message || 'Error desconocido';
     showToast(errorMsg, 'error');
   }
@@ -2950,6 +3193,7 @@ onMounted(() => {
   initMap();
   fetchTerrainTypes();
   fetchWorldState();
+  loadExplorationConfig(); // Load exploration configuration
   updateFiefsUI(); // Load initial fiefs list
   loadMessages(); // Load initial messages
   startSync(); // Start server synchronization (polls every 30 seconds)
@@ -3993,6 +4237,55 @@ onBeforeUnmount(() => {
 .alert-high {
   color: #50c878 !important;
   font-weight: bold;
+}
+
+/* Exploration Status Badges */
+.exploration-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-right: 5px;
+}
+
+.exploration-badge-pending {
+  background: rgba(128, 128, 128, 0.2);
+  color: #999;
+  border: 1px solid #666;
+}
+
+.exploration-badge-exploring {
+  background: rgba(255, 191, 0, 0.2);
+  color: #d4a017;
+  border: 1px solid #d4a017;
+  animation: pulse 2s infinite;
+}
+
+.exploration-badge-completed {
+  background: rgba(46, 204, 113, 0.2);
+  color: #27ae60;
+  border: 1px solid #27ae60;
+}
+
+.btn-explore-micro {
+  background: linear-gradient(135deg, #6b4423 0%, #8b5a2b 100%) !important;
+  border-color: #8b5a2b !important;
+  color: white !important;
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+  margin-left: 5px;
+}
+
+.btn-explore-micro:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+
+.btn-explore-micro:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .kingdom-empty {

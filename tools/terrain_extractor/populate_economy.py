@@ -63,22 +63,25 @@ def populate():
                 stone_s = calculateLoot(500, 2500, stone)
                 
                 # 2. Nueva lógica de Minería, Oro y Recurso Oculto
+                # IMPORTANTE: Los recursos físicos (stone, iron, gold) se generan en la base de datos
+                # pero discovered_resource se mantiene como NULL para que los jugadores deban explorar
                 gold_s = 0
                 iron_s = 0
-                disc_res = None 
+                disc_res = None  # Siempre NULL - los recursos permanecen ocultos hasta explorar
 
-                # Si el terreno tiene potencial minero (Montaña/Colinas)
-                if stone > 0 or iron > 0: 
-                    rand_discovery = random.random()
-                    
-                    if rand_discovery < 0.05:   # 5% ORO
-                        disc_res = 'gold'
-                        gold_s = getRandomInt(100, 500) 
-                    elif rand_discovery < 0.30: # 25% HIERRO
-                        disc_res = 'iron'
+                # Los recursos mineros físicos se generan pero permanecen ocultos
+                # El turn engine hará el roll de descubrimiento cuando se complete la exploración
+                if stone > 0 or iron > 0:
+                    # Generar recursos físicos potenciales (se descubrirán al explorar)
+                    rand_resource = random.random()
+
+                    if rand_resource < 0.02:   # 2% chance for gold vein
+                        gold_s = round(random.uniform(0.5, 2.5), 2)  # Small amounts (High Value/Low Volume)
+                    elif rand_resource < 0.05: # 3% chance for iron (5% total)
                         iron_s = calculateLoot(500, 2500, iron)
-                    else:                       # 70% PIEDRA
-                        disc_res = 'stone'
+                    # Stone uses the existing stone_s calculation
+
+                # discovered_resource permanece NULL - se asignará al completar exploración
                 
                 # 3. ÚNICO APPEND con los 9 campos necesarios
                 inserts.append((

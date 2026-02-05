@@ -38,6 +38,46 @@ try {
   console.error('Error clearing log file:', error);
 }
 
+// Global game configuration
+const CONFIG = {
+  exploration: {
+    turns_required: 5,
+    gold_cost: 100
+  }
+};
+
+/**
+ * Load game configuration from database
+ */
+async function loadGameConfig() {
+  try {
+    const result = await pool.query('SELECT "group", "key", "value" FROM game_config');
+
+    result.rows.forEach(row => {
+      const group = row.group;
+      const key = row.key;
+      const value = row.value;
+
+      if (!CONFIG[group]) {
+        CONFIG[group] = {};
+      }
+
+      // Parse numeric values
+      if (!isNaN(value)) {
+        CONFIG[group][key] = Number(value);
+      } else {
+        CONFIG[group][key] = value;
+      }
+    });
+
+    console.log('✓ Game configuration loaded:', CONFIG);
+    logGameEvent(`[CONFIG] Configuration loaded: ${JSON.stringify(CONFIG)}`);
+  } catch (error) {
+    console.error('⚠️  Warning: Could not load game_config from database, using defaults:', error.message);
+    logGameEvent(`[CONFIG] Warning: Using default configuration - ${error.message}`);
+  }
+}
+
 /**
  * Format days into human-readable years and days
  * @param {number} days - Total days
@@ -735,7 +775,7 @@ app.post('/api/game/claim', requireAuth, async (req, res) => {
 
     // PASO 4: Insertar en territory_details
     const insertTerritoryDetailsQuery = `
-      INSERT INTO territory_details (h3_index, population, happiness, food_stored, wood_stored, stone_stored, iron_stored, oro)
+      INSERT INTO territory_details (h3_index, population, happiness, food_stored, wood_stored, stone_stored, iron_stored, gold_stored)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT (h3_index)
       DO UPDATE SET
@@ -745,7 +785,7 @@ app.post('/api/game/claim', requireAuth, async (req, res) => {
         wood_stored = EXCLUDED.wood_stored,
         stone_stored = EXCLUDED.stone_stored,
         iron_stored = EXCLUDED.iron_stored,
-        oro = EXCLUDED.oro
+        gold_stored = EXCLUDED.gold_stored
     `;
     await client.query(insertTerritoryDetailsQuery, [
       h3_index,
@@ -905,7 +945,10 @@ app.get('/api/map/cell-details/:h3_index', async (req, res) => {
         td.food_stored,
         td.wood_stored,
         td.stone_stored,
-        td.iron_stored
+        td.iron_stored,
+        td.gold_stored,
+        td.exploration_end_turn,
+        td.discovered_resource
       FROM h3_map m
       LEFT JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
       LEFT JOIN players p ON m.player_id = p.player_id
@@ -943,8 +986,12 @@ app.get('/api/map/cell-details/:h3_index', async (req, res) => {
         happiness: cell.happiness,
         food: cell.food_stored,
         wood: cell.wood_stored,
-        stone: cell.stone_stored,
-        iron: cell.iron_stored
+        // Hide mining resources if not explored (discovered_resource is NULL)
+        stone: cell.discovered_resource !== null ? cell.stone_stored : 0,
+        iron: cell.discovered_resource !== null ? cell.iron_stored : 0,
+        gold: cell.discovered_resource !== null ? cell.gold_stored : 0,
+        exploration_end_turn: cell.exploration_end_turn,
+        discovered_resource: cell.discovered_resource
       } : null
     };
 
@@ -1068,7 +1115,13 @@ app.get('/api/game/my-fiefs', requireAuth, async (req, res) => {
         COALESCE(td.custom_name, s.name, 'Territorio sin nombre') AS location_name,
         CAST(td.population AS INTEGER) AS population,
         CAST(td.food_stored AS DOUBLE PRECISION) AS food_stored,
-        t.name AS terrain_name
+        t.name AS terrain_name,
+        -- Only show mining resources if explored (discovered_resource is not NULL)
+        CASE WHEN td.discovered_resource IS NOT NULL THEN CAST(td.stone_stored AS DOUBLE PRECISION) ELSE 0 END AS stone_stored,
+        CASE WHEN td.discovered_resource IS NOT NULL THEN CAST(td.iron_stored AS DOUBLE PRECISION) ELSE 0 END AS iron_stored,
+        CASE WHEN td.discovered_resource IS NOT NULL THEN CAST(td.gold_stored AS DOUBLE PRECISION) ELSE 0 END AS gold_stored,
+        td.exploration_end_turn,
+        td.discovered_resource
       FROM h3_map m
       JOIN territory_details td ON m.h3_index = td.h3_index
       JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
@@ -1533,6 +1586,92 @@ Resumen de calidad de cosechas:
       logGameEvent(`[COSECHA COMPLETADA] ${harvestSeason} - ${players.rows.length} jugadores notificados. Resultados: ${JSON.stringify(stats)}`);
     }
 
+    // Step 6: Complete explorations
+    const completedExplorationsQuery = `
+      SELECT
+        td.h3_index,
+        m.player_id,
+        m.terrain_type_id,
+        t.name as terrain_name,
+        s.name as location_name
+      FROM territory_details td
+      JOIN h3_map m ON td.h3_index = m.h3_index
+      JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
+      LEFT JOIN settlements s ON m.h3_index = s.h3_index
+      WHERE td.exploration_end_turn <= $1
+        AND td.exploration_end_turn IS NOT NULL
+        AND td.discovered_resource IS NULL
+    `;
+    const completedExplorations = await client.query(completedExplorationsQuery, [newCurrentTurn]);
+
+    if (completedExplorations.rows.length > 0) {
+      console.log(`[Exploration] Processing ${completedExplorations.rows.length} completed explorations...`);
+
+      for (const exploration of completedExplorations.rows) {
+        const { h3_index, player_id, terrain_name, location_name } = exploration;
+        const fiefName = location_name || h3_index.substring(0, 8);
+        let discoveredResource = 'none'; // Default: no resource found
+
+        // Determine resource discovery based on terrain
+        if (terrain_name === 'Mountains' || terrain_name === 'Hills') {
+          // Mining resources possible
+          const roll = Math.random();
+
+          if (roll < 0.02) {
+            // 2% chance for gold
+            discoveredResource = 'gold';
+            logGameEvent(`[EXPLORACIÓN] ⭐ ¡Oro descubierto en ${h3_index} (Jugador ${player_id})!`);
+          } else if (roll < 0.05) {
+            // Additional 3% chance for iron (total 5% including gold check)
+            discoveredResource = 'iron';
+            logGameEvent(`[EXPLORACIÓN] 🔩 Hierro descubierto en ${h3_index} (Jugador ${player_id})`);
+          } else if (roll < 0.25) {
+            // Additional 20% chance for stone (total 25% including above)
+            discoveredResource = 'stone';
+            logGameEvent(`[EXPLORACIÓN] 🪨 Piedra descubierta en ${h3_index} (Jugador ${player_id})`);
+          } else {
+            logGameEvent(`[EXPLORACIÓN] ❌ No se encontraron recursos en ${h3_index} (Jugador ${player_id})`);
+          }
+        } else {
+          // Non-mountainous terrain: no mining resources
+          logGameEvent(`[EXPLORACIÓN] ❌ Terreno ${terrain_name} en ${h3_index} no contiene recursos mineros (Jugador ${player_id})`);
+        }
+
+        // Update territory with discovery results
+        await client.query(
+          `UPDATE territory_details
+           SET discovered_resource = $1,
+               exploration_end_turn = NULL
+           WHERE h3_index = $2`,
+          [discoveredResource, h3_index]
+        );
+
+        // Send message to player
+        let messageSubject, messageBody;
+        if (discoveredResource === 'gold') {
+          messageSubject = '⭐ ¡Descubrimiento Extraordinario!';
+          messageBody = `📜 ¡Informe del Prospector!\n\nEn el feudo "${fiefName}" se ha descubierto una veta de ORO. Este valioso metal te permitirá ampliar tu reino. La producción comenzará en el próximo ciclo.`;
+        } else if (discoveredResource === 'iron') {
+          messageSubject = '🔩 Recurso Valioso Encontrado';
+          messageBody = `📜 ¡Informe del Prospector!\n\nEn el feudo "${fiefName}" se ha descubierto una veta de HIERRO. Este metal será útil para herramientas y construcción. La producción comenzará en el próximo ciclo.`;
+        } else if (discoveredResource === 'stone') {
+          messageSubject = '🪨 Recurso Descubierto';
+          messageBody = `📜 ¡Informe del Prospector!\n\nEn el feudo "${fiefName}" se han localizado canteras de PIEDRA. Este material será fundamental para la construcción. La producción comenzará en el próximo ciclo.`;
+        } else {
+          messageSubject = '❌ Exploración Completada';
+          messageBody = `📜 Informe del Prospector\n\nLa exploración en el feudo "${fiefName}" ha concluido sin encontrar recursos mineros explotables. El terreno no contiene depósitos de piedra, hierro o oro.`;
+        }
+
+        await client.query(
+          `INSERT INTO messages (sender_id, receiver_id, subject, body)
+           VALUES (NULL, $1, $2, $3)`,
+          [player_id, messageSubject, messageBody]
+        );
+
+        console.log(`[Exploration] ✓ Completed exploration for ${h3_index}: ${discoveredResource}`);
+      }
+    }
+
     // Commit transaction
     await client.query('COMMIT');
 
@@ -1587,6 +1726,140 @@ app.post('/api/game/next-turn', async (req, res) => {
       message: 'Error interno del servidor',
       error: error.message
     });
+  }
+});
+
+/**
+ * POST /api/territory/explore
+ * Start exploration/prospection of a territory to discover hidden resources
+ * Costs gold and takes several turns to complete
+ */
+app.post('/api/territory/explore', requireAuth, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { h3_index } = req.body;
+    const player_id = req.session.player.player_id;
+
+    if (!h3_index) {
+      return res.status(400).json({
+        success: false,
+        message: 'Parámetro h3_index requerido'
+      });
+    }
+
+    await client.query('BEGIN');
+
+    // Verify player owns the territory
+    const ownershipCheck = await client.query(
+      'SELECT player_id FROM h3_map WHERE h3_index = $1',
+      [h3_index]
+    );
+
+    if (ownershipCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Territorio no encontrado'
+      });
+    }
+
+    if (ownershipCheck.rows[0].player_id !== player_id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({
+        success: false,
+        message: 'No posees este territorio'
+      });
+    }
+
+    // Check if territory is already explored or being explored
+    const territoryDetails = await client.query(
+      'SELECT exploration_end_turn, discovered_resource FROM territory_details WHERE h3_index = $1',
+      [h3_index]
+    );
+
+    if (territoryDetails.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Detalles del territorio no encontrados'
+      });
+    }
+
+    const territory = territoryDetails.rows[0];
+
+    if (territory.discovered_resource !== null) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: 'Este territorio ya ha sido explorado'
+      });
+    }
+
+    if (territory.exploration_end_turn !== null) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: 'Este territorio ya está siendo explorado'
+      });
+    }
+
+    // Check player has enough gold
+    const playerResult = await client.query(
+      'SELECT gold FROM players WHERE player_id = $1',
+      [player_id]
+    );
+
+    const player = playerResult.rows[0];
+    const goldCost = CONFIG.exploration.gold_cost;
+
+    if (player.gold < goldCost) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: `Oro insuficiente. Necesitas: ${goldCost}, Tienes: ${player.gold}`
+      });
+    }
+
+    // Get current turn
+    const worldState = await client.query('SELECT current_turn FROM world_state WHERE id = 1');
+    const currentTurn = worldState.rows[0].current_turn;
+    const explorationEndTurn = currentTurn + CONFIG.exploration.turns_required;
+
+    // Deduct gold and start exploration
+    await client.query(
+      'UPDATE players SET gold = gold - $1 WHERE player_id = $2',
+      [goldCost, player_id]
+    );
+
+    await client.query(
+      'UPDATE territory_details SET exploration_end_turn = $1 WHERE h3_index = $2',
+      [explorationEndTurn, h3_index]
+    );
+
+    await client.query('COMMIT');
+
+    logGameEvent(`[EXPLORACIÓN] Jugador ${player_id} inició exploración en ${h3_index}. Costo: ${goldCost} oro. Finaliza en turno ${explorationEndTurn}`);
+
+    res.json({
+      success: true,
+      message: `Exploración iniciada. Finalizará en el turno ${explorationEndTurn}`,
+      exploration_end_turn: explorationEndTurn,
+      turns_remaining: CONFIG.exploration.turns_required,
+      gold_spent: goldCost,
+      new_gold_balance: player.gold - goldCost
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error starting exploration:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  } finally {
+    client.release();
   }
 });
 
@@ -1667,6 +1940,127 @@ app.post('/api/admin/config', requireAdmin, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error al actualizar configuración',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/admin/game-config
+ * Returns all game configuration values
+ * Requires admin role
+ */
+app.get('/api/admin/game-config', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT "group", "key", "value" FROM game_config ORDER BY "group", "key"');
+
+    // Organize by group
+    const config = {};
+    result.rows.forEach(row => {
+      if (!config[row.group]) {
+        config[row.group] = {};
+      }
+      config[row.group][row.key] = row.value;
+    });
+
+    res.json({
+      success: true,
+      config: config,
+      raw: result.rows // Also send raw data for easier editing
+    });
+  } catch (error) {
+    console.error('[Admin] Error fetching game config:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener configuración del juego',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * PUT /api/admin/game-config
+ * Updates a game configuration value
+ * Requires admin role
+ */
+app.put('/api/admin/game-config', requireAdmin, async (req, res) => {
+  try {
+    const { group, key, value } = req.body;
+
+    if (!group || !key || value === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requieren los campos: group, key, value'
+      });
+    }
+
+    // Validate numeric values
+    if (!isNaN(value) && Number(value) < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Los valores numéricos no pueden ser negativos'
+      });
+    }
+
+    // Update in database
+    await pool.query(
+      `UPDATE game_config SET "value" = $1 WHERE "group" = $2 AND "key" = $3`,
+      [value.toString(), group, key]
+    );
+
+    // Update in memory CONFIG object
+    if (!CONFIG[group]) {
+      CONFIG[group] = {};
+    }
+    CONFIG[group][key] = !isNaN(value) ? Number(value) : value;
+
+    console.log(`[Admin] ✓ Game config updated: ${group}.${key} = ${value}`);
+    logGameEvent(`[CONFIG] Admin actualizó ${group}.${key} = ${value}`);
+
+    res.json({
+      success: true,
+      message: `Configuración actualizada: ${group}.${key} = ${value}`,
+      config: CONFIG
+    });
+  } catch (error) {
+    console.error('[Admin] Error updating game config:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al actualizar configuración del juego',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/admin/reset-explorations
+ * Resets all territory explorations to unexplored state
+ * Requires admin role
+ */
+app.post('/api/admin/reset-explorations', requireAdmin, async (req, res) => {
+  try {
+    console.log('[Admin] Resetting all explorations...');
+
+    const result = await pool.query(`
+      UPDATE territory_details
+      SET
+        exploration_end_turn = NULL,
+        discovered_resource = NULL
+    `);
+
+    console.log(`[Admin] ✓ Reset ${result.rowCount} territories to unexplored state`);
+    logGameEvent(`[ADMIN] Reset de exploración: ${result.rowCount} territorios marcados como sin explorar`);
+
+    res.json({
+      success: true,
+      message: `Se han reseteado ${result.rowCount} territorios a estado sin explorar`,
+      territories_reset: result.rowCount
+    });
+  } catch (error) {
+    console.error('[Admin] Error resetting explorations:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al resetear exploraciones',
       error: error.message
     });
   }
@@ -1999,7 +2393,7 @@ process.on('SIGTERM', () => {
 
 // Start server only if this file is run directly (not imported by tests)
 if (require.main === module) {
-  app.listen(PORT, () => {
+  app.listen(PORT, async () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
     console.log(`📍 API endpoints:`);
     console.log(`   - GET /api/map/region?minLat=X&maxLat=X&minLng=X&maxLng=X&res=8`);
@@ -2011,6 +2405,10 @@ if (require.main === module) {
     console.log(`   1. Cannot colonize Sea or Water`);
     console.log(`   2. Must have 100 gold`);
     console.log(`   3. Must be adjacent to owned territory (except first territory)`);
+
+    // Load game configuration
+    console.log('');
+    await loadGameConfig();
 
     // Start the autonomous time engine
     console.log('');
