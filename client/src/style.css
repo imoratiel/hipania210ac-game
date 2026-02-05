@@ -1,7 +1,7 @@
 /* ============================================
    FUENTES MEDIEVALES
    ============================================ */
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@400;500;600&family=Quattrocento:wght@400;700&display=swap');
 
 /* ============================================
    RESET GLOBAL - ELIMINA TODO CONFLICTO
@@ -195,4 +195,25 @@ button {
 /* Separador del control de capas */
 .leaflet-control-layers-separator {
   border-top: 1px solid #4d3d2b !important;
+}
+
+/* Estilo para el botón Home (Capital) */
+.leaflet-control-home {
+  margin-top: 10px !important;
+}
+
+.leaflet-control-home a {
+  width: 30px;
+  height: 30px;
+  line-height: 30px;
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  font-size: 18px;
+  transition: all 0.3s ease;
+}
+
+.leaflet-control-home a:hover {
+  background-color: #2a2218 !important;
+  transform: scale(1.1);
 }

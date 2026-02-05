@@ -3,9 +3,62 @@ const cors = require('cors');
 const session = require('express-session');
 const pool = require('./db');
 const h3 = require('h3-js');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Log file configuration
+const LOG_FILE = path.join(__dirname, 'server.log');
+
+/**
+ * Log game events to server.log file
+ * @param {string} message - The message to log
+ */
+function logGameEvent(message) {
+  const timestamp = new Date().toISOString();
+  const logEntry = `[${timestamp}] ${message}\n`;
+
+  try {
+    fs.appendFileSync(LOG_FILE, logEntry, 'utf8');
+  } catch (error) {
+    console.error('Error writing to log file:', error);
+  }
+}
+
+// Clear log file on server startup
+try {
+  if (fs.existsSync(LOG_FILE)) {
+    fs.unlinkSync(LOG_FILE);
+    console.log('✓ Previous server.log cleared');
+  }
+  logGameEvent('========== SERVER STARTED ==========');
+} catch (error) {
+  console.error('Error clearing log file:', error);
+}
+
+/**
+ * Format days into human-readable years and days
+ * @param {number} days - Total days
+ * @returns {string} Formatted string like "2 años y 45 días"
+ */
+function formatDaysToYearsAndDays(days) {
+  if (days >= 999999) {
+    return 'más de 2,700 años (reservas ilimitadas)';
+  }
+
+  const years = Math.floor(days / 365);
+  const remainingDays = days % 365;
+
+  if (years === 0) {
+    return `${remainingDays} día${remainingDays !== 1 ? 's' : ''}`;
+  } else if (remainingDays === 0) {
+    return `${years} año${years !== 1 ? 's' : ''}`;
+  } else {
+    return `${years} año${years !== 1 ? 's' : ''} y ${remainingDays} día${remainingDays !== 1 ? 's' : ''}`;
+  }
+}
 
 // Middleware
 app.use(cors({
@@ -1089,6 +1142,182 @@ async function processGameTurn() {
 
     console.log(`[Next Turn] Food consumption processed for ${territoriesProcessed} territories`);
 
+    // Step 3.5: Monthly Census - Population Dynamics (every 30 turns)
+    const isCensusDay = ((newCurrentTurn - 1) % 30) === 0;
+    let censusResults = { totalGrowth: 0, plagueEvents: 0, famineEvents: 0 };
+
+    if (isCensusDay) {
+      console.log('[Census] 📊 MONTHLY CENSUS - Processing population dynamics...');
+      logGameEvent('[CENSO] Inicio del censo mensual de población');
+
+      // Maximum population capacities by terrain type
+      const TERRAIN_CAPACITY = {
+        'Plains': 10000,
+        'Grass': 8000,
+        'Forest': 4000,
+        'Hills': 1500,
+        'Swamp': 800,
+        'Desert': 500,
+        'Tundra': 500
+      };
+
+      // Get all territories with population data
+      const censusQuery = `
+        SELECT
+          td.h3_index,
+          td.population,
+          td.food_stored,
+          t.name as terrain_type,
+          m.player_id
+        FROM territory_details td
+        JOIN h3_map m ON td.h3_index = m.h3_index
+        JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
+        WHERE m.player_id IS NOT NULL
+      `;
+      const territories = await client.query(censusQuery);
+
+      // Track events by player for notifications
+      const playerEvents = new Map(); // player_id -> { plague: [], famine: [] }
+
+      for (const territory of territories.rows) {
+        const { h3_index, population, food_stored, terrain_type, player_id } = territory;
+
+        // Calculate daily consumption and days of autonomy
+        const dailyConsumption = (population / 100.0) * 0.01;
+        const daysOfProvisions = dailyConsumption > 0 ? Math.floor(food_stored / dailyConsumption) : 999999;
+
+        // Get max capacity for this terrain
+        const maxCapacity = TERRAIN_CAPACITY[terrain_type] || 1000;
+
+        // Determine growth factor based on food autonomy
+        let growthFactor = 0;
+        let growthCategory = '';
+
+        if (daysOfProvisions === 0) {
+          // Severe famine
+          growthFactor = -0.30 + Math.random() * -0.20; // random(-0.30, -0.50)
+          growthCategory = 'HAMBRUNA SEVERA';
+
+          // Track famine event
+          if (!playerEvents.has(player_id)) {
+            playerEvents.set(player_id, { plague: [], famine: [] });
+          }
+          playerEvents.get(player_id).famine.push({ h3_index, population, terrain_type });
+          censusResults.famineEvents++;
+        } else if (daysOfProvisions <= 30) {
+          // Hunger
+          growthFactor = -0.05 + Math.random() * -0.07; // random(-0.05, -0.12)
+          growthCategory = 'HAMBRE';
+        } else if (daysOfProvisions <= 180) { // 1-6 months
+          // Scarcity
+          growthFactor = -0.005 + Math.random() * -0.015; // random(-0.005, -0.02)
+          growthCategory = 'ESCASEZ';
+        } else if (daysOfProvisions <= 420) { // 6-14 months
+          // Stable
+          growthFactor = 0.005 + Math.random() * 0.015; // random(+0.005, +0.02)
+          growthCategory = 'ESTABLE';
+        } else if (daysOfProvisions <= 720) { // 14-24 months
+          // Prosperous
+          growthFactor = 0.03 + Math.random() * 0.02; // random(+0.03, +0.05)
+          growthCategory = 'PRÓSPERO';
+        } else { // > 24 months
+          // Very prosperous
+          growthFactor = 0.06 + Math.random() * 0.04; // random(+0.06, +0.10)
+          growthCategory = 'MUY PRÓSPERO';
+        }
+
+        // Check for overcrowding and plague
+        let plagueOccurred = false;
+        if (population > maxCapacity) {
+          // Severe overcrowding - plague outbreak
+          if (growthFactor > 0) {
+            growthFactor = 0; // Cancel positive growth
+          }
+          // Apply plague mortality
+          const plagueMortality = 0.05 + Math.random() * 0.10; // random(0.05, 0.15)
+          growthFactor -= plagueMortality;
+          plagueOccurred = true;
+
+          // Track plague event
+          if (!playerEvents.has(player_id)) {
+            playerEvents.set(player_id, { plague: [], famine: [] });
+          }
+          playerEvents.get(player_id).plague.push({ h3_index, population, maxCapacity, terrain_type });
+          censusResults.plagueEvents++;
+
+          logGameEvent(`[PESTE] Epidemia en ${h3_index} (${terrain_type}) por superar los ${maxCapacity} habitantes (población: ${population})`);
+          console.log(`[Census] ☠️ PLAGUE in ${h3_index}: Population ${population} exceeds capacity ${maxCapacity}`);
+        } else if (population > maxCapacity * 0.8) {
+          // Moderate overcrowding - reduce growth
+          if (growthFactor > 0) {
+            growthFactor *= 0.5; // Reduce positive growth by 50%
+            console.log(`[Census] ⚠️ Overcrowding in ${h3_index}: Growth reduced (${population}/${maxCapacity})`);
+          }
+        }
+
+        // Calculate new population
+        const populationChange = Math.floor(population * growthFactor);
+        const newPopulation = Math.max(0, population + populationChange);
+
+        // Update population
+        await client.query(
+          `UPDATE territory_details SET population = $1 WHERE h3_index = $2`,
+          [newPopulation, h3_index]
+        );
+
+        censusResults.totalGrowth += populationChange;
+
+        // Log detailed census data
+        const statusEmoji = plagueOccurred ? '☠️' : (populationChange >= 0 ? '📈' : '📉');
+        logGameEvent(
+          `[CENSO] ${h3_index} (${terrain_type}): ${population} → ${newPopulation} (${populationChange >= 0 ? '+' : ''}${populationChange}) | ` +
+          `${growthCategory} | ${daysOfProvisions} días autonomía | ${statusEmoji}`
+        );
+      }
+
+      // Send notifications to affected players
+      for (const [player_id, events] of playerEvents.entries()) {
+        if (events.plague.length > 0 || events.famine.length > 0) {
+          let subject = '⚠️ Censo Mensual - Eventos Críticos';
+          let body = '📊 El censo mensual ha revelado situaciones críticas en tu reino:\n\n';
+
+          if (events.plague.length > 0) {
+            body += '☠️ EPIDEMIAS DE PESTE:\n';
+            for (const plague of events.plague) {
+              body += `- ${plague.terrain_type} (${plague.h3_index}): ${plague.population} habitantes superan la capacidad de ${plague.maxCapacity}. La peste ha causado bajas significativas.\n`;
+            }
+            body += '\n';
+          }
+
+          if (events.famine.length > 0) {
+            body += '🍂 HAMBRUNAS SEVERAS:\n';
+            for (const famine of events.famine) {
+              body += `- ${famine.terrain_type} (${famine.h3_index}): ${famine.population} habitantes sin reservas de alimento. La población está muriendo de hambre.\n`;
+            }
+            body += '\n';
+          }
+
+          body += '⚡ ACCIONES RECOMENDADAS:\n';
+          if (events.plague.length > 0) {
+            body += '- Reduce la población mediante migración o evita el hacinamiento\n';
+          }
+          if (events.famine.length > 0) {
+            body += '- Envía alimentos de emergencia desde otros feudos\n';
+            body += '- Espera la próxima cosecha y prioriza la agricultura\n';
+          }
+
+          await client.query(
+            `INSERT INTO messages (sender_id, receiver_id, subject, body)
+             VALUES (NULL, $1, $2, $3)`,
+            [player_id, subject, body]
+          );
+        }
+      }
+
+      console.log(`[Census] ✓ Census complete - Total growth: ${censusResults.totalGrowth}, Plagues: ${censusResults.plagueEvents}, Famines: ${censusResults.famineEvents}`);
+      logGameEvent(`[CENSO COMPLETADO] Crecimiento total: ${censusResults.totalGrowth} | Pestes: ${censusResults.plagueEvents} | Hambrunas: ${censusResults.famineEvents}`);
+    }
+
     // Step 4: Check if today is a harvest day (Day 75 = Spring, Day 180 = Summer)
     const isHarvestDay = dayOfYear === 75 || dayOfYear === 180;
     let harvestResults = null;
@@ -1222,25 +1451,27 @@ async function processGameTurn() {
         const economyData = await client.query(economyQuery, [player_id]);
         const { territory_count, total_reserves, total_population } = economyData.rows[0];
 
-        // Calculate daily consumption and autonomy
-        const dailyConsumption = (total_population / 100.0) * 0.01;
-        const daysOfProvisions = dailyConsumption > 0 ? Math.floor(total_reserves / dailyConsumption) : 999999;
+        // Ensure numeric values (prevent .toFixed() errors)
+        const reserves = Number(total_reserves || 0);
+        const population = Number(total_population || 0);
+        const harvested = Number(playerHarvestData.get(player_id) || 0);
 
-        // Get total harvested for this player
-        const totalHarvested = playerHarvestData.get(player_id) || 0;
+        // Calculate daily consumption and autonomy
+        const dailyConsumption = (population / 100.0) * 0.01;
+        const daysOfProvisions = dailyConsumption > 0 ? Math.floor(reserves / dailyConsumption) : 999999;
 
         const messageSubject = `🌾 Informe de Cosecha de ${harvestSeason}`;
         const messageBody = `
 La cosecha de ${harvestSeason} ha finalizado.
 
 📦 PRODUCCIÓN:
-Se han recolectado ${totalHarvested.toFixed(1)} unidades de alimento en tus ${territory_count} territorios.
+Se han recolectado ${harvested.toFixed(1)} unidades de alimento en tus ${territory_count} territorios.
 
 🏛️ RESERVAS TOTALES:
-Tus graneros almacenan ${total_reserves.toFixed(1)} unidades tras la cosecha.
+Tus graneros almacenan ${reserves.toFixed(1)} unidades tras la cosecha.
 
 ⏳ AUTONOMÍA:
-Con un consumo diario de ${dailyConsumption.toFixed(2)} unidades (${total_population} habitantes), tus provisiones garantizan suministros para ${daysOfProvisions} días al ritmo actual.
+Con un consumo diario de ${dailyConsumption.toFixed(2)} unidades (${population} habitantes), tus provisiones garantizan suministros para ${formatDaysToYearsAndDays(daysOfProvisions)} al ritmo actual.
 
 Resumen de calidad de cosechas:
 - Desastrosas: ${stats.disastrous}
@@ -1258,10 +1489,16 @@ Resumen de calidad de cosechas:
           [player_id, messageSubject, messageBody]
         );
 
-        console.log(`[Harvest] ✓ Sent detailed harvest message to player ${player_id} (Harvested: ${totalHarvested.toFixed(1)}, Reserves: ${total_reserves.toFixed(1)}, Days: ${daysOfProvisions})`);
+        console.log(`[Harvest] ✓ Sent detailed harvest message to player ${player_id} (Harvested: ${harvested.toFixed(1)}, Reserves: ${reserves.toFixed(1)}, Days: ${daysOfProvisions})`);
+
+        // Log harvest summary
+        logGameEvent(`[COSECHA] Jugador ${player_id}: ${harvested.toFixed(1)} recolectadas, ${reserves.toFixed(1)} en reservas, ${daysOfProvisions} días de autonomía`);
       }
 
       console.log(`[Harvest] ✓ Sent ${players.rows.length} detailed harvest messages`);
+
+      // Log harvest completion
+      logGameEvent(`[COSECHA COMPLETADA] ${harvestSeason} - ${players.rows.length} jugadores notificados. Resultados: ${JSON.stringify(stats)}`);
     }
 
     // Commit transaction
@@ -1446,24 +1683,38 @@ app.get('/api/admin/stats', requireAdmin, async (req, res) => {
 app.get('/api/messages', requireAuth, async (req, res) => {
   try {
     const player_id = req.session.user.player_id; // Get from session
-    const { unread_only } = req.query;
+    const { unread_only, type } = req.query; // type can be 'received', 'sent', or 'all'
 
     let query = `
       SELECT
         m.*,
-        p.username AS sender_name
+        sender.username AS sender_username,
+        receiver.username AS receiver_username
       FROM messages m
-      LEFT JOIN players p ON m.sender_id = p.player_id
-      WHERE m.receiver_id = $1
+      LEFT JOIN players sender ON m.sender_id = sender.player_id
+      LEFT JOIN players receiver ON m.receiver_id = receiver.player_id
+      WHERE 1=1
     `;
 
-    if (unread_only === 'true') {
-      query += ' AND m.is_read = FALSE';
+    const params = [player_id];
+
+    // Filter by message type
+    if (type === 'sent') {
+      query += ' AND m.sender_id = $1';
+    } else if (type === 'received') {
+      query += ' AND m.receiver_id = $1';
+    } else {
+      // Default: show both sent and received
+      query += ' AND (m.receiver_id = $1 OR m.sender_id = $1)';
     }
 
-    query += ' ORDER BY m.sent_at DESC LIMIT 50';
+    if (unread_only === 'true') {
+      query += ' AND m.receiver_id = $1 AND m.is_read = FALSE';
+    }
 
-    const result = await pool.query(query, [player_id]);
+    query += ' ORDER BY m.sent_at DESC LIMIT 100';
+
+    const result = await pool.query(query, params);
 
     res.json({
       success: true,
@@ -1485,31 +1736,117 @@ app.get('/api/messages', requireAuth, async (req, res) => {
 app.post('/api/messages', requireAuth, async (req, res) => {
   try {
     const sender_id = req.session.user.player_id; // Get from session
-    const { receiver_id, subject, body, h3_index } = req.body;
+    const { recipient_username, subject, body, h3_index, parent_id } = req.body;
 
-    if (!receiver_id || !subject || !body) {
+    if (!recipient_username || !subject || !body) {
       return res.status(400).json({
         success: false,
-        message: 'Faltan campos requeridos: receiver_id, subject, body'
+        message: 'Faltan campos requeridos: recipient_username, subject, body'
       });
     }
 
-    const result = await pool.query(
-      `INSERT INTO messages (sender_id, receiver_id, subject, body, h3_index)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [sender_id, receiver_id, subject, body, h3_index || null]
+    // Look up receiver by username (case-insensitive)
+    const receiverResult = await pool.query(
+      `SELECT player_id FROM players WHERE LOWER(username) = LOWER($1)`,
+      [recipient_username]
     );
+
+    if (receiverResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: `Usuario "${recipient_username}" no encontrado`
+      });
+    }
+
+    const receiver_id = receiverResult.rows[0].player_id;
+
+    // Determine thread_id
+    let thread_id = null;
+    if (parent_id) {
+      // This is a reply - get thread_id from parent message
+      const parentResult = await pool.query(
+        `SELECT thread_id FROM messages WHERE id = $1`,
+        [parent_id]
+      );
+      if (parentResult.rows.length > 0) {
+        thread_id = parentResult.rows[0].thread_id || parent_id;
+      }
+    }
+
+    // Insert message
+    const result = await pool.query(
+      `INSERT INTO messages (sender_id, receiver_id, subject, body, h3_index, thread_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [sender_id, receiver_id, subject, body, h3_index || null, thread_id]
+    );
+
+    // If no parent_id (new thread), set thread_id to its own ID
+    if (!parent_id) {
+      const messageId = result.rows[0].id;
+      await pool.query(
+        `UPDATE messages SET thread_id = $1 WHERE id = $1`,
+        [messageId]
+      );
+      result.rows[0].thread_id = messageId;
+    }
+
+    // Get sender username for logging
+    const senderResult = await pool.query(
+      `SELECT username FROM players WHERE player_id = $1`,
+      [sender_id]
+    );
+    const senderUsername = senderResult.rows[0]?.username || 'Unknown';
+
+    // Log message sent
+    logGameEvent(`[MENSAJE] De: ${senderUsername} Para: ${recipient_username} - Asunto: ${subject}`);
 
     res.json({
       success: true,
-      message: result.rows[0]
+      message: '¡Mensajero enviado con éxito!',
+      data: result.rows[0]
     });
   } catch (error) {
     console.error('Error sending message:', error);
     res.status(500).json({
       success: false,
       message: 'Error al enviar mensaje'
+    });
+  }
+});
+
+/**
+ * GET /api/messages/thread/:threadId
+ * Get all messages in a thread
+ */
+app.get('/api/messages/thread/:threadId', requireAuth, async (req, res) => {
+  try {
+    const { threadId } = req.params;
+    const player_id = req.session.user.player_id;
+
+    const result = await pool.query(
+      `SELECT
+        m.*,
+        sender.username AS sender_username,
+        receiver.username AS receiver_username
+      FROM messages m
+      LEFT JOIN players sender ON m.sender_id = sender.player_id
+      LEFT JOIN players receiver ON m.receiver_id = receiver.player_id
+      WHERE m.thread_id = $1
+        AND (m.receiver_id = $2 OR m.sender_id = $2)
+      ORDER BY m.sent_at ASC`,
+      [threadId, player_id]
+    );
+
+    res.json({
+      success: true,
+      messages: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching thread:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener hilo de mensajes'
     });
   }
 });

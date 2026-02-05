@@ -52,8 +52,8 @@
         </button>
         <button
           class="nav-button"
-          :class="{ active: activePanel === 'layers' }"
-          @click="togglePanel('layers')"
+          :class="{ active: activeOverlay === 'layers' }"
+          @click="activeOverlay = 'layers'"
           title="Capas del Mapa"
         >
           <span class="nav-icon">🗺️</span>
@@ -79,8 +79,8 @@
         </button>
         <button
           class="nav-button"
-          :class="{ active: activePanel === 'kingdom' }"
-          @click="togglePanel('kingdom')"
+          :class="{ active: activeOverlay === 'reino' }"
+          @click="activeOverlay = 'reino'"
           title="Reino"
         >
           <span class="nav-icon">🏰</span>
@@ -88,8 +88,8 @@
         </button>
         <button
           class="nav-button"
-          :class="{ active: activePanel === 'messages' }"
-          @click="togglePanel('messages')"
+          :class="{ active: activeOverlay === 'messages' }"
+          @click="openOverlay('messages')"
           title="Mensajes"
         >
           <span class="nav-icon">📜</span>
@@ -132,10 +132,16 @@
     </aside>
 
     <!-- Context Panel -->
-    <aside id="context-panel" class="context-panel" :class="{ open: activePanel }">
+    <aside
+      id="context-panel"
+      class="context-panel"
+      :class="{ open: activePanel !== null || activeOverlay === 'layers' || activeOverlay === 'reino' }"
+    >
       <div class="panel-header">
-        <h3 class="panel-title">{{ panelTitle }}</h3>
-        <button class="panel-close" @click="closePanel">✕</button>
+        <h3 class="panel-title">
+          {{ activeOverlay === 'layers' ? '🗺️ Capas del Mapa' : activeOverlay === 'reino' ? '🏰 Gestión del Reino' : panelTitle }}
+        </h3>
+        <button class="panel-close" @click="activeOverlay ? activeOverlay = null : closePanel()">✕</button>
       </div>
 
       <div class="panel-content">
@@ -145,10 +151,10 @@
         </div>
 
         <!-- Layers Panel -->
-        <div v-if="activePanel === 'layers'" class="panel-section layers-panel">
+        <div v-if="activeOverlay === 'layers'" class="panel-section layers-panel">
           <!-- Legend -->
           <div class="legend-section">
-            <h4 class="section-title">Leyenda de Terrenos</h4>
+            <h4 class="section-title">📜 Leyenda de Terrenos</h4>
             <div v-if="terrainTypes.length === 0" class="section-loading">
               Cargando tipos de terreno...
             </div>
@@ -159,27 +165,30 @@
                 class="legend-item"
               >
                 <div
-                  class="legend-color"
+                  class="legend-color-circle"
                   :style="{ backgroundColor: terrain.color }"
                 ></div>
-                <span class="legend-name">{{ terrain.name }}</span>
+                <div class="legend-info">
+                  <span class="legend-name">{{ terrain.name }}</span>
+                  <span class="legend-capacity">Máx: {{ getTerrainCapacity(terrain.name) }}</span>
+                </div>
               </div>
             </div>
           </div>
 
           <!-- Visibility Controls -->
           <div class="visibility-section">
-            <h4 class="section-title">Visualización</h4>
+            <h4 class="section-title">👁️ Capas de Visualización</h4>
             <div class="toggle-container">
               <label class="toggle-label">
                 <input
                   type="checkbox"
-                  v-model="showH3Layer"
-                  @change="toggleH3Layer"
+                  v-model="showTerrainLayer"
+                  @change="toggleTerrainLayer"
                   class="toggle-checkbox"
                 />
                 <span class="toggle-slider"></span>
-                <span class="toggle-text">Mostrar Malla H3</span>
+                <span class="toggle-text">🗺️ Capa Terreno</span>
               </label>
             </div>
             <div class="toggle-container">
@@ -191,18 +200,31 @@
                   class="toggle-checkbox"
                 />
                 <span class="toggle-slider"></span>
-                <span class="toggle-text">Vista Política</span>
+                <span class="toggle-text">🏛️ Vista Política</span>
+              </label>
+            </div>
+            <div class="toggle-container">
+              <label class="toggle-label">
+                <input
+                  type="checkbox"
+                  v-model="showH3Layer"
+                  @change="toggleH3Layer"
+                  class="toggle-checkbox"
+                />
+                <span class="toggle-slider"></span>
+                <span class="toggle-text">⬡ Cuadrícula H3</span>
               </label>
             </div>
           </div>
 
           <!-- Transparency Slider -->
           <div class="transparency-section">
-            <h4 class="section-title">Transparencia</h4>
+            <h4 class="section-title">💎 Transparencia de Capas</h4>
             <div class="slider-container">
+              <label class="slider-label">Opacidad:</label>
               <input
                 type="range"
-                min="10"
+                min="0"
                 max="100"
                 v-model="hexagonOpacity"
                 @input="updateHexagonOpacity"
@@ -212,12 +234,27 @@
             </div>
           </div>
 
-          <!-- Map Info -->
-          <div class="map-info-section">
-            <h4 class="section-title">Información</h4>
-            <p><strong>Hexágonos:</strong> {{ hexagonCount }}</p>
-            <p><strong>Zoom:</strong> {{ currentZoom }}</p>
-            <p><strong>Resolución H3:</strong> {{ currentResolution }}</p>
+          <!-- Dynamic Telemetry -->
+          <div class="telemetry-section">
+            <h4 class="section-title">📊 Telemetría en Tiempo Real</h4>
+            <div class="telemetry-grid">
+              <div class="telemetry-item">
+                <span class="telemetry-label">Zoom Actual:</span>
+                <span class="telemetry-value">{{ currentZoom }}</span>
+              </div>
+              <div class="telemetry-item">
+                <span class="telemetry-label">Resolución H3:</span>
+                <span class="telemetry-value">{{ currentResolution }}</span>
+              </div>
+              <div class="telemetry-item">
+                <span class="telemetry-label">Hexágonos Totales:</span>
+                <span class="telemetry-value">{{ hexagonCount }}</span>
+              </div>
+              <div class="telemetry-item">
+                <span class="telemetry-label">H3 bajo cursor:</span>
+                <span class="telemetry-value telemetry-h3">{{ mouseH3Index || 'Mueve el ratón' }}</span>
+              </div>
+            </div>
           </div>
 
           <!-- Navigation -->
@@ -238,6 +275,92 @@
             <button @click="goToCapital" class="capital-button">
               Ir a la Capital ⭐
             </button>
+          </div>
+        </div>
+
+        <!-- Kingdom Management Panel -->
+        <div v-if="activeOverlay === 'reino'" class="panel-section kingdom-management-panel">
+          <!-- Action Buttons -->
+          <div class="kingdom-actions">
+            <button class="kingdom-action-btn" disabled>
+              🔨 Construir
+            </button>
+            <button class="kingdom-action-btn" disabled>
+              ⚔️ Reclutar
+            </button>
+          </div>
+
+          <!-- Filters -->
+          <div class="kingdom-filters">
+            <input
+              v-model="kingdomFilters.name"
+              type="text"
+              placeholder="🔍 Buscar por nombre..."
+              class="kingdom-filter-input"
+            />
+            <input
+              v-model.number="kingdomFilters.maxPopulation"
+              type="number"
+              placeholder="👥 Población máx..."
+              class="kingdom-filter-input"
+            />
+          </div>
+
+          <!-- Territories Table -->
+          <div class="kingdom-table-container">
+            <table class="kingdom-table">
+              <thead>
+                <tr>
+                  <th @click="sortKingdomBy('name')">
+                    Nombre {{ kingdomSort.field === 'name' ? (kingdomSort.asc ? '▲' : '▼') : '' }}
+                  </th>
+                  <th @click="sortKingdomBy('terrain')">
+                    Terreno {{ kingdomSort.field === 'terrain' ? (kingdomSort.asc ? '▲' : '▼') : '' }}
+                  </th>
+                  <th @click="sortKingdomBy('population')">
+                    Población {{ kingdomSort.field === 'population' ? (kingdomSort.asc ? '▲' : '▼') : '' }}
+                  </th>
+                  <th @click="sortKingdomBy('food')">
+                    Comida {{ kingdomSort.field === 'food' ? (kingdomSort.asc ? '▲' : '▼') : '' }}
+                  </th>
+                  <th @click="sortKingdomBy('consumption')">
+                    Consumo {{ kingdomSort.field === 'consumption' ? (kingdomSort.asc ? '▲' : '▼') : '' }}
+                  </th>
+                  <th @click="sortKingdomBy('autonomy')">
+                    Autonomía {{ kingdomSort.field === 'autonomy' ? (kingdomSort.asc ? '▲' : '▼') : '' }}
+                  </th>
+                  <th @click="sortKingdomBy('distance')">
+                    Distancia {{ kingdomSort.field === 'distance' ? (kingdomSort.asc ? '▲' : '▼') : '' }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="fief in filteredAndSortedFiefs"
+                  :key="fief.h3_index"
+                  class="kingdom-row"
+                  @click="focusOnFiefAndClose(fief.h3_index)"
+                >
+                  <td class="kingdom-cell-name">{{ fief.name }}</td>
+                  <td>{{ fief.terrain }}</td>
+                  <td :class="{ 'alert-low': fief.population < 400 }">
+                    {{ Math.floor(fief.population) }}
+                  </td>
+                  <td>{{ fief.food.toFixed(1) }}</td>
+                  <td>{{ fief.consumption.toFixed(2) }}</td>
+                  <td :class="{
+                    'alert-low': fief.autonomy < 30,
+                    'alert-high': fief.autonomy > 365
+                  }">
+                    {{ fief.autonomy === Infinity ? '∞' : fief.autonomy }}
+                  </td>
+                  <td>{{ fief.distance }} hex</td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-if="filteredAndSortedFiefs.length === 0" class="kingdom-empty">
+              No se encontraron feudos con los filtros aplicados.
+            </div>
           </div>
         </div>
 
@@ -403,6 +526,146 @@
         </div>
       </div>
 
+    <!-- Full-Screen Messages Overlay -->
+    <div v-if="activeOverlay === 'messages'" class="game-overlay">
+      <div class="overlay-container">
+        <!-- Header with close button -->
+        <div class="overlay-header">
+          <h1 class="overlay-title">📜 Mensajes</h1>
+          <button class="overlay-close" @click="closeOverlay" title="Cerrar">✕</button>
+        </div>
+
+        <!-- 3-Column Layout -->
+        <div class="overlay-content">
+          <!-- Column 1: Messages List -->
+          <div class="messages-list-column">
+            <div class="message-tabs">
+              <button
+                :class="['tab-button', { active: messageFilter === 'received' }]"
+                @click="messageFilter = 'received'"
+              >
+                📥 Recibidos
+              </button>
+              <button
+                :class="['tab-button', { active: messageFilter === 'sent' }]"
+                @click="messageFilter = 'sent'"
+              >
+                📤 Enviados
+              </button>
+            </div>
+            <div class="messages-list">
+              <div
+                v-for="message in filteredMessages"
+                :key="message.id"
+                :class="['message-item', { 'message-unread': !message.is_read, 'message-selected': selectedMessage?.id === message.id }]"
+                @click="selectMessage(message)"
+              >
+                <div class="message-item-header">
+                  <span class="message-sender">{{ message.sender_username || 'Sistema' }}</span>
+                  <span class="message-date">{{ new Date(message.sent_at).toLocaleDateString() }}</span>
+                </div>
+                <div class="message-subject">{{ message.subject }}</div>
+              </div>
+              <div v-if="myMessages.length === 0" class="empty-state">
+                <p>📭 No tienes mensajes</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 2: Message Viewer -->
+          <div class="message-viewer-column">
+            <h2 class="column-title">Lectura</h2>
+            <div v-if="selectedMessage" class="message-viewer">
+              <div class="message-header">
+                <h3 class="message-title">{{ selectedMessage.subject }}</h3>
+                <div class="message-meta">
+                  <span class="message-from">De: {{ selectedMessage.sender_username || 'Sistema' }}</span>
+                  <span class="message-time">{{ new Date(selectedMessage.sent_at).toLocaleString() }}</span>
+                </div>
+              </div>
+              <div class="message-body">
+                <p>{{ selectedMessage.body }}</p>
+              </div>
+              <div class="message-actions">
+                <button class="btn-primary" @click="replyToMessage(selectedMessage)">
+                  ↩️ Responder
+                </button>
+                <button
+                  v-if="selectedMessage.h3_index"
+                  class="btn-secondary"
+                  @click="goToMessageLocation(selectedMessage.h3_index)"
+                >
+                  🗺️ Ir al Mapa
+                </button>
+              </div>
+
+              <!-- Thread View -->
+              <div v-if="threadMessages.length > 1" class="message-thread">
+                <h4 class="thread-title">🧵 Conversación ({{ threadMessages.length }} mensajes)</h4>
+                <div class="thread-messages">
+                  <div
+                    v-for="msg in threadMessages"
+                    :key="msg.id"
+                    :class="['thread-message', { 'thread-message-current': msg.id === selectedMessage.id }]"
+                  >
+                    <div class="thread-message-header">
+                      <strong>{{ msg.sender_username }}</strong>
+                      <span class="thread-message-date">{{ formatMessageDate(msg.sent_at) }}</span>
+                    </div>
+                    <div class="thread-message-subject">{{ msg.subject }}</div>
+                    <div class="thread-message-body">{{ msg.body }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="empty-state">
+              <p>👈 Selecciona un mensaje para leerlo</p>
+            </div>
+          </div>
+
+          <!-- Column 3: Compose Message -->
+          <div class="message-compose-column">
+            <h2 class="column-title">Redactar</h2>
+            <form class="message-compose-form" @submit.prevent="sendMessage">
+              <div class="form-group">
+                <label for="msg-recipient">Para (Usuario):</label>
+                <input
+                  id="msg-recipient"
+                  v-model="messageRecipient"
+                  type="text"
+                  placeholder="Nombre de usuario"
+                  required
+                />
+              </div>
+              <div class="form-group">
+                <label for="msg-subject">Asunto:</label>
+                <input
+                  id="msg-subject"
+                  v-model="messageSubject"
+                  type="text"
+                  placeholder="Asunto del mensaje"
+                  required
+                />
+              </div>
+              <div class="form-group">
+                <label for="msg-body">Mensaje:</label>
+                <textarea
+                  id="msg-body"
+                  v-model="messageBody"
+                  placeholder="Escribe tu mensaje..."
+                  rows="12"
+                  required
+                ></textarea>
+              </div>
+              <button type="submit" class="btn-send" :disabled="sendingMessage">
+                {{ sendingMessage ? '📤 Enviando...' : '📨 Enviar Mensaje' }}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Toast Notifications Container -->
     <div class="toast-container">
       <div
@@ -418,9 +681,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import L from 'leaflet';
-import { cellToBoundary, cellToLatLng, gridDisk } from 'h3-js';
+import { cellToBoundary, cellToLatLng, gridDisk, gridDistance, latLngToCell } from 'h3-js';
 import axios from 'axios';
 import 'leaflet/dist/leaflet.css';
 
@@ -436,7 +699,9 @@ const currentZoom = ref(13);
 const currentResolution = ref(8); // H3 resolution (8 or 10)
 const terrainTypes = ref([]);
 const showH3Layer = ref(true);
+const showTerrainLayer = ref(true); // Terrain layer visibility
 const isPoliticalView = ref(true); // Vista política para resaltar territorios de jugadores (activada por defecto)
+const mouseH3Index = ref(''); // H3 index under cursor
 
 // Player state (from session)
 const currentUser = ref(null); // Current logged-in user { player_id, username, role }
@@ -448,24 +713,28 @@ const playerHexes = ref(new Set()); // Track player's owned hexagons for adjacen
 const currentTurn = ref(1);
 const gameDate = ref(new Date('1039-03-01'));
 const formattedDate = ref('1 de marzo de 1039');
-const dayOfYear = ref(1);
+
+// Day of year based on current turn (1-365)
+const dayOfYear = computed(() => {
+  return ((currentTurn.value - 1) % 365) + 1;
+});
 
 // Computed property for next harvest information
 const nextHarvestLabel = computed(() => {
   const day = dayOfYear.value;
 
-  if (day < 75) {
+  if (day <= 76) {
     // Before spring harvest
-    const daysUntil = 75 - day;
-    return `Próxima Cosecha: Primavera (15 de Mayo) - ${daysUntil} días`;
-  } else if (day >= 75 && day < 180) {
+    const daysUntil = 76 - day;
+    return `Próxima cosecha: Primavera en ${daysUntil} días`;
+  } else if (day <= 184) {
     // Before summer harvest
-    const daysUntil = 180 - day;
-    return `Próxima Cosecha: Verano (31 de Agosto) - ${daysUntil} días`;
+    const daysUntil = 184 - day;
+    return `Próxima cosecha: Verano en ${daysUntil} días`;
   } else {
     // After summer harvest, next is spring of next year
-    const daysUntil = (365 - day) + 75;
-    return `Próxima Cosecha: Primavera (Año siguiente) - ${daysUntil} días`;
+    const daysUntil = 76 + 365 - day;
+    return `Próxima cosecha: Primavera en ${daysUntil} días`;
   }
 });
 
@@ -478,7 +747,26 @@ let previousFoodValues = {}; // Track food values for highlight animation
 const myMessages = ref([]);
 const loadingMessages = ref(false);
 const selectedMessage = ref(null); // Currently selected message for detail view
-const unreadCount = computed(() => myMessages.value.filter(m => !m.is_read).length);
+const threadMessages = ref([]); // Messages in the current thread
+const unreadCount = computed(() => myMessages.value.filter(m => !m.is_read && m.receiver_id === playerId.value).length);
+const messageFilter = ref('received'); // 'received', 'sent', 'all'
+
+// Filtered messages based on current tab
+const filteredMessages = computed(() => {
+  if (messageFilter.value === 'received') {
+    return myMessages.value.filter(m => m.receiver_id === playerId.value);
+  } else if (messageFilter.value === 'sent') {
+    return myMessages.value.filter(m => m.sender_id === playerId.value);
+  }
+  return myMessages.value;
+});
+
+// Message composition state
+const messageRecipient = ref('');
+const messageSubject = ref('');
+const messageBody = ref('');
+const sendingMessage = ref(false);
+const parentMessage = ref(null); // Stores the message being replied to
 
 // Server synchronization state
 const SYNC_INTERVAL = 30000; // Poll server every 30 seconds
@@ -493,6 +781,16 @@ const actionPanelPosition = ref({ x: 0, y: 0 });
 // Navigation search state
 const searchH3Input = ref('');
 const capitalH3Index = ref(null); // Cache capital location
+
+// Kingdom management state
+const kingdomFilters = ref({
+  name: '',
+  maxPopulation: null
+});
+const kingdomSort = ref({
+  field: 'distance', // Default: sort by distance
+  asc: true
+});
 
 // Legend toggle state
 const legendCollapsed = ref(true); // Collapsed by default
@@ -512,12 +810,87 @@ const panelTitle = computed(() => {
   return titles[activePanel.value] || '';
 });
 
+// Overlay system state (full-screen overlays like Messages)
+const activeOverlay = ref(null); // 'messages', 'fiefs', etc.
+
 // Infinite scroll for fiefs (Kingdom panel)
 const FIEFS_PER_PAGE = 20;
 const displayedFiefsCount = ref(FIEFS_PER_PAGE);
 const loadingMoreFiefs = ref(false);
 const displayedFiefs = computed(() => {
   return myFiefs.value.slice(0, displayedFiefsCount.value);
+});
+
+// Filtered and sorted fiefs for Kingdom Management panel
+const filteredAndSortedFiefs = computed(() => {
+  if (!myFiefs.value || myFiefs.value.length === 0) return [];
+
+  // Calculate enriched fief data with distance and autonomy
+  let enrichedFiefs = myFiefs.value.map(fief => {
+    const population = Number(fief.population || 0);
+    const food = Number(fief.food_stored || 0);
+    const consumption = (population / 100.0) * 0.01;
+    const autonomy = consumption > 0 ? Math.floor(food / consumption) : Infinity;
+
+    // Calculate distance to capital using H3
+    let distance = 0;
+    if (capitalH3Index.value && fief.h3_index) {
+      try {
+        distance = gridDistance(fief.h3_index, capitalH3Index.value);
+      } catch (error) {
+        // Fallback: if H3 fails, use 0
+        distance = 0;
+      }
+    }
+
+    return {
+      h3_index: fief.h3_index,
+      name: fief.location_name || fief.h3_index?.substring(0, 8) || 'Territorio',
+      terrain: fief.terrain_name || 'Desconocido',
+      population,
+      food,
+      consumption,
+      autonomy,
+      distance
+    };
+  });
+
+  // Apply filters
+  if (kingdomFilters.value.name) {
+    const nameFilter = kingdomFilters.value.name.toLowerCase();
+    enrichedFiefs = enrichedFiefs.filter(f =>
+      f.name.toLowerCase().includes(nameFilter)
+    );
+  }
+
+  if (kingdomFilters.value.maxPopulation !== null && kingdomFilters.value.maxPopulation !== '') {
+    enrichedFiefs = enrichedFiefs.filter(f =>
+      f.population <= kingdomFilters.value.maxPopulation
+    );
+  }
+
+  // Apply sorting
+  const field = kingdomSort.value.field;
+  const asc = kingdomSort.value.asc;
+
+  enrichedFiefs.sort((a, b) => {
+    let valA = a[field];
+    let valB = b[field];
+
+    // Handle Infinity for autonomy
+    if (valA === Infinity) valA = 999999;
+    if (valB === Infinity) valB = 999999;
+
+    // Handle string comparison for name and terrain
+    if (typeof valA === 'string') {
+      return asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+    }
+
+    // Numeric comparison
+    return asc ? valA - valB : valB - valA;
+  });
+
+  return enrichedFiefs;
 });
 
 // Toast notifications state
@@ -641,6 +1014,32 @@ const initMap = () => {
     position: 'topright'
   }).addTo(map);
 
+  // Add Home button control below zoom control
+  const HomeControl = L.Control.extend({
+    options: {
+      position: 'topright'
+    },
+    onAdd: function(map) {
+      const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-home');
+      const button = L.DomUtil.create('a', '', container);
+      button.innerHTML = '🏰';
+      button.href = '#';
+      button.title = 'Ir a la Capital';
+      button.setAttribute('role', 'button');
+      button.setAttribute('aria-label', 'Ir a la Capital');
+
+      L.DomEvent.disableClickPropagation(button);
+      L.DomEvent.on(button, 'click', function(e) {
+        L.DomEvent.preventDefault(e);
+        goToCapital();
+      });
+
+      return container;
+    }
+  });
+
+  new HomeControl().addTo(map);
+
   // Create custom Panes to ensure correct stacking order
   // Territory Pane (Fill) - Bottom
   map.createPane('territoryPane');
@@ -702,6 +1101,21 @@ const initMap = () => {
   // Event listeners
   map.on('moveend', handleMapMove);
   map.on('zoomend', handleZoomChange);
+
+  // Track mouse position for H3 index telemetry
+  map.on('mousemove', (e) => {
+    try {
+      const h3Index = latLngToCell(e.latlng.lat, e.latlng.lng, currentResolution.value);
+      mouseH3Index.value = h3Index;
+    } catch (error) {
+      mouseH3Index.value = '';
+    }
+  });
+
+  // Clear H3 index when mouse leaves map
+  map.on('mouseout', () => {
+    mouseH3Index.value = '';
+  });
 
   // Clean up highlight when popup closes
   map.on('popupclose', () => {
@@ -1287,9 +1701,10 @@ const renderHexagons = (hexagons) => {
       const terrainColor = hex.terrain_color || hex.color || '#9e9e9e';
 
       // --- 1. FILL SETUP (territoryPane) ---
-      let fillColor = terrainColor;
+      // Base color: terrain if layer is active, otherwise neutral
+      let fillColor = showTerrainLayer.value ? terrainColor : '#606060';
       let fillOpacity = 0.3; // Default requested
-      
+
       // Override fill logic based on priorities
       if (isCapital && isMyTerritory) {
          fillColor = '#ff0000';
@@ -1298,8 +1713,15 @@ const renderHexagons = (hexagons) => {
          fillColor = '#ff0000';
          fillOpacity = 0.3;
       } else if (isPoliticalView.value && hex.player_id) {
+         // Enemy territory: show player color if political view is active
+         if (playerColor && isPoliticalView.value) {
+           fillColor = playerColor;
+         }
          fillOpacity = 0.05; // Enemy territory faint fill
       } else if (playerColor) {
+         fillOpacity = 0.05;
+      } else if (!showTerrainLayer.value) {
+         // No terrain layer and no player: very low opacity
          fillOpacity = 0.05;
       }
 
@@ -1791,6 +2213,40 @@ const togglePoliticalView = () => {
 };
 
 /**
+ * Toggle terrain layer visibility
+ */
+const toggleTerrainLayer = () => {
+  if (!map) return;
+
+  if (showTerrainLayer.value) {
+    console.log('✓ Capa de Terreno activada');
+  } else {
+    console.log('✓ Capa de Terreno desactivada');
+  }
+
+  // Redibujar el mapa con los nuevos estilos
+  loadHexagonsIfZoomValid();
+};
+
+/**
+ * Get terrain capacity by name
+ * @param {string} terrainName - Name of the terrain type
+ * @returns {string} Formatted capacity (e.g., "10k")
+ */
+const getTerrainCapacity = (terrainName) => {
+  const capacities = {
+    'Plains': '10k',
+    'Grass': '8k',
+    'Forest': '4k',
+    'Hills': '1.5k',
+    'Swamp': '800',
+    'Desert': '500',
+    'Tundra': '500'
+  };
+  return capacities[terrainName] || '1k';
+};
+
+/**
  * Toggle legend collapsed/expanded state
  */
 const toggleLegend = () => {
@@ -1803,6 +2259,9 @@ const toggleLegend = () => {
  * @param {string} panelName - Name of the panel to toggle
  */
 const togglePanel = (panelName) => {
+  console.log(`[DEBUG] togglePanel called with: ${panelName}`);
+  console.log(`[DEBUG] activePanel.value before: ${activePanel.value}`);
+
   if (activePanel.value === panelName) {
     // Close if already open
     activePanel.value = null;
@@ -1811,6 +2270,8 @@ const togglePanel = (panelName) => {
     // Open the new panel (closes any other)
     activePanel.value = panelName;
     console.log(`✓ Panel abierto: ${panelName}`);
+    console.log(`[DEBUG] activePanel.value after: ${activePanel.value}`);
+    console.log(`[DEBUG] terrainTypes.length: ${terrainTypes.value.length}`);
 
     // Reset infinite scroll when opening kingdom panel
     if (panelName === 'kingdom') {
@@ -1825,6 +2286,130 @@ const togglePanel = (panelName) => {
 const closePanel = () => {
   activePanel.value = null;
   console.log('✓ Panel cerrado');
+};
+
+/**
+ * Open full-screen overlay
+ */
+const openOverlay = (overlayName) => {
+  activeOverlay.value = overlayName;
+  activePanel.value = null; // Close any open panel
+  console.log(`✓ Overlay abierto: ${overlayName}`);
+};
+
+/**
+ * Close the active overlay
+ */
+const closeOverlay = () => {
+  activeOverlay.value = null;
+  selectedMessage.value = null;
+  console.log('✓ Overlay cerrado');
+};
+
+/**
+ * Select a message to view in detail
+ */
+const selectMessage = async (message) => {
+  selectedMessage.value = message;
+
+  // Load thread messages
+  if (message.thread_id) {
+    try {
+      const response = await axios.get(`${API_URL}/api/messages/thread/${message.thread_id}`);
+      if (response.data.success) {
+        threadMessages.value = response.data.messages;
+      }
+    } catch (error) {
+      console.error('Error loading thread:', error);
+      threadMessages.value = [];
+    }
+  } else {
+    threadMessages.value = [];
+  }
+
+  // Mark message as read if it's unread and we're the receiver
+  if (!message.is_read && message.receiver_id === playerId.value) {
+    try {
+      await axios.put(`${API_URL}/api/messages/${message.id}/read`);
+      message.is_read = true;
+      console.log(`✓ Message ${message.id} marked as read`);
+    } catch (error) {
+      console.error('Error marking message as read:', error);
+    }
+  }
+};
+
+/**
+ * Reply to a message
+ */
+const replyToMessage = (message) => {
+  // Determine recipient (if we sent it, reply to receiver; if we received it, reply to sender)
+  const isOurMessage = message.sender_id === playerId.value;
+  messageRecipient.value = isOurMessage ? message.receiver_username : message.sender_username;
+
+  // Add Re: to subject if not already there
+  messageSubject.value = message.subject.startsWith('Re:')
+    ? message.subject
+    : `Re: ${message.subject}`;
+
+  messageBody.value = '';
+  parentMessage.value = message; // Store parent message for threading
+
+  showToast('📝 Formulario preparado para responder', 'info');
+};
+
+/**
+ * Send a new message
+ */
+const sendMessage = async () => {
+  if (!messageRecipient.value || !messageSubject.value || !messageBody.value) {
+    showToast('Por favor completa todos los campos', 'warning');
+    return;
+  }
+
+  try {
+    sendingMessage.value = true;
+
+    const payload = {
+      recipient_username: messageRecipient.value,
+      subject: messageSubject.value,
+      body: messageBody.value
+    };
+
+    // If replying to a message, include parent_id
+    if (parentMessage.value) {
+      payload.parent_id = parentMessage.value.id;
+    }
+
+    const response = await axios.post(`${API_URL}/api/messages`, payload);
+
+    if (response.data.success) {
+      // Show success toast
+      showToast('📨 Mensaje entregado al mensajero real', 'success');
+      // Clear only subject and body, keep recipient for convenience
+      messageSubject.value = '';
+      messageBody.value = '';
+      parentMessage.value = null;
+      // Reload messages
+      await loadMessages();
+    } else {
+      showToast('Error al enviar mensaje: ' + (response.data.message || 'Error desconocido'), 'error');
+    }
+  } catch (error) {
+    console.error('Error sending message:', error);
+    showToast('Error al enviar mensaje: ' + (error.response?.data?.message || error.message), 'error');
+  } finally {
+    sendingMessage.value = false;
+  }
+};
+
+/**
+ * Go to map location from message
+ */
+const goToMessageLocation = (h3Index) => {
+  if (!h3Index) return;
+  closeOverlay();
+  focusOnHex(h3Index);
 };
 
 /**
@@ -1951,6 +2536,35 @@ const goToCapital = async () => {
       showToast('Error al buscar la capital', 'error');
     }
   }
+};
+
+/**
+ * Sort kingdom fiefs by field
+ * @param {string} field - Field to sort by
+ */
+const sortKingdomBy = (field) => {
+  if (kingdomSort.value.field === field) {
+    // Toggle sort direction
+    kingdomSort.value.asc = !kingdomSort.value.asc;
+  } else {
+    // New field, default to ascending
+    kingdomSort.value.field = field;
+    kingdomSort.value.asc = true;
+  }
+};
+
+/**
+ * Focus on fief and close kingdom panel
+ * @param {string} h3Index - H3 index to focus on
+ */
+const focusOnFiefAndClose = async (h3Index) => {
+  if (!h3Index) return;
+
+  // Close the kingdom panel
+  activeOverlay.value = null;
+
+  // Focus on the hexagon
+  await focusOnHex(h3Index);
 };
 
 /**
@@ -2277,6 +2891,24 @@ const handleLogout = async () => {
   }
 };
 
+// Watchers
+watch(
+  () => activeOverlay.value,
+  async (newValue) => {
+    // Load capital when opening Kingdom Management panel
+    if (newValue === 'reino' && !capitalH3Index.value) {
+      try {
+        const response = await axios.get(`${API_URL}/api/game/capital`);
+        if (response.data.success) {
+          capitalH3Index.value = response.data.h3_index;
+        }
+      } catch (error) {
+        console.error('Error loading capital for Kingdom Management:', error);
+      }
+    }
+  }
+);
+
 // Lifecycle hooks
 onMounted(() => {
   checkAuth(); // Check authentication first
@@ -2504,11 +3136,11 @@ onBeforeUnmount(() => {
 
 /* Sidebar harvest text - specific selector to override banner style */
 .header-date .harvest-text {
-  font-size: 11px;
-  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  font-family: 'Quattrocento', serif;
   color: #c5a059;
   line-height: 1.3;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+  text-shadow: none;
   font-weight: normal;
 }
 
@@ -2805,19 +3437,33 @@ onBeforeUnmount(() => {
   background: rgba(197, 160, 89, 0.1);
 }
 
-.legend-color {
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  border: 2px solid var(--color-border);
+.legend-color-circle {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--color-accent-gold);
   flex-shrink: 0;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 6px rgba(197, 160, 89, 0.4);
+}
+
+.legend-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
 }
 
 .legend-name {
   font-size: 13px;
-  color: #f2e6d0; /* Texto crema brillante */
-  font-family: var(--font-sans);
+  color: var(--color-text-cream);
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+}
+
+.legend-capacity {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  font-family: 'Inter', sans-serif;
 }
 
 /* Toggle Controls */
@@ -2938,13 +3584,68 @@ onBeforeUnmount(() => {
   box-shadow: 0 3px 8px rgba(197, 160, 89, 0.7);
 }
 
+.slider-label {
+  font-size: 12px;
+  color: var(--color-text-dim);
+  font-weight: 600;
+  min-width: 70px;
+}
+
 .opacity-value {
   font-size: 13px;
   font-weight: bold;
   color: var(--color-accent-gold);
-  font-family: var(--font-sans);
+  font-family: 'Inter', sans-serif;
   min-width: 40px;
   text-align: right;
+}
+
+/* Telemetry Section */
+.telemetry-section {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.telemetry-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  border-left: 3px solid var(--color-accent-gold);
+}
+
+.telemetry-label {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.telemetry-value {
+  font-size: 13px;
+  color: var(--color-accent-gold);
+  font-weight: bold;
+  font-family: 'Inter', sans-serif;
+}
+
+.telemetry-h3 {
+  font-size: 10px;
+  font-family: 'Courier New', monospace;
+  color: var(--color-text-cream);
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2px 6px;
+  border-radius: 3px;
 }
 
 /* Map Info Section */
@@ -3118,6 +3819,153 @@ onBeforeUnmount(() => {
   color: var(--color-text-dim);
   font-style: italic;
   font-size: 12px;
+}
+
+/* Kingdom Management Panel */
+.kingdom-management-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0;
+  height: calc(100vh - 100px);
+}
+
+.kingdom-actions {
+  display: flex;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.kingdom-action-btn {
+  flex: 1;
+  padding: 12px 20px;
+  background: rgba(197, 160, 89, 0.15);
+  border: 2px solid var(--color-accent-gold);
+  border-radius: 4px;
+  color: var(--color-accent-gold);
+  font-family: 'Cinzel', serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.kingdom-action-btn:hover:not(:disabled) {
+  background: rgba(197, 160, 89, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(197, 160, 89, 0.4);
+}
+
+.kingdom-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.kingdom-filters {
+  display: flex;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.kingdom-filter-input {
+  flex: 1;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-cream);
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+}
+
+.kingdom-filter-input::placeholder {
+  color: var(--color-text-dim);
+}
+
+.kingdom-filter-input:focus {
+  outline: none;
+  border-color: var(--color-accent-gold);
+  box-shadow: 0 0 8px rgba(197, 160, 89, 0.3);
+}
+
+.kingdom-table-container {
+  flex: 1;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.kingdom-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.kingdom-table thead {
+  position: sticky;
+  top: 0;
+  background: linear-gradient(135deg, #1a1612 0%, #0d0b09 100%);
+  z-index: 10;
+}
+
+.kingdom-table th {
+  padding: 14px 12px;
+  text-align: left;
+  font-family: 'Cinzel', serif;
+  font-size: 12px;
+  color: var(--color-accent-gold);
+  border-bottom: 2px solid var(--color-accent-gold);
+  cursor: pointer;
+  user-select: none;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: background 0.2s ease;
+}
+
+.kingdom-table th:hover {
+  background: rgba(197, 160, 89, 0.1);
+}
+
+.kingdom-row {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-bottom: 1px solid rgba(77, 61, 43, 0.3);
+}
+
+.kingdom-row:hover {
+  background: rgba(197, 160, 89, 0.1);
+}
+
+.kingdom-table td {
+  padding: 12px;
+  font-size: 13px;
+  color: var(--color-text-cream);
+  font-family: 'Inter', sans-serif;
+}
+
+.kingdom-cell-name {
+  font-weight: 600;
+  color: var(--color-accent-gold);
+}
+
+.alert-low {
+  color: #ff4444 !important;
+  font-weight: bold;
+}
+
+.alert-high {
+  color: #50c878 !important;
+  font-weight: bold;
+}
+
+.kingdom-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--color-text-dim);
+  font-style: italic;
+  font-size: 13px;
 }
 
 /* Messages Panel - Split View */
@@ -4840,27 +5688,31 @@ onBeforeUnmount(() => {
 }
 
 .toast-success {
-  background: rgba(39, 174, 96, 0.95);
-  border-color: #27ae60;
-  color: white;
+  background: rgba(26, 22, 18, 0.98);
+  border-color: #c5a059;
+  color: #e8d5b5;
+  box-shadow: 0 4px 15px rgba(197, 160, 89, 0.4);
 }
 
 .toast-error {
-  background: rgba(231, 76, 60, 0.95);
-  border-color: #e74c3c;
-  color: white;
+  background: rgba(26, 22, 18, 0.98);
+  border-color: #c0392b;
+  color: #ff6b6b;
+  box-shadow: 0 4px 15px rgba(192, 57, 43, 0.4);
 }
 
 .toast-warning {
-  background: rgba(230, 126, 34, 0.95);
+  background: rgba(26, 22, 18, 0.98);
   border-color: #e67e22;
-  color: white;
+  color: #f39c12;
+  box-shadow: 0 4px 15px rgba(230, 126, 34, 0.4);
 }
 
 .toast-info {
-  background: rgba(52, 152, 219, 0.95);
+  background: rgba(26, 22, 18, 0.98);
   border-color: #3498db;
-  color: white;
+  color: #5dade2;
+  box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4);
 }
 
 /* Cell Details Popup - Enhanced Styling */
@@ -4953,5 +5805,451 @@ onBeforeUnmount(() => {
   filter: drop-shadow(0 0 3px gold) drop-shadow(0 0 6px rgba(255, 215, 0, 0.8));
   pointer-events: none;
   z-index: 10000 !important;
+}
+
+/* ============================================
+   FULL-SCREEN MESSAGES OVERLAY
+   ============================================ */
+.game-overlay {
+  position: fixed;
+  top: 0;
+  left: 260px; /* After sidebar */
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg,
+    rgba(26, 22, 18, 0.98) 0%,
+    rgba(13, 11, 9, 0.98) 100%
+  );
+  z-index: 950; /* Above map (1), below sidebar (1000) */
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+
+.overlay-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 30px;
+}
+
+.overlay-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid var(--color-accent-gold);
+}
+
+.overlay-title {
+  font-family: 'Cinzel', serif;
+  font-size: 2.5em;
+  color: var(--color-accent-gold);
+  text-shadow: 0 0 15px rgba(197, 160, 89, 0.4);
+  margin: 0;
+}
+
+.overlay-close {
+  background: transparent;
+  border: 2px solid var(--color-accent-gold);
+  color: var(--color-accent-gold);
+  font-size: 28px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.overlay-close:hover {
+  background: var(--color-accent-gold);
+  color: var(--color-bg-dark);
+  transform: rotate(90deg);
+  box-shadow: 0 4px 15px rgba(197, 160, 89, 0.6);
+}
+
+.overlay-content {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1.5fr 1fr;
+  gap: 25px;
+  overflow: hidden;
+}
+
+/* Column Styling */
+.messages-list-column,
+.message-viewer-column,
+.message-compose-column {
+  background: rgba(0, 0, 0, 0.3);
+  border: 2px solid var(--color-accent-gold);
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(197, 160, 89, 0.2);
+}
+
+.column-title {
+  font-family: 'Cinzel', serif;
+  font-size: 1.3em;
+  color: var(--color-accent-gold);
+  margin: 0 0 18px 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Message Tabs */
+.message-tabs {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 15px;
+  border-bottom: 2px solid var(--color-border);
+}
+
+.tab-button {
+  flex: 1;
+  padding: 12px 20px;
+  background: rgba(0, 0, 0, 0.3);
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: var(--color-text-dim);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.95em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tab-button:hover {
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--color-text-cream);
+}
+
+.tab-button.active {
+  background: rgba(197, 160, 89, 0.15);
+  border-bottom-color: var(--color-accent-gold);
+  color: var(--color-accent-gold);
+  box-shadow: 0 2px 8px rgba(197, 160, 89, 0.3);
+}
+
+/* Messages List */
+.messages-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.message-item {
+  padding: 12px;
+  margin-bottom: 10px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.message-item:hover {
+  background: rgba(197, 160, 89, 0.1);
+  border-left-color: var(--color-accent-gold);
+  transform: translateX(3px);
+}
+
+.message-item.message-selected {
+  background: rgba(197, 160, 89, 0.2);
+  border-left-color: var(--color-accent-gold);
+  border-color: var(--color-accent-gold);
+}
+
+.message-item.message-unread {
+  background: rgba(41, 128, 185, 0.15);
+  border-left-color: #2980b9;
+}
+
+.message-item.message-unread.message-selected {
+  background: rgba(197, 160, 89, 0.2);
+  border-left-color: var(--color-accent-gold);
+}
+
+.message-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 0.85em;
+}
+
+.message-sender {
+  font-weight: bold;
+  color: var(--color-accent-gold);
+}
+
+.message-date {
+  color: var(--color-text-dim);
+  font-size: 0.9em;
+}
+
+.message-subject {
+  color: var(--color-text-cream);
+  font-size: 0.95em;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Message Viewer */
+.message-viewer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.message-header {
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.message-title {
+  font-family: 'Cinzel', serif;
+  font-size: 1.4em;
+  color: var(--color-text-cream);
+  margin: 0 0 12px 0;
+}
+
+.message-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9em;
+  color: var(--color-text-dim);
+}
+
+.message-from {
+  color: var(--color-accent-gold);
+  font-weight: 500;
+}
+
+.message-time {
+  font-size: 0.85em;
+}
+
+.message-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 15px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  line-height: 1.6;
+  color: var(--color-text-cream);
+  font-size: 1em;
+  white-space: pre-wrap;
+}
+
+.message-actions {
+  margin-top: 15px;
+  display: flex;
+  gap: 10px;
+}
+
+.message-actions .btn-secondary {
+  background: rgba(77, 61, 43, 0.5);
+  border-color: #4d3d2b;
+}
+
+.message-actions .btn-secondary:hover {
+  background: rgba(77, 61, 43, 0.8);
+}
+
+/* Thread View */
+.message-thread {
+  margin-top: 25px;
+  border-top: 2px solid #4d3d2b;
+  padding-top: 20px;
+}
+
+.thread-title {
+  font-family: 'Cinzel', serif;
+  color: var(--color-accent-gold);
+  font-size: 1.1em;
+  margin-bottom: 15px;
+  letter-spacing: 0.5px;
+}
+
+.thread-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.thread-message {
+  background: rgba(0, 0, 0, 0.3);
+  border-left: 3px solid #4d3d2b;
+  padding: 12px 15px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.thread-message:hover {
+  background: rgba(0, 0, 0, 0.4);
+  border-left-color: #c5a059;
+}
+
+.thread-message-current {
+  background: rgba(197, 160, 89, 0.15);
+  border-left-color: #c5a059;
+  box-shadow: 0 0 10px rgba(197, 160, 89, 0.2);
+}
+
+.thread-message-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.thread-message-header strong {
+  color: var(--color-accent-gold);
+  font-size: 0.95em;
+}
+
+.thread-message-date {
+  font-size: 0.8em;
+  color: var(--color-text-dim);
+}
+
+.thread-message-subject {
+  font-size: 0.9em;
+  color: var(--color-text-cream);
+  margin-bottom: 6px;
+  font-style: italic;
+}
+
+.thread-message-body {
+  font-size: 0.9em;
+  color: #a89875;
+  line-height: 1.4;
+}
+
+/* Compose Form */
+.message-compose-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  flex: 1;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-weight: 600;
+  color: var(--color-text-dim);
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.form-group input,
+.form-group textarea {
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 2px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-cream);
+  font-size: 1em;
+  font-family: 'Inter', sans-serif;
+  transition: all 0.3s;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: var(--color-accent-gold);
+  background: rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 10px rgba(197, 160, 89, 0.3);
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 150px;
+  line-height: 1.5;
+}
+
+/* Buttons */
+.btn-primary,
+.btn-send {
+  padding: 12px 24px;
+  background: var(--color-accent-gold);
+  color: var(--color-bg-dark);
+  border: 2px solid rgba(197, 160, 89, 0.3);
+  border-radius: 6px;
+  font-family: 'Cinzel', serif;
+  font-size: 1em;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 4px 12px rgba(197, 160, 89, 0.4);
+}
+
+.btn-primary:hover,
+.btn-send:hover {
+  background: #d4b06a;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(197, 160, 89, 0.6);
+}
+
+.btn-primary:active,
+.btn-send:active {
+  transform: translateY(0);
+}
+
+.btn-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-send {
+  width: 100%;
+  margin-top: auto;
+}
+
+/* Empty State */
+.empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-dim);
+  font-size: 1.1em;
+  text-align: center;
+}
+
+.empty-state p {
+  padding: 30px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
 }
 </style>
