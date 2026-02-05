@@ -4,7 +4,7 @@ config.pro.php
 config.json
 .env
 logs/*.log
-server/*.log
+*.log
 
 # Carpetas de Dependencias
 vendor/
