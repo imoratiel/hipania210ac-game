@@ -11,6 +11,14 @@ const PORT = process.env.PORT || 3000;
 
 // Log file configuration
 const LOG_FILE = path.join(__dirname, 'server.log');
+const ECONOMY_LOG_FILE = path.join(__dirname, 'logs', 'economy.log');
+
+// Ensure logs directory exists
+const logsDir = path.join(__dirname, 'logs');
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+  console.log('✓ Created logs directory');
+}
 
 /**
  * Log game events to server.log file
@@ -24,6 +32,23 @@ function logGameEvent(message) {
     fs.appendFileSync(LOG_FILE, logEntry, 'utf8');
   } catch (error) {
     console.error('Error writing to log file:', error);
+  }
+}
+
+/**
+ * Log economy events to logs/economy.log file
+ * @param {number} turnNumber - Current turn number
+ * @param {string} eventType - Type of economic event (WOOD_REGEN, MINING, DEPLETION, STARVATION)
+ * @param {string} details - Details about the event
+ */
+function logEconomyEvent(turnNumber, eventType, details) {
+  const timestamp = new Date().toISOString();
+  const logEntry = `[${timestamp}] [TURN ${turnNumber}] [${eventType}] ${details}\n`;
+
+  try {
+    fs.appendFileSync(ECONOMY_LOG_FILE, logEntry, 'utf8');
+  } catch (error) {
+    console.error('Error writing to economy log file:', error);
   }
 }
 
@@ -43,6 +68,13 @@ const CONFIG = {
   exploration: {
     turns_required: 5,
     gold_cost: 100
+  },
+  infrastructure: {
+    prod_multiplier_per_level: 0.20,
+    upgrade_cost_gold_base: 100
+  },
+  buildings: {
+    port_base_cost: 10000
   }
 };
 
@@ -69,6 +101,16 @@ async function loadGameConfig() {
         CONFIG[group][key] = value;
       }
     });
+
+    // Sync TURN_INTERVAL with database if exists
+    if (CONFIG.gameplay && CONFIG.gameplay.turn_duration_seconds) {
+      TURN_INTERVAL = CONFIG.gameplay.turn_duration_seconds * 1000;
+      console.log(`✓ Turn interval set from database: ${CONFIG.gameplay.turn_duration_seconds}s`);
+    } else {
+      // Set fallback in CONFIG for consistency
+      if (!CONFIG.gameplay) CONFIG.gameplay = {};
+      CONFIG.gameplay.turn_duration_seconds = Math.floor(TURN_INTERVAL / 1000);
+    }
 
     console.log('✓ Game configuration loaded:', CONFIG);
     logGameEvent(`[CONFIG] Configuration loaded: ${JSON.stringify(CONFIG)}`);
@@ -933,7 +975,10 @@ app.get('/api/map/cell-details/:h3_index', async (req, res) => {
         m.h3_index,
         t.name AS terrain_type,
         t.color AS terrain_color,
+        t.food_output,
+        t.wood_output,
         m.player_id,
+        m.is_coast,
         p.username AS player_name,
         p.color AS player_color,
         b.name AS building_type,
@@ -948,7 +993,11 @@ app.get('/api/map/cell-details/:h3_index', async (req, res) => {
         td.iron_stored,
         td.gold_stored,
         td.exploration_end_turn,
-        td.discovered_resource
+        td.discovered_resource,
+        td.farm_level,
+        td.mine_level,
+        td.lumber_level,
+        td.port_level
       FROM h3_map m
       LEFT JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
       LEFT JOIN players p ON m.player_id = p.player_id
@@ -974,6 +1023,9 @@ app.get('/api/map/cell-details/:h3_index', async (req, res) => {
       h3_index: h3_index,
       terrain_type: cell.terrain_type,
       terrain_color: cell.terrain_color,
+      food_output: cell.food_output || 0,
+      wood_output: cell.wood_output || 0,
+      is_coast: cell.is_coast || false,
       player_id: cell.player_id,
       player_name: cell.player_name,
       player_color: cell.player_color,
@@ -991,7 +1043,11 @@ app.get('/api/map/cell-details/:h3_index', async (req, res) => {
         iron: cell.discovered_resource !== null ? cell.iron_stored : 0,
         gold: cell.discovered_resource !== null ? cell.gold_stored : 0,
         exploration_end_turn: cell.exploration_end_turn,
-        discovered_resource: cell.discovered_resource
+        discovered_resource: cell.discovered_resource,
+        farm_level: cell.farm_level || 0,
+        mine_level: cell.mine_level || 0,
+        lumber_level: cell.lumber_level || 0,
+        port_level: cell.port_level || 0
       } : null
     };
 
@@ -1118,13 +1174,18 @@ app.get('/api/game/my-fiefs', requireAuth, async (req, res) => {
         CAST(td.food_stored AS DOUBLE PRECISION) AS food_stored,
         CAST(td.wood_stored AS DOUBLE PRECISION) AS wood_stored,
         t.name AS terrain_name,
-        t.fertility,
+        t.food_output,
         -- Only show mining resources if explored (discovered_resource is not NULL)
         CASE WHEN td.discovered_resource IS NOT NULL THEN CAST(td.stone_stored AS DOUBLE PRECISION) ELSE 0 END AS stone_stored,
         CASE WHEN td.discovered_resource IS NOT NULL THEN CAST(td.iron_stored AS DOUBLE PRECISION) ELSE 0 END AS iron_stored,
         CASE WHEN td.discovered_resource IS NOT NULL THEN CAST(td.gold_stored AS DOUBLE PRECISION) ELSE 0 END AS gold_stored,
         td.exploration_end_turn,
-        td.discovered_resource
+        td.discovered_resource,
+        -- Infrastructure levels
+        CAST(td.farm_level AS INTEGER) AS farm_level,
+        CAST(td.mine_level AS INTEGER) AS mine_level,
+        CAST(td.lumber_level AS INTEGER) AS lumber_level,
+        CAST(td.port_level AS INTEGER) AS port_level
       FROM h3_map m
       JOIN territory_details td ON m.h3_index = td.h3_index
       JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
@@ -1404,6 +1465,110 @@ async function processGameTurn() {
 
       console.log(`[Census] ✓ Census complete - Total growth: ${censusResults.totalGrowth}, Plagues: ${censusResults.plagueEvents}, Famines: ${censusResults.famineEvents}`);
       logGameEvent(`[CENSO COMPLETADO] Crecimiento total: ${censusResults.totalGrowth} | Pestes: ${censusResults.plagueEvents} | Hambrunas: ${censusResults.famineEvents}`);
+      logEconomyEvent(newCurrentTurn, 'CENSUS', `Censo mensual completado - Crecimiento total: ${censusResults.totalGrowth} | Pestes: ${censusResults.plagueEvents} | Hambrunas: ${censusResults.famineEvents}`);
+
+      // Monthly Resource Production (Infrastructure System)
+      console.log('[Census] 🏗️ MONTHLY PRODUCTION - Processing infrastructure-based production...');
+      logEconomyEvent(newCurrentTurn, 'PRODUCTION', 'Inicio de producción mensual basada en infraestructura');
+
+      const prodMultiplier = CONFIG.infrastructure.prod_multiplier_per_level;
+
+      // Base production rates per month
+      const BASE_PRODUCTION = {
+        wood: 50,    // Forest base production
+        stone: 30,   // Stone quarry base production
+        iron: 20,    // Iron mine base production
+        gold: 5,     // Gold vein base production
+        food: 100    // Farm base production
+      };
+
+      // Get all territories with their infrastructure levels
+      const productionQuery = `
+        SELECT
+          td.h3_index,
+          td.wood_stored,
+          td.stone_stored,
+          td.iron_stored,
+          td.gold_stored,
+          td.food_stored,
+          td.discovered_resource,
+          td.farm_level,
+          td.mine_level,
+          td.lumber_level,
+          td.port_level,
+          t.name as terrain_type,
+          t.wood_output,
+          t.food_output,
+          m.player_id,
+          COALESCE(s.name, td.h3_index) as fief_name
+        FROM territory_details td
+        JOIN h3_map m ON td.h3_index = m.h3_index
+        JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
+        LEFT JOIN settlements s ON m.h3_index = s.h3_index
+        WHERE m.player_id IS NOT NULL
+      `;
+      const productionTerritories = await client.query(productionQuery);
+
+      let totalWood = 0, totalStone = 0, totalIron = 0, totalGold = 0, totalFood = 0;
+
+      for (const territory of productionTerritories.rows) {
+        const {
+          h3_index, wood_stored, stone_stored, iron_stored, gold_stored, food_stored,
+          discovered_resource, farm_level, mine_level, lumber_level, terrain_type,
+          wood_output, food_output, player_id, fief_name
+        } = territory;
+
+        let woodProduced = 0, stoneProduced = 0, ironProduced = 0, goldProduced = 0, foodProduced = 0;
+
+        // WOOD PRODUCTION (from any forested territory - no exploration needed)
+        if (wood_output > 0 && lumber_level > 0) {
+          woodProduced = BASE_PRODUCTION.wood * (1 + (lumber_level * prodMultiplier));
+          totalWood += woodProduced;
+          logEconomyEvent(newCurrentTurn, 'PRODUCTION', `${fief_name}: Madera +${woodProduced.toFixed(2)} (Nivel Aserradero: ${lumber_level})`);
+        }
+
+        // MINING PRODUCTION (only from explored territories with mining resources)
+        if (discovered_resource && discovered_resource !== 'none' && mine_level > 0) {
+          if (discovered_resource === 'stone') {
+            stoneProduced = BASE_PRODUCTION.stone * (1 + (mine_level * prodMultiplier));
+            totalStone += stoneProduced;
+            logEconomyEvent(newCurrentTurn, 'PRODUCTION', `${fief_name}: Piedra +${stoneProduced.toFixed(2)} (Nivel Cantera: ${mine_level})`);
+          } else if (discovered_resource === 'iron') {
+            ironProduced = BASE_PRODUCTION.iron * (1 + (mine_level * prodMultiplier));
+            totalIron += ironProduced;
+            logEconomyEvent(newCurrentTurn, 'PRODUCTION', `${fief_name}: Hierro +${ironProduced.toFixed(2)} (Nivel Mina: ${mine_level})`);
+          } else if (discovered_resource === 'gold') {
+            goldProduced = BASE_PRODUCTION.gold * (1 + (mine_level * prodMultiplier));
+            totalGold += goldProduced;
+            logEconomyEvent(newCurrentTurn, 'PRODUCTION', `${fief_name}: Oro +${goldProduced.toFixed(2)} (Nivel Veta: ${mine_level})`);
+          }
+        }
+
+        // FOOD PRODUCTION (from farms in fertile land)
+        if (food_output > 0 && farm_level > 0) {
+          foodProduced = BASE_PRODUCTION.food * (1 + (farm_level * prodMultiplier));
+          totalFood += foodProduced;
+          logEconomyEvent(newCurrentTurn, 'PRODUCTION', `${fief_name}: Comida +${foodProduced.toFixed(2)} (Nivel Granja: ${farm_level})`);
+        }
+
+        // Update territory resources (ADD production, sources are infinite)
+        if (woodProduced > 0 || stoneProduced > 0 || ironProduced > 0 || goldProduced > 0 || foodProduced > 0) {
+          await client.query(
+            `UPDATE territory_details
+             SET
+               wood_stored = wood_stored + $1,
+               stone_stored = stone_stored + $2,
+               iron_stored = iron_stored + $3,
+               gold_stored = gold_stored + $4,
+               food_stored = food_stored + $5
+             WHERE h3_index = $6`,
+            [woodProduced, stoneProduced, ironProduced, goldProduced, foodProduced, h3_index]
+          );
+        }
+      }
+
+      console.log(`[Census] 🏗️ Production complete - Wood: ${totalWood.toFixed(2)}, Stone: ${totalStone.toFixed(2)}, Iron: ${totalIron.toFixed(2)}, Gold: ${totalGold.toFixed(2)}, Food: ${totalFood.toFixed(2)}`);
+      logEconomyEvent(newCurrentTurn, 'PRODUCTION', `Producción total - Madera: ${totalWood.toFixed(2)}, Piedra: ${totalStone.toFixed(2)}, Hierro: ${totalIron.toFixed(2)}, Oro: ${totalGold.toFixed(2)}, Comida: ${totalFood.toFixed(2)}`);
     }
 
     // Step 4: Check if today is a harvest day (Day 75 = Spring, Day 180 = Summer)
@@ -1415,12 +1580,12 @@ async function processGameTurn() {
       const harvestSeason = dayOfYear === 75 ? 'PRIMAVERA' : 'VERANO';
       console.log(`[Harvest] 🌾 ${harvestSeason} HARVEST DAY - Processing yields...`);
 
-      // Get all player territories with fertility data
+      // Get all player territories with food output data
       const territoriesQuery = `
         SELECT
           td.h3_index,
           td.population,
-          t.fertility
+          t.food_output
         FROM territory_details td
         JOIN h3_map m ON td.h3_index = m.h3_index
         JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
@@ -1436,7 +1601,7 @@ async function processGameTurn() {
 
       // Process each territory
       for (const territory of territories.rows) {
-        const { h3_index, population, fertility } = territory;
+        const { h3_index, population, food_output } = territory;
 
         // Get player_id for this territory
         const ownerQuery = await client.query(
@@ -1451,10 +1616,10 @@ async function processGameTurn() {
         // Roll dice (1-100)
         let roll = Math.floor(Math.random() * 100) + 1;
 
-        // Fertility bonus: +10 if fertility > 80
-        if (fertility > 80) {
+        // Food output bonus: +10 if food_output > 80
+        if (food_output > 80) {
           roll += 10;
-          console.log(`[Harvest] ${h3_index}: Fertility bonus applied (+10)`);
+          console.log(`[Harvest] ${h3_index}: Food output bonus applied (+10)`);
         }
 
         // Determine yield multiplier based on probabilities
@@ -1488,7 +1653,7 @@ async function processGameTurn() {
         const baseYield = annualNeed * multiplier;
         const finalYield = Math.floor(baseYield * variation);
 
-        console.log(`[Harvest] ${h3_index}: Roll=${roll}, Fertility=${fertility}, Type=${resultType}, Yield=${finalYield}`);
+        console.log(`[Harvest] ${h3_index}: Roll=${roll}, FoodOutput=${food_output}, Type=${resultType}, Yield=${finalYield}`);
 
         // Track yield per player
         if (player_id) {
@@ -1673,6 +1838,97 @@ Resumen de calidad de cosechas:
 
         console.log(`[Exploration] ✓ Completed exploration for ${h3_index}: ${discoveredResource}`);
       }
+    }
+
+    // Step 7: Wood Regeneration (seasonal growth in forests)
+    // Determine current season based on day of year
+    const month = new Date(newGameDate).getMonth(); // 0-11
+    const season = month >= 2 && month <= 4 ? 'spring' : // March-May
+                   month >= 5 && month <= 7 ? 'summer' : // June-August
+                   month >= 8 && month <= 10 ? 'autumn' : // September-November
+                   'winter'; // December-February
+
+    if (season === 'spring' || season === 'summer') {
+      // 2% growth in all forested territories during spring/summer (capped at 10000)
+      // Wood is a surface resource - no exploration required
+      const woodGrowthQuery = `
+        UPDATE territory_details td
+        SET wood_stored = LEAST(10000, wood_stored * 1.02)
+        FROM h3_map m
+        JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
+        WHERE td.h3_index = m.h3_index
+          AND m.player_id IS NOT NULL
+          AND t.wood_output > 0
+          AND td.wood_stored > 0
+      `;
+      const woodGrowthResult = await client.query(woodGrowthQuery);
+      if (woodGrowthResult.rowCount > 0) {
+        console.log(`[Wood Growth] ${season.toUpperCase()}: ${woodGrowthResult.rowCount} forested territories regenerated wood (+2%)`);
+        logGameEvent(`[MADERA] Temporada de ${season}: ${woodGrowthResult.rowCount} territorios forestales regeneraron madera`);
+        logEconomyEvent(newCurrentTurn, 'WOOD_REGEN', `Temporada de ${season}: ${woodGrowthResult.rowCount} territorios forestales regeneraron madera (+2%)`);
+      }
+    }
+
+    // Step 8: Starvation - Reduce population when food_stored = 0
+    const starvationQuery = `
+      SELECT
+        td.h3_index,
+        td.population,
+        td.food_stored,
+        m.player_id,
+        COALESCE(s.name, td.h3_index) as fief_name
+      FROM territory_details td
+      JOIN h3_map m ON td.h3_index = m.h3_index
+      LEFT JOIN settlements s ON m.h3_index = s.h3_index
+      WHERE m.player_id IS NOT NULL
+        AND td.food_stored = 0
+        AND td.population > 0
+    `;
+    const starvingTerritories = await client.query(starvationQuery);
+
+    const starvationEvents = [];
+
+    for (const territory of starvingTerritories.rows) {
+      const { h3_index, population, player_id, fief_name } = territory;
+
+      // Reduce population by 5% per turn during starvation
+      const populationLoss = Math.ceil(population * 0.05);
+      const newPopulation = Math.max(0, population - populationLoss);
+
+      await client.query(
+        `UPDATE territory_details SET population = $1 WHERE h3_index = $2`,
+        [newPopulation, h3_index]
+      );
+
+      starvationEvents.push({ player_id, fief_name, loss: populationLoss, remaining: newPopulation });
+      logGameEvent(`[HAMBRUNA] ${fief_name} (Jugador ${player_id}): -${populationLoss} habitantes (quedan ${newPopulation})`);
+      logEconomyEvent(newCurrentTurn, 'STARVATION', `${fief_name} (Jugador ${player_id}): -${populationLoss} habitantes (quedan ${newPopulation})`);
+    }
+
+    // Send starvation notifications (grouped by player)
+    if (starvationEvents.length > 0) {
+      const playerStarvation = new Map();
+      for (const event of starvationEvents) {
+        if (!playerStarvation.has(event.player_id)) {
+          playerStarvation.set(event.player_id, []);
+        }
+        playerStarvation.get(event.player_id).push(event);
+      }
+
+      for (const [player_id, events] of playerStarvation) {
+        const fiefsList = events.map(e => `• ${e.fief_name}: -${e.loss} habitantes (quedan ${e.remaining})`).join('\n');
+        await client.query(
+          `INSERT INTO messages (sender_id, receiver_id, subject, body)
+           VALUES (NULL, $1, $2, $3)`,
+          [
+            player_id,
+            '⚠️ Hambruna en el Reino',
+            `🌾 ALERTA DE HAMBRUNA\n\nLos siguientes feudos están sufriendo hambruna por falta de alimentos:\n\n${fiefsList}\n\n¡Asegura el suministro de comida urgentemente!`
+          ]
+        );
+      }
+
+      console.log(`[Starvation] ${starvationEvents.length} territories suffering from starvation`);
     }
 
     // Commit transaction
@@ -1875,6 +2131,199 @@ app.post('/api/territory/explore', requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/territory/upgrade
+ * Upgrades infrastructure in a territory (farm, mine, lumber, or port)
+ * Requires authentication and territory ownership
+ */
+app.post('/api/territory/upgrade', requireAuth, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { h3_index, building_type } = req.body;
+
+    // Validate building type
+    const validBuildings = ['farm', 'mine', 'lumber', 'port'];
+    if (!validBuildings.includes(building_type)) {
+      return res.status(400).json({
+        success: false,
+        message: `Tipo de edificio inválido. Debe ser uno de: ${validBuildings.join(', ')}`
+      });
+    }
+
+    // Safety check for user session
+    if (!req.session || !req.session.user) {
+      return res.status(401).json({ success: false, message: 'Usuario no autenticado' });
+    }
+
+    const player_id = req.session.user.player_id;
+
+    if (!h3_index) {
+      return res.status(400).json({
+        success: false,
+        message: 'Parámetro h3_index requerido'
+      });
+    }
+
+    await client.query('BEGIN');
+
+    // Verify player owns the territory
+    const ownershipCheck = await client.query(
+      'SELECT player_id FROM h3_map WHERE h3_index = $1',
+      [h3_index]
+    );
+
+    if (ownershipCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Territorio no encontrado'
+      });
+    }
+
+    if (ownershipCheck.rows[0].player_id !== player_id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({
+        success: false,
+        message: 'No posees este territorio'
+      });
+    }
+
+    // Get territory details with terrain information for validation
+    const levelField = `${building_type}_level`;
+    const territoryDetails = await client.query(
+      `SELECT
+        td.${levelField},
+        td.discovered_resource,
+        t.name AS terrain_type,
+        t.food_output,
+        t.wood_output,
+        m.is_coast
+      FROM territory_details td
+      JOIN h3_map m ON td.h3_index = m.h3_index
+      JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
+      WHERE td.h3_index = $1`,
+      [h3_index]
+    );
+
+    if (territoryDetails.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Detalles del territorio no encontrados'
+      });
+    }
+
+    const territory = territoryDetails.rows[0];
+    const currentLevel = territory[levelField] || 0;
+    const newLevel = currentLevel + 1;
+
+    // GEOGRAPHIC RESTRICTIONS: Validate terrain suitability
+    let restrictionError = null;
+
+    if (building_type === 'farm') {
+      // Farms require fertile land (food_output > 0)
+      if (!territory.food_output || territory.food_output <= 0) {
+        restrictionError = 'Este terreno no es apto para granjas. No tiene producción de alimentos.';
+      }
+    } else if (building_type === 'lumber') {
+      // Lumber mills require forests (wood_output > 0)
+      if (!territory.wood_output || territory.wood_output <= 0) {
+        restrictionError = 'No hay bosques en esta casilla. El aserradero requiere terreno forestal.';
+      }
+    } else if (building_type === 'mine') {
+      // Mines require explored territory with discovered resources
+      if (!territory.discovered_resource || territory.discovered_resource === 'none') {
+        restrictionError = 'No se han descubierto recursos mineros en este territorio. Debes explorarlo primero.';
+      }
+    } else if (building_type === 'port') {
+      // Ports require coastal territories
+      if (!territory.is_coast && territory.terrain_type !== 'Coast') {
+        restrictionError = 'Los puertos solo pueden construirse en territorios costeros.';
+      }
+    }
+
+    if (restrictionError) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: restrictionError
+      });
+    }
+
+    // EXPONENTIAL COST CURVE: Cost = Base * (2 ^ current_level)
+    let baseCost;
+    if (building_type === 'port') {
+      // Ports have higher base cost (10,000 from config)
+      baseCost = CONFIG.buildings?.port_base_cost || 10000;
+    } else {
+      // Other buildings use standard base cost (100)
+      baseCost = CONFIG.infrastructure.upgrade_cost_gold_base;
+    }
+
+    const upgradeCost = baseCost * Math.pow(2, currentLevel);
+
+    // Check player has enough gold
+    const playerResult = await client.query(
+      'SELECT gold FROM players WHERE player_id = $1',
+      [player_id]
+    );
+
+    const player = playerResult.rows[0];
+    if (player.gold < upgradeCost) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: `Tesorería insuficiente para esta expansión. Necesitas ${upgradeCost} oro, pero solo tienes ${player.gold}.`
+      });
+    }
+
+    // Deduct gold
+    await client.query(
+      'UPDATE players SET gold = gold - $1 WHERE player_id = $2',
+      [upgradeCost, player_id]
+    );
+
+    // Upgrade infrastructure
+    await client.query(
+      `UPDATE territory_details SET ${levelField} = $1 WHERE h3_index = $2`,
+      [newLevel, h3_index]
+    );
+
+    await client.query('COMMIT');
+
+    const buildingNames = {
+      farm: 'Granja',
+      mine: 'Mina',
+      lumber: 'Aserradero',
+      port: 'Puerto'
+    };
+
+    logGameEvent(`[INFRAESTRUCTURA] Jugador ${player_id} mejoró ${buildingNames[building_type]} en ${h3_index} a nivel ${newLevel}. Costo: ${upgradeCost} oro`);
+
+    res.json({
+      success: true,
+      message: `${buildingNames[building_type]} mejorada al nivel ${newLevel}`,
+      building_type,
+      old_level: currentLevel,
+      new_level: newLevel,
+      gold_spent: upgradeCost,
+      new_gold_balance: player.gold - upgradeCost
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error upgrading infrastructure:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  } finally {
+    client.release();
+  }
+});
+
 // ============================================================================
 // ADMIN ENDPOINTS
 // ============================================================================
@@ -1931,20 +2380,32 @@ app.post('/api/admin/config', requireAdmin, async (req, res) => {
 
     console.log(`[Admin] Changing turn interval to ${turn_interval_seconds} seconds`);
 
-    // Note: This would require restarting the time engine
-    // For now, we'll just log the change
+    // Persist in database
+    await pool.query(
+      `INSERT INTO game_config ("group", "key", "value") 
+       VALUES ('gameplay', 'turn_duration_seconds', $1)
+       ON CONFLICT ("group", "key") DO UPDATE SET "value" = EXCLUDED.value`,
+      [turn_interval_seconds.toString()]
+    );
+
     const newInterval = turn_interval_seconds * 1000;
 
     // Restart time engine with new interval
     stopTimeEngine();
     TURN_INTERVAL = newInterval;
+
+    // Update memory config for consistency
+    if (!CONFIG.gameplay) CONFIG.gameplay = {};
+    CONFIG.gameplay.turn_duration_seconds = turn_interval_seconds;
+
     startTimeEngine();
 
-    console.log(`[Admin] ✓ Turn interval updated to ${turn_interval_seconds}s`);
+    console.log(`[Admin] ✓ Turn interval updated to ${turn_interval_seconds}s and persisted in DB`);
+    logGameEvent(`[ADMIN] Intervalo de turno cambiado por admin a ${turn_interval_seconds}s`);
 
     res.json({
       success: true,
-      message: `Intervalo de turno actualizado a ${turn_interval_seconds} segundos`,
+      message: `Intervalo de turno actualizado a ${turn_interval_seconds} segundos (guardado en BD)`,
       turn_interval_seconds: turn_interval_seconds
     });
   } catch (error) {
@@ -2344,24 +2805,24 @@ app.get('/health', (req, res) => {
 // ============================================================================
 
 // Configuration
-let TURN_INTERVAL = 15 * 1000; // 15 seconds for testing (use 300000 for 5 minutes in production)
-let timeEngineIntervalId = null;
+let TURN_INTERVAL = 15 * 1000; // Default 15 seconds (fallback)
+let timeEngineTimeoutId = null;
 
 /**
  * Initialize and start the game time engine
  * Processes turns automatically at regular intervals
  */
 function startTimeEngine() {
-  console.log('⏰ [Time Engine] Starting autonomous time engine...');
+  console.log('⏰ [Time Engine] Starting autonomous time engine (Recursive Timeout)...');
   console.log(`⏰ [Time Engine] Turn interval: ${TURN_INTERVAL / 1000} seconds`);
 
-  // Clear any existing interval
-  if (timeEngineIntervalId) {
-    clearInterval(timeEngineIntervalId);
+  // Clear any existing timeout/interval
+  if (timeEngineTimeoutId) {
+    clearTimeout(timeEngineTimeoutId);
+    timeEngineTimeoutId = null;
   }
 
-  // Start processing turns at regular intervals
-  timeEngineIntervalId = setInterval(async () => {
+  const runTurn = async () => {
     try {
       console.log('\n⏰ [Time Engine] ========== AUTO TURN TRIGGER ==========');
       const result = await processGameTurn();
@@ -2373,8 +2834,15 @@ function startTimeEngine() {
       }
     } catch (error) {
       console.error('⏰ [Time Engine] ❌ Error processing automated turn:', error.message);
+    } finally {
+      // Schedule next turn using the latest TURN_INTERVAL
+      // This allows the interval to change dynamically between turns
+      timeEngineTimeoutId = setTimeout(runTurn, TURN_INTERVAL);
     }
-  }, TURN_INTERVAL);
+  };
+
+  // Start the first turn after the interval
+  timeEngineTimeoutId = setTimeout(runTurn, TURN_INTERVAL);
 
   console.log('⏰ [Time Engine] ✓ Time engine started successfully');
 }
@@ -2383,9 +2851,9 @@ function startTimeEngine() {
  * Stop the game time engine
  */
 function stopTimeEngine() {
-  if (timeEngineIntervalId) {
-    clearInterval(timeEngineIntervalId);
-    timeEngineIntervalId = null;
+  if (timeEngineTimeoutId) {
+    clearTimeout(timeEngineTimeoutId);
+    timeEngineTimeoutId = null;
     console.log('⏰ [Time Engine] Time engine stopped');
   }
 }

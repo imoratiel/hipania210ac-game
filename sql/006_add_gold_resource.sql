@@ -34,3 +34,36 @@ CREATE TABLE game_config (
 INSERT INTO game_config ("group", "key", "value") VALUES 
 ('exploration', 'turns_required', '5'),
 ('exploration', 'gold_cost', '100');
+
+INSERT INTO game_config ("group", "key", "value") VALUES
+('gameplay', 'turn_duration_seconds', '60'); -- Por defecto, 1 minuto por turno
+
+-- Infrastructure system configuration
+INSERT INTO game_config ("group", "key", "value") VALUES
+('infrastructure', 'prod_multiplier_per_level', '0.20'),
+('infrastructure', 'upgrade_cost_gold_base', '100')
+ON CONFLICT ("key") DO NOTHING;
+
+
+-- 1. Renombrar el campo de fertilidad a producción de comida
+ALTER TABLE terrain_types RENAME COLUMN fertility TO food_output;
+
+-- 2. Asegurarnos de que el coste base de los puertos esté en la configuración
+-- (Si ya existe la clave gold_cost_base_port, esto la actualizará)
+INSERT INTO game_config ("group", "key", "value") 
+VALUES ('buildings', 'port_base_cost', '10000')
+ON CONFLICT ("key") DO UPDATE SET "value" = '10000';
+
+-- 2. Configuración de costes base para edificios
+INSERT INTO game_config ("group", "key", "value") VALUES
+('buildings', 'standard_upgrade_base_cost', '100')
+ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED.value;
+
+-- 3. Asegurar que los niveles iniciales sean 0
+UPDATE territory_details SET 
+    farm_level = 0, 
+    mine_level = 0, 
+    lumber_level = 0, 
+    port_level = 0 
+WHERE farm_level IS NULL;
+

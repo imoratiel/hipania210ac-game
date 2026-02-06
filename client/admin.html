@@ -284,6 +284,9 @@
             <div class="stat-value" id="stat-interval">-</div>
           </div>
         </div>
+        <p style="color: #95a5a6; font-size: 0.9em; margin-bottom: 20px;">
+          * El intervalo en tiempo real puede variar ligeramente debido al procesamiento de cada turno.
+        </p>
         <button class="primary" onclick="loadStats()">🔄 Actualizar Estadísticas</button>
       </div>
 
@@ -310,12 +313,12 @@
 
       <!-- Configure Turn Interval Card -->
       <div class="card">
-        <h2>⚙️ Configurar Intervalo</h2>
+        <h2>⚙️ Duración del Turno</h2>
         <p style="color: #95a5a6; margin-bottom: 20px;">
-          Cambia el intervalo de tiempo entre turnos automáticos.
+          Configura el tiempo entre turnos automáticos.
         </p>
         <div class="form-group">
-          <label for="turn-interval">Intervalo de Turno (segundos)</label>
+          <label for="turn-interval">Duración del Turno (segundos)</label>
           <input
             type="number"
             id="turn-interval"
@@ -323,6 +326,9 @@
             min="5"
             value="15"
           />
+          <p style="color: #e74c3c; font-size: 0.85em; margin-top: 10px; font-weight: bold;">
+            ⚠️ Cambiar esto afectará a la velocidad de producción y exploración de todos los jugadores.
+          </p>
         </div>
         <button class="success" onclick="updateConfig()">💾 Guardar Configuración</button>
         <div id="config-alert" class="alert"></div>

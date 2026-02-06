@@ -640,19 +640,22 @@
             <table class="kingdom-table full-width">
               <thead>
                 <tr>
+                  <th @click="sortKingdomBy('h3_index')" title="Código de la celda" class="tight-col">Cod. Celda</th>
                   <th @click="sortKingdomBy('name')">Nombre {{ kingdomSort.field === 'name' ? (kingdomSort.asc ? '▲' : '▼') : '' }}</th>
                   <th @click="sortKingdomBy('terrain')">Terreno</th>
-                  <th @click="sortKingdomBy('population')">Población</th>
-                  <th @click="sortKingdomBy('happiness')">😊 Fel.</th>
-                  <th @click="sortKingdomBy('food')">🌾 Comida</th>
-                  <th @click="sortKingdomBy('foodBalance')">Δ Alim.</th>
-                  <th @click="sortKingdomBy('wood')">🌲 Mad.</th>
-                  <th @click="sortKingdomBy('stone')">⛰️ Pie.</th>
-                  <th @click="sortKingdomBy('iron')">⛏️ Hie.</th>
-                  <th @click="sortKingdomBy('gold')">🪙 Oro</th>
-                  <th @click="sortKingdomBy('explorationStatus')">Prosp.</th>
-                  <th @click="sortKingdomBy('autonomy')">Auton.</th>
-                  <th @click="sortKingdomBy('distance')">Dist.</th>
+                  <th @click="sortKingdomBy('population')" class="text-right">Población</th>
+                  <th @click="sortKingdomBy('happiness')" title="Felicidad de la población. Afecta a la productividad y riesgo de revueltas." class="th-abbr text-right">😊 Fel.</th>
+                  <th @click="sortKingdomBy('food')" title="Reservas de alimentos actuales." class="text-right">🌾 Comida</th>
+                  <th @click="sortKingdomBy('consumption')" title="Consumo de alimentos por turno (valor negativo)" class="th-abbr tight-col text-right">🍴 Consumo</th>
+                  <th @click="sortKingdomBy('foodBalance')" title="Balance final (Producción - Consumo)" class="tight-col text-right">Δ</th>
+                  <th @click="sortKingdomBy('wood')" title="Madera almacenada (Construcción)." class="th-abbr text-right">🌲 Mad.</th>
+                  <th @click="sortKingdomBy('stone')" title="Piedra almacenada (Construcción y Murallas)." class="th-abbr text-right">⛰️ Pie.</th>
+                  <th @click="sortKingdomBy('iron')" title="Hierro almacenado (Reclutamiento y Armas)." class="th-abbr text-right">⛏️ Hie.</th>
+                  <th @click="sortKingdomBy('gold')" title="Oro almacenado (Exploración y Salarios)." class="text-right">🪙 Oro</th>
+                  <th @click="sortKingdomBy('explorationStatus')" title="Estado de la exploración geológica del feudo.">Prosp.</th>
+                  <th title="Niveles de infraestructura: 🚜 Granja, 🪓 Aserradero, ⛏️ Mina, ⚓ Puerto">🏗️ Infraestr.</th>
+                  <th @click="sortKingdomBy('autonomy')" title="Días de comida restantes antes de que la población empieze a morir de hambre." class="text-right">Auton.</th>
+                  <th @click="sortKingdomBy('distance')" title="Distancia a la capital en casillas." class="text-right">Dist.</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
@@ -663,23 +666,27 @@
                   class="kingdom-row"
                   @click="focusOnFiefAndClose(fief.h3_index)"
                 >
+                  <td class="h3-cell tight-col">{{ fief.h3_index }}</td>
                   <td class="kingdom-cell-name">
                     <span class="cell-icon">🏰</span> {{ fief.name }}
                   </td>
                   <td>{{ fief.terrain }}</td>
-                  <td :class="{ 'text-danger': fief.population < 400 }">
+                  <td :class="['text-right', { 'text-danger': fief.population < 400 }]">
                     {{ formatNumber(fief.population) }}
                     <span v-if="fief.population < 400" class="warning-icon" title="Población baja">⚠️</span>
                   </td>
-                  <td :class="fief.happiness < 50 ? 'text-danger' : 'text-success'">{{ fief.happiness }}%</td>
-                  <td>{{ formatNumber(fief.food) }}</td>
-                  <td :class="fief.foodBalance < 0 ? 'text-danger' : 'text-success'">
+                  <td :class="['text-right', fief.happiness < 50 ? 'text-danger' : 'text-success']">{{ fief.happiness }}%</td>
+                  <td class="text-right">{{ formatNumber(fief.food) }}</td>
+                  <td class="text-consumption text-right tight-col">
+                    -{{ Math.abs(fief.consumption).toFixed(2) }}
+                  </td>
+                  <td :class="['text-right', 'tight-col', fief.foodBalance < 0 ? 'text-danger' : 'text-success']">
                     {{ fief.foodBalance > 0 ? '+' : '' }}{{ fief.foodBalance.toFixed(2) }}
                   </td>
-                  <td>{{ formatNumber(fief.wood) }}</td>
-                  <td>{{ formatNumber(fief.stone) }}</td>
-                  <td>{{ formatNumber(fief.iron) }}</td>
-                  <td class="text-gold">{{ formatGold(fief.gold) }}</td>
+                  <td class="text-right">{{ formatNumber(fief.wood) }}</td>
+                  <td class="text-right">{{ formatNumber(fief.stone) }}</td>
+                  <td class="text-right">{{ formatNumber(fief.iron) }}</td>
+                  <td class="text-gold text-right">{{ formatGold(fief.gold) }}</td>
                   <td>
                     <span
                       :class="{
@@ -692,6 +699,13 @@
                     >
                       {{ fief.explorationStatusIcon }} {{ fief.explorationStatusShort }}
                     </span>
+                    <span
+                      v-if="fief.miningStatus"
+                      class="mining-status-badge mining-low"
+                      :title="fief.miningStatusText"
+                    >
+                      {{ fief.miningStatusIcon }}
+                    </span>
                     <button
                       v-if="fief.explorationStatus === 'pending'"
                       class="btn-micro btn-explore-micro"
@@ -699,16 +713,22 @@
                       :disabled="playerGold < explorationConfig.gold_cost"
                       :title="`Explorar (${explorationConfig.gold_cost} 💰)`"
                     >
-                      +
+                      ⛏️
                     </button>
                   </td>
-                  <td :class="{
+                  <td class="infrastructure-summary" :title="`Granja: ${fief.farm_level || 0}, Aserradero: ${fief.lumber_level || 0}, Mina: ${fief.mine_level || 0}, Puerto: ${fief.port_level || 0}`">
+                    <span class="infra-icon">🚜{{ fief.farm_level || 0 }}</span>
+                    <span class="infra-icon">🪓{{ fief.lumber_level || 0 }}</span>
+                    <span class="infra-icon">⛏️{{ fief.mine_level || 0 }}</span>
+                    <span class="infra-icon">⚓{{ fief.port_level || 0 }}</span>
+                  </td>
+                  <td :class="['text-right', {
                     'text-danger': fief.autonomy < 30,
                     'text-success': fief.autonomy > 365
-                  }">
+                  }]">
                     {{ fief.autonomy === Infinity ? '∞' : fief.autonomy }}
                   </td>
-                  <td>{{ fief.distance }} casillas</td>
+                  <td class="text-right">{{ fief.distance }} casillas</td>
                   <td>
                     <button class="btn-micro" @click.stop="focusOnFiefAndClose(fief.h3_index)">🗺️</button>
                   </td>
@@ -942,6 +962,36 @@ const filteredAndSortedFiefs = computed(() => {
       explorationStatusText = 'Sin explorar - Clic para iniciar exploración';
     }
 
+    // Determine low stock status (no depletion, resources are permanent)
+    let miningStatus = null;
+    let miningStatusIcon = '';
+    let miningStatusText = '';
+
+    if (isExplored && fief.discovered_resource !== 'none') {
+      if (fief.discovered_resource === 'stone') {
+        const stoneAmount = Number(fief.stone_stored || 0);
+        if (stoneAmount > 0 && stoneAmount < 100) {
+          miningStatus = 'low';
+          miningStatusIcon = '⚠️';
+          miningStatusText = 'Stock bajo';
+        }
+      } else if (fief.discovered_resource === 'iron') {
+        const ironAmount = Number(fief.iron_stored || 0);
+        if (ironAmount > 0 && ironAmount < 100) {
+          miningStatus = 'low';
+          miningStatusIcon = '⚠️';
+          miningStatusText = 'Stock bajo';
+        }
+      } else if (fief.discovered_resource === 'gold') {
+        const goldAmount = Number(fief.gold_stored || 0);
+        if (goldAmount > 0 && goldAmount < 0.5) {
+          miningStatus = 'low';
+          miningStatusIcon = '⚠️';
+          miningStatusText = 'Stock bajo';
+        }
+      }
+    }
+
     return {
       h3_index: fief.h3_index,
       name: fief.location_name || fief.h3_index?.substring(0, 8) || 'Territorio',
@@ -963,7 +1013,10 @@ const filteredAndSortedFiefs = computed(() => {
       explorationStatusShort,
       explorationStatusText,
       discovered_resource: fief.discovered_resource,
-      exploration_end_turn: fief.exploration_end_turn
+      exploration_end_turn: fief.exploration_end_turn,
+      miningStatus,
+      miningStatusIcon,
+      miningStatusText
     };
   });
 
@@ -2840,14 +2893,25 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
       if (isExplored) {
         // Show actual values for explored territories
         if (cell.territory.discovered_resource !== 'none') {
-          if (cell.territory.discovered_resource === 'stone' || cell.territory.stone > 0) {
-            popupContent += `<span class="resource-item">⛰️ Piedra: ${cell.territory.stone}</span>`;
+          // Stone
+          if (cell.territory.discovered_resource === 'stone') {
+            const stone = Number(cell.territory.stone || 0);
+            const stoneClass = stone < 100 ? 'resource-item resource-low' : 'resource-item';
+            popupContent += `<span class="${stoneClass}">⛰️ Piedra: ${Math.round(stone)}</span>`;
           }
-          if (cell.territory.discovered_resource === 'iron' || cell.territory.iron > 0) {
-            popupContent += `<span class="resource-item">⛏️ Hierro: ${cell.territory.iron}</span>`;
+
+          // Iron
+          if (cell.territory.discovered_resource === 'iron') {
+            const iron = Number(cell.territory.iron || 0);
+            const ironClass = iron < 100 ? 'resource-item resource-low' : 'resource-item';
+            popupContent += `<span class="${ironClass}">⛏️ Hierro: ${Math.round(iron)}</span>`;
           }
-          if (cell.territory.discovered_resource === 'gold' || cell.territory.gold > 0) {
-            popupContent += `<span class="resource-item resource-gold">🪙 Oro: ${Number(cell.territory.gold || 0).toFixed(2)}</span>`;
+
+          // Gold
+          if (cell.territory.discovered_resource === 'gold') {
+            const gold = Number(cell.territory.gold || 0);
+            const goldClass = gold < 0.5 ? 'resource-item resource-gold resource-low' : 'resource-item resource-gold';
+            popupContent += `<span class="${goldClass}">🪙 Oro: ${gold.toFixed(2)}</span>`;
           }
         } else {
           popupContent += `<span class="resource-item" style="opacity: 0.5;">⛏️ Sin recursos mineros</span>`;
@@ -2878,6 +2942,110 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
         popupContent += `<p class="exploration-status exploration-not-started">⚪ Sin explorar</p>`;
       }
 
+      popupContent += '</div>';
+
+      // INFRASTRUCTURE SECTION (only for owned territories)
+      popupContent += '<div class="infrastructure-section">';
+      popupContent += '<p class="infrastructure-label">🏗️ Infraestructura:</p>';
+      popupContent += '<div class="infrastructure-grid">';
+
+      // Infrastructure levels
+      const farmLevel = Number(cell.territory.farm_level || 0);
+      const mineLevel = Number(cell.territory.mine_level || 0);
+      const lumberLevel = Number(cell.territory.lumber_level || 0);
+      const portLevel = Number(cell.territory.port_level || 0);
+
+      // Exponential cost calculation: Base * (2 ^ current_level)
+      const standardBase = 100;
+      const portBase = 10000;
+      const farmCost = standardBase * Math.pow(2, farmLevel);
+      const mineCost = standardBase * Math.pow(2, mineLevel);
+      const lumberCost = standardBase * Math.pow(2, lumberLevel);
+      const portCost = portBase * Math.pow(2, portLevel);
+
+      // Geographic restrictions
+      const foodOutput = Number(cell.food_output || 0);
+      const woodOutput = Number(cell.wood_output || 0);
+      const isCoast = cell.is_coast || cell.terrain_type === 'Coast';
+      const hasMinedResource = cell.territory.discovered_resource && cell.territory.discovered_resource !== 'none';
+
+      // Farm (requires food_output > 0)
+      const canBuildFarm = foodOutput > 0;
+      const farmDisabledReason = !canBuildFarm ? 'Este terreno no es apto para granjas' : '';
+
+      popupContent += `
+        <div class="infrastructure-item">
+          <span>🚜 Granja: Nivel ${farmLevel}</span>
+          ${canBuildFarm ? `
+            <button class="btn-upgrade" data-building="farm" data-h3="${h3_index}" data-cost="${farmCost}">
+              + (${farmCost}💰)
+            </button>
+          ` : `
+            <button class="btn-upgrade-disabled" disabled title="${farmDisabledReason}">
+              🚫
+            </button>
+          `}
+        </div>
+      `;
+
+      // Mine (requires discovered_resource)
+      const canBuildMine = hasMinedResource;
+      const mineDisabledReason = !canBuildMine ? 'No hay recursos mineros descubiertos' : '';
+
+      popupContent += `
+        <div class="infrastructure-item">
+          <span>⛏️ Mina: Nivel ${mineLevel}</span>
+          ${canBuildMine ? `
+            <button class="btn-upgrade" data-building="mine" data-h3="${h3_index}" data-cost="${mineCost}">
+              + (${mineCost}💰)
+            </button>
+          ` : `
+            <button class="btn-upgrade-disabled" disabled title="${mineDisabledReason}">
+              🚫
+            </button>
+          `}
+        </div>
+      `;
+
+      // Lumber mill (requires wood_output > 0)
+      const canBuildLumber = woodOutput > 0;
+      const lumberDisabledReason = !canBuildLumber ? 'No hay bosques en esta casilla' : '';
+
+      popupContent += `
+        <div class="infrastructure-item">
+          <span>🪓 Aserradero: Nivel ${lumberLevel}</span>
+          ${canBuildLumber ? `
+            <button class="btn-upgrade" data-building="lumber" data-h3="${h3_index}" data-cost="${lumberCost}">
+              + (${lumberCost}💰)
+            </button>
+          ` : `
+            <button class="btn-upgrade-disabled" disabled title="${lumberDisabledReason}">
+              🚫
+            </button>
+          `}
+        </div>
+      `;
+
+      // Port (requires is_coast)
+      const canBuildPort = isCoast;
+      const portDisabledReason = !canBuildPort ? 'Los puertos requieren costa' : '';
+
+      popupContent += `
+        <div class="infrastructure-item">
+          <span>⚓ Puerto: Nivel ${portLevel}</span>
+          ${canBuildPort ? `
+            <button class="btn-upgrade" data-building="port" data-h3="${h3_index}" data-cost="${portCost}">
+              + (${portCost}💰)
+            </button>
+          ` : `
+            <button class="btn-upgrade-disabled" disabled title="${portDisabledReason}">
+              🚫
+            </button>
+          `}
+        </div>
+      `;
+
+      popupContent += '</div>';
       popupContent += '</div>';
 
       popupContent += '</div>';
@@ -2994,6 +3162,23 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
             exploreFromPopup(h3_index);
           });
         }
+
+        // Attach upgrade button handlers
+        const upgradeButtons = document.querySelectorAll('.btn-upgrade');
+        upgradeButtons.forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            const buildingType = e.target.getAttribute('data-building');
+            const h3Index = e.target.getAttribute('data-h3');
+            const cost = Number(e.target.getAttribute('data-cost'));
+
+            if (playerGold.value < cost) {
+              showToast(`Oro insuficiente. Necesitas ${cost} oro`, 'error');
+              return;
+            }
+
+            await upgradeInfrastructure(h3Index, buildingType);
+          });
+        });
       }, 100);
     }
 
@@ -3126,6 +3311,52 @@ const exploreFiefFromTable = async (h3_index) => {
     }
   } catch (err) {
     console.error('❌ Error starting exploration:', err);
+    const errorMsg = err.response?.data?.message || err.message || 'Error desconocido';
+    showToast(errorMsg, 'error');
+  }
+};
+
+/**
+ * Upgrade infrastructure in a territory
+ */
+const upgradeInfrastructure = async (h3_index, building_type) => {
+  try {
+    console.log(`[Infrastructure] Upgrading ${building_type} in ${h3_index}`);
+
+    // Call API
+    const response = await axios.post(`${API_URL}/api/territory/upgrade`, {
+      h3_index: h3_index,
+      building_type: building_type
+    }, {
+      withCredentials: true
+    });
+
+    if (response.data.success) {
+      // Update player gold
+      playerGold.value = response.data.new_gold_balance;
+
+      console.log(`✓ Infrastructure upgraded! ${building_type}: ${response.data.old_level} → ${response.data.new_level}`);
+
+      // Close popup
+      map.closePopup();
+
+      // Show success toast
+      const buildingNames = {
+        farm: 'Granja',
+        mine: 'Mina',
+        lumber: 'Aserradero',
+        port: 'Puerto'
+      };
+      showToast(`🏗️ ${buildingNames[building_type]} mejorada a nivel ${response.data.new_level}`, 'success');
+
+      // Refresh the map and fiefs list
+      await fetchHexagonData();
+      await updateFiefsUI();
+    } else {
+      showToast(response.data.message, 'error');
+    }
+  } catch (err) {
+    console.error('❌ Error upgrading infrastructure:', err);
     const errorMsg = err.response?.data?.message || err.message || 'Error desconocido';
     showToast(errorMsg, 'error');
   }
@@ -4308,7 +4539,6 @@ onBeforeUnmount(() => {
   background: #1a1612;
   z-index: 10;
   padding: 12px 6px;
-  text-align: left;
   border-bottom: 2px solid var(--color-accent-gold);
   font-family: 'Cinzel', serif;
   font-size: 10px; /* Smaller for better fit */
@@ -4319,6 +4549,12 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   transition: background 0.2s ease;
+  vertical-align: middle;
+}
+
+.kingdom-table th.th-abbr {
+  border-bottom: 1px dotted rgba(232, 213, 181, 0.5);
+  cursor: help;
 }
 
 .kingdom-table th:hover {
@@ -4407,6 +4643,22 @@ onBeforeUnmount(() => {
   background: rgba(46, 204, 113, 0.2);
   color: #27ae60;
   border: 1px solid #27ae60;
+}
+
+/* Mining Status Badges */
+.mining-status-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  margin-left: 5px;
+  font-weight: 600;
+}
+
+.mining-low {
+  background: rgba(212, 160, 23, 0.2);
+  color: #d4a017;
+  border: 1px solid #d4a017;
 }
 
 .btn-explore-micro {
@@ -6718,5 +6970,27 @@ onBeforeUnmount(() => {
   background: rgba(0, 0, 0, 0.2);
   border: 1px dashed var(--color-border);
   border-radius: 8px;
+}
+
+.text-consumption {
+  color: #ff6666 !important;
+}
+
+.text-right {
+  text-align: right !important;
+}
+
+.h3-cell {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.75rem !important;
+  color: var(--color-text-dim);
+  letter-spacing: -0.5px;
+}
+
+.tight-col {
+  width: 1%;
+  white-space: nowrap !important;
+  padding-left: 4px !important;
+  padding-right: 4px !important;
 }
 </style>
