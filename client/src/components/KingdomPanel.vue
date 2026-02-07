@@ -1,0 +1,205 @@
+<template>
+  <div class="fiefs-management">
+    <div class="fiefs-table-container">
+      <table class="kingdom-table">
+        <thead>
+          <tr>
+            <th class="tight-col">H3</th>
+            <th>Nombre</th>
+            <th>Terreno</th>
+            <th class="text-right">👥</th>
+            <th class="text-right">😊</th>
+            <th class="text-right">🌾</th>
+            <th class="text-right">🌲</th>
+            <th class="text-right">⛰️</th>
+            <th class="text-right">⛏️</th>
+            <th class="text-right">💰</th>
+            <th class="text-center">Prospección</th>
+            <th class="text-right">Δ Alim.</th>
+            <th class="text-right">Auton.</th>
+            <th class="text-right">Dist.</th>
+            <th class="text-center">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="fief in fiefs" :key="fief.h3_index">
+            <td class="h3-cell tight-col">{{ fief.h3_index?.substring(0, 8) }}</td>
+            <td class="fief-name-cell">{{ fief.name }}</td>
+            <td>{{ fief.terrain }}</td>
+            <td class="text-right">{{ formatNumber(fief.population) }}</td>
+            <td class="text-right">{{ fief.happiness }}%</td>
+            <td class="text-right">{{ formatNumber(fief.food) }}</td>
+            <td class="text-right">{{ formatNumber(fief.wood) }}</td>
+            <td class="text-right">{{ formatNumber(fief.stone) }}</td>
+            <td class="text-right">{{ formatNumber(fief.iron) }}</td>
+            <td class="text-gold text-right">{{ formatGold(fief.gold) }}</td>
+            <td class="text-center">
+              <template v-if="fief.discovered_resource !== null">
+                <span
+                  :class="{
+                    'exploration-badge': true,
+                    'exploration-badge-completed': fief.explorationStatus === 'completed',
+                    'exploration-badge-exploring': fief.explorationStatus === 'exploring'
+                  }"
+                  :title="fief.explorationStatusText"
+                >
+                  {{ fief.explorationStatusIcon }} {{ fief.explorationStatusShort }}
+                </span>
+              </template>
+              <template v-else>
+                <span class="dimmed-dash" title="Sin explorar">—</span>
+              </template>
+            </td>
+            <td :class="['text-right', fief.foodBalance < 0 ? 'text-danger' : 'text-success']">
+              {{ (fief.foodBalance > 0 ? '+' : '') + formatNumber(fief.foodBalance) }}
+            </td>
+            <td :class="['text-right', {
+              'text-danger': fief.autonomy < 30,
+              'text-success': fief.autonomy > 365
+            }]">
+              {{ fief.autonomy === Infinity ? '∞' : fief.autonomy }}
+            </td>
+            <td class="text-right">{{ fief.distance }}</td>
+            <td class="table-actions">
+              <button class="btn-micro" @click="$emit('focusOnFief', fief.h3_index)" title="Ver en el mapa">🗺️</button>
+              <button 
+                v-if="fief.explorationStatus === 'pending'"
+                class="btn-micro btn-explore-micro" 
+                @click="$emit('exploreFief', fief.h3_index)"
+                :disabled="playerGold < explorationConfig.gold_cost"
+                :title="`Explorar (${explorationConfig.gold_cost} 💰)`"
+              >
+                ⛏️
+              </button>
+              <button class="btn-micro btn-recruit-micro" @click="$emit('openRecruitment', fief)" title="Reclutar tropas">⚔️</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="fiefs.length === 0" class="empty-state">
+        <p>No se encontraron feudos.</p>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+defineProps({
+  fiefs: Array,
+  playerGold: Number,
+  explorationConfig: Object
+});
+
+defineEmits(['focusOnFief', 'exploreFief', 'openRecruitment']);
+
+const formatNumber = (val) => {
+  if (val === null || val === undefined || isNaN(val)) return '0';
+  if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M';
+  if (val >= 1000) return (val / 1000).toFixed(1) + 'k';
+  return Math.round(val).toString();
+};
+
+const formatGold = (val) => {
+  if (val === null || val === undefined || isNaN(val)) return '0.00';
+  return Number(val).toFixed(2);
+};
+</script>
+
+<style scoped>
+.kingdom-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  color: #e8d5b5;
+}
+
+.kingdom-table th {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 10px;
+  text-align: left;
+  border-bottom: 2px solid #5d4e37;
+  color: #c5a059;
+  font-family: 'Cinzel', serif;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+}
+
+.kingdom-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.text-right { text-align: right; }
+.text-center { text-align: center; }
+.text-gold { color: #ffd700; }
+.text-danger { color: #ff6b6b; }
+.text-success { color: #4caf50; }
+
+.h3-cell {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: #a89875;
+}
+
+.tight-col { width: 1%; white-space: nowrap; }
+
+.dimmed-dash {
+  color: rgba(255, 255, 255, 0.2);
+  font-weight: bold;
+}
+
+.table-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+.btn-micro {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid #5d4e37;
+  color: #f4e4bc;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.2s;
+}
+
+.btn-micro:hover:not(:disabled) {
+  background: rgba(197, 160, 89, 0.3);
+  border-color: #c5a059;
+  transform: scale(1.1);
+}
+
+.btn-explore-micro {
+  background: rgba(26, 22, 18, 0.6);
+}
+
+.btn-recruit-micro {
+  background: rgba(255, 215, 0, 0.1);
+  color: #ffd700;
+  border-color: rgba(255, 215, 0, 0.3);
+}
+
+.btn-recruit-micro:hover {
+  background: rgba(255, 215, 0, 0.2);
+  border-color: #ffd700;
+}
+
+.exploration-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: bold;
+}
+
+.exploration-badge-completed { background: rgba(76, 175, 80, 0.2); color: #4caf50; border: 1px solid #4caf50; }
+.exploration-badge-exploring { background: rgba(243, 156, 18, 0.2); color: #f39c12; border: 1px solid #f39c12; }
+
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #a89875;
+  font-style: italic;
+}
+</style>

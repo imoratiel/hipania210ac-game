@@ -8,7 +8,7 @@ const { requireAuth, requireAdmin } = require('../src/middleware/auth');
 // For now, I'll export a function that configures the router
 
 module.exports = function (pool, config, logic) {
-    const { logGameEvent } = require('../src/utils/logger');
+    const { logGameEvent, Logger } = require('../src/utils/logger');
     const { formatDaysToYearsAndDays, getTerrainColor } = logic.territory;
     const military = require('../src/logic/military');
 
@@ -297,7 +297,11 @@ module.exports = function (pool, config, logic) {
             const unitTypes = await military.getUnitTypes(pool);
             res.json({ success: true, unit_types: unitTypes });
         } catch (error) {
-            console.error('Error fetching unit types:', error);
+            Logger.error(error, {
+                endpoint: '/api/military/unit-types',
+                method: 'GET',
+                userId: req.session?.user?.player_id
+            });
             res.status(500).json({ success: false, message: 'Error al obtener tipos de unidades' });
         }
     });
@@ -318,12 +322,22 @@ module.exports = function (pool, config, logic) {
             const result = await military.recruitUnits(pool, req.body, player_id);
 
             if (result.success) {
-                logGameEvent(`[RECLUTAMIENTO] Jugador ${player_id} reclutó ${quantity} unidades tipo ${unit_type_id} en ${h3_index}`);
+                // Registrar acción del usuario
+                Logger.action(`Reclutó ${quantity} unidades (tipo ${unit_type_id}) en ${h3_index}`, player_id, {
+                    army_name,
+                    unit_type_id,
+                    quantity
+                });
             }
 
             res.json(result);
         } catch (error) {
-            console.error('Error recruiting units:', error);
+            Logger.error(error, {
+                endpoint: '/api/military/recruit',
+                method: 'POST',
+                userId: req.session?.user?.player_id,
+                payload: req.body
+            });
             res.status(500).json({ success: false, message: 'Error al reclutar unidades', error: error.message });
         }
     });

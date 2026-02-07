@@ -651,268 +651,27 @@
 
           <!-- Territories Table (Enhanced for Fullscreen) -->
           <div v-if="activeKingdomTab === 'fiefs'" class="kingdom-table-wrapper">
-            <table class="kingdom-table full-width">
-              <thead>
-                <tr>
-                  <th @click="sortKingdomBy('h3_index')" title="Código de la celda" class="tight-col">Cod. Celda</th>
-                  <th @click="sortKingdomBy('name')">Nombre {{ kingdomSort.field === 'name' ? (kingdomSort.asc ? '▲' : '▼') : '' }}</th>
-                  <th @click="sortKingdomBy('terrain')">Terreno</th>
-                  <th @click="sortKingdomBy('population')" class="text-right">Población</th>
-                  <th @click="sortKingdomBy('happiness')" title="Felicidad de la población. Afecta a la productividad y riesgo de revueltas." class="th-abbr text-right">😊 Fel.</th>
-                  <th @click="sortKingdomBy('food')" title="Reservas de alimentos actuales." class="text-right">🌾 Comida</th>
-                  <th @click="sortKingdomBy('consumption')" title="Consumo de alimentos por turno (valor negativo)" class="th-abbr tight-col text-right">🍴 Consumo</th>
-                  <th @click="sortKingdomBy('foodBalance')" title="Balance final (Producción - Consumo)" class="tight-col text-right">Δ</th>
-                  <th @click="sortKingdomBy('wood')" title="Madera almacenada (Construcción)." class="th-abbr text-right">🌲 Mad.</th>
-                  <th @click="sortKingdomBy('stone')" title="Piedra almacenada (Construcción y Murallas)." class="th-abbr text-right">⛰️ Pie.</th>
-                  <th @click="sortKingdomBy('iron')" title="Hierro almacenado (Reclutamiento y Armas)." class="th-abbr text-right">⛏️ Hie.</th>
-                  <th @click="sortKingdomBy('gold')" title="Oro almacenado (Exploración y Salarios)." class="text-right">🪙 Oro</th>
-                  <th @click="sortKingdomBy('explorationStatus')" title="Estado de la exploración geológica del feudo.">Prosp.</th>
-                  <th title="Niveles de infraestructura: 🚜 Granja, 🪓 Aserradero, ⛏️ Mina, ⚓ Puerto">🏗️ Infraestr.</th>
-                  <th @click="sortKingdomBy('autonomy')" title="Días de comida restantes antes de que la población empieze a morir de hambre." class="text-right">Auton.</th>
-                  <th @click="sortKingdomBy('distance')" title="Distancia a la capital en casillas." class="text-right">Dist.</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="fief in filteredAndSortedFiefs"
-                  :key="fief.h3_index"
-                  class="kingdom-row"
-                  @click="focusOnFiefAndClose(fief.h3_index)"
-                >
-                  <td class="h3-cell tight-col">{{ fief.h3_index }}</td>
-                  <td class="kingdom-cell-name">
-                    <span class="cell-icon">🏰</span> {{ fief.name }}
-                  </td>
-                  <td>{{ fief.terrain }}</td>
-                  <td :class="['text-right', { 'text-danger': fief.population < 400 }]">
-                    {{ formatNumber(fief.population) }}
-                    <span v-if="fief.population < 400" class="warning-icon" title="Población baja">⚠️</span>
-                  </td>
-                  <td :class="['text-right', fief.happiness < 50 ? 'text-danger' : 'text-success']">{{ fief.happiness }}%</td>
-                  <td class="text-right">{{ formatNumber(fief.food) }}</td>
-                  <td class="text-consumption text-right tight-col">
-                    -{{ Math.abs(fief.consumption).toFixed(2) }}
-                  </td>
-                  <td :class="['text-right', 'tight-col', fief.foodBalance < 0 ? 'text-danger' : 'text-success']">
-                    {{ fief.foodBalance > 0 ? '+' : '' }}{{ fief.foodBalance.toFixed(2) }}
-                  </td>
-                  <td class="text-right">{{ formatNumber(fief.wood) }}</td>
-                  <td class="text-right">{{ formatNumber(fief.stone) }}</td>
-                  <td class="text-right">{{ formatNumber(fief.iron) }}</td>
-                  <td class="text-gold text-right">{{ formatGold(fief.gold) }}</td>
-                  <td>
-                    <span
-                      :class="{
-                        'exploration-badge': true,
-                        'exploration-badge-completed': fief.explorationStatus === 'completed',
-                        'exploration-badge-exploring': fief.explorationStatus === 'exploring',
-                        'exploration-badge-pending': fief.explorationStatus === 'pending'
-                      }"
-                      :title="fief.explorationStatusText"
-                    >
-                      {{ fief.explorationStatusIcon }} {{ fief.explorationStatusShort }}
-                    </span>
-                    <span
-                      v-if="fief.miningStatus"
-                      class="mining-status-badge mining-low"
-                      :title="fief.miningStatusText"
-                    >
-                      {{ fief.miningStatusIcon }}
-                    </span>
-                    <button
-                      v-if="fief.explorationStatus === 'pending'"
-                      class="btn-micro btn-explore-micro"
-                      @click.stop="exploreFiefFromTable(fief.h3_index)"
-                      :disabled="playerGold < explorationConfig.gold_cost"
-                      :title="`Explorar (${explorationConfig.gold_cost} 💰)`"
-                    >
-                      ⛏️
-                    </button>
-                  </td>
-                  <td class="infrastructure-summary" :title="`Granja: ${fief.farm_level || 0}, Aserradero: ${fief.lumber_level || 0}, Mina: ${fief.mine_level || 0}, Puerto: ${fief.port_level || 0}`">
-                    <span class="infra-icon">🚜{{ fief.farm_level || 0 }}</span>
-                    <span class="infra-icon">🪓{{ fief.lumber_level || 0 }}</span>
-                    <span class="infra-icon">⛏️{{ fief.mine_level || 0 }}</span>
-                    <span class="infra-icon">⚓{{ fief.port_level || 0 }}</span>
-                  </td>
-                  <td :class="['text-right', {
-                    'text-danger': fief.autonomy < 30,
-                    'text-success': fief.autonomy > 365
-                  }]">
-                    {{ fief.autonomy === Infinity ? '∞' : fief.autonomy }}
-                  </td>
-                  <td class="text-right">{{ fief.distance }} casillas</td>
-                  <td>
-                    <button class="btn-micro" @click.stop="focusOnFiefAndClose(fief.h3_index)">🗺️</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <div v-if="filteredAndSortedFiefs.length === 0" class="empty-state">
-              <p>No se encontraron feudos que coincidan con los filtros.</p>
-            </div>
+            <KingdomPanel
+              :fiefs="filteredAndSortedFiefs"
+              :playerGold="playerGold"
+              :explorationConfig="explorationConfig"
+              @focusOnFief="focusOnFiefAndClose"
+              @exploreFief="exploreFiefFromTable"
+              @openRecruitment="openRecruitmentForFief"
+            />
           </div>
 
           <!-- Military Recruitment Tab -->
           <div v-if="activeKingdomTab === 'military'" class="military-recruitment-panel">
-            <div class="recruitment-header">
-              <h3>⚔️ Reclutamiento de Tropas</h3>
-              <p class="recruitment-subtitle">Selecciona un feudo y un tipo de unidad para reclutar</p>
-            </div>
-
-            <div class="recruitment-content">
-              <!-- Fief Selection -->
-              <div class="recruitment-section">
-                <h4>1. Selecciona Feudo de Reclutamiento</h4>
-                <select
-                  v-model="selectedRecruitmentFief"
-                  class="recruitment-select"
-                  @change="recruitmentMessage = { type: '', text: '' }"
-                >
-                  <option :value="null">-- Selecciona un feudo --</option>
-                  <option
-                    v-for="fief in myFiefs"
-                    :key="fief.h3_index"
-                    :value="fief"
-                  >
-                    {{ fief.name }} - Población: {{ formatNumber(fief.population) }}
-                  </option>
-                </select>
-
-                <div v-if="selectedRecruitmentFief" class="fief-resources">
-                  <h5>Recursos Disponibles:</h5>
-                  <div class="resource-grid">
-                    <span>💰 Oro: {{ formatNumber(playerGold) }}</span>
-                    <span>🌲 Madera: {{ formatNumber(selectedRecruitmentFief.wood) }}</span>
-                    <span>⛰️ Piedra: {{ formatNumber(selectedRecruitmentFief.stone) }}</span>
-                    <span>⛏️ Hierro: {{ formatNumber(selectedRecruitmentFief.iron) }}</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Unit Type Selection -->
-              <div class="recruitment-section">
-                <h4>2. Selecciona Tipo de Unidad</h4>
-                <div v-if="loadingUnitTypes" class="loading-text">Cargando unidades...</div>
-                <div v-else class="unit-types-grid">
-                  <div
-                    v-for="unit in unitTypes"
-                    :key="unit.id"
-                    :class="['unit-card', { selected: selectedUnitType?.id === unit.id }]"
-                    @click="selectedUnitType = unit; recruitmentMessage = { type: '', text: '' }"
-                  >
-                    <div class="unit-card-header">
-                      <h5>{{ unit.name }}</h5>
-                      <span class="unit-stats">
-                        ⚔️{{ unit.attack }} ❤️{{ unit.health_points }} 🏃{{ unit.speed }}
-                      </span>
-                    </div>
-                    <p class="unit-flavor">{{ unit.flavor_text }}</p>
-                    <div class="unit-requirements">
-                      <strong>Costo por unidad:</strong>
-                      <div class="req-list">
-                        <span
-                          v-for="req in unit.requirements"
-                          :key="req.resource_type"
-                          :class="[
-                            'req-item',
-                            {
-                              'req-insufficient':
-                                selectedRecruitmentFief &&
-                                ((req.resource_type === 'gold' && playerGold < req.amount) ||
-                                (req.resource_type === 'wood_stored' && selectedRecruitmentFief.wood < req.amount) ||
-                                (req.resource_type === 'stone_stored' && selectedRecruitmentFief.stone < req.amount) ||
-                                (req.resource_type === 'iron_stored' && selectedRecruitmentFief.iron < req.amount))
-                            }
-                          ]"
-                        >
-                          {{
-                            req.resource_type === 'gold' ? '💰' :
-                            req.resource_type === 'wood_stored' ? '🌲' :
-                            req.resource_type === 'stone_stored' ? '⛰️' :
-                            req.resource_type === 'iron_stored' ? '⛏️' : '📦'
-                          }}
-                          {{ req.amount }}
-                        </span>
-                      </div>
-                    </div>
-                    <div class="unit-upkeep">
-                      <small>Manutención: 💰{{ unit.gold_upkeep }}/turno 🌾{{ unit.food_consumption }}/turno</small>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Recruitment Form -->
-              <div v-if="selectedUnitType && selectedRecruitmentFief" class="recruitment-section recruitment-form">
-                <h4>3. Configurar Reclutamiento</h4>
-                <div class="form-grid">
-                  <div class="form-group">
-                    <label>Cantidad:</label>
-                    <input
-                      v-model.number="recruitmentQuantity"
-                      type="number"
-                      min="1"
-                      max="1000"
-                      class="recruitment-input"
-                      @input="recruitmentMessage = { type: '', text: '' }"
-                    />
-                  </div>
-                  <div class="form-group">
-                    <label>Nombre del Ejército:</label>
-                    <input
-                      v-model="recruitmentArmyName"
-                      type="text"
-                      placeholder="Ej: Guardia Real"
-                      maxlength="100"
-                      class="recruitment-input"
-                      @input="recruitmentMessage = { type: '', text: '' }"
-                    />
-                  </div>
-                </div>
-
-                <div class="total-cost">
-                  <h5>Costo Total:</h5>
-                  <div class="cost-breakdown">
-                    <span
-                      v-for="req in selectedUnitType.requirements"
-                      :key="req.resource_type"
-                      :class="[
-                        'cost-item',
-                        {
-                          'cost-insufficient':
-                            (req.resource_type === 'gold' && playerGold < req.amount * recruitmentQuantity) ||
-                            (req.resource_type === 'wood_stored' && selectedRecruitmentFief.wood < req.amount * recruitmentQuantity) ||
-                            (req.resource_type === 'stone_stored' && selectedRecruitmentFief.stone < req.amount * recruitmentQuantity) ||
-                            (req.resource_type === 'iron_stored' && selectedRecruitmentFief.iron < req.amount * recruitmentQuantity)
-                        }
-                      ]"
-                    >
-                      {{
-                        req.resource_type === 'gold' ? '💰' :
-                        req.resource_type === 'wood_stored' ? '🌲' :
-                        req.resource_type === 'stone_stored' ? '⛰️' :
-                        req.resource_type === 'iron_stored' ? '⛏️' : '📦'
-                      }}
-                      {{ req.amount * recruitmentQuantity }}
-                    </span>
-                  </div>
-                </div>
-
-                <div v-if="recruitmentMessage.text" :class="['recruitment-message', recruitmentMessage.type]">
-                  {{ recruitmentMessage.text }}
-                </div>
-
-                <button
-                  class="btn-recruit"
-                  :disabled="!canRecruit || isRecruiting"
-                  @click="recruitUnits"
-                >
-                  {{ isRecruiting ? 'Reclutando...' : `⚔️ Reclutar ${recruitmentQuantity} ${selectedUnitType.name}` }}
-                </button>
-              </div>
-            </div>
+            <MilitaryPanel
+              :fief="selectedRecruitmentFief"
+              :unitTypes="unitTypes"
+              :loading="loadingUnitTypes"
+              :playerGold="playerGold"
+              :isRecruiting="isRecruiting"
+              @recruit="handleRecruitmentEmit"
+              @back="activeKingdomTab = 'fiefs'"
+            />
           </div>
         </div>
       </div>
@@ -938,6 +697,10 @@ import L from 'leaflet';
 import { cellToBoundary, cellToLatLng, gridDisk, gridDistance, latLngToCell } from 'h3-js';
 import axios from 'axios';
 import 'leaflet/dist/leaflet.css';
+
+// Import modular components
+import KingdomPanel from './KingdomPanel.vue';
+import MilitaryPanel from './MilitaryPanel.vue';
 
 // Configure axios to send credentials (cookies) with all requests
 axios.defaults.withCredentials = true;
@@ -1055,6 +818,7 @@ const recruitmentQuantity = ref(1);
 const recruitmentArmyName = ref('');
 const recruitmentMessage = ref({ type: '', text: '' });
 const isRecruiting = ref(false);
+const isColonizing = ref(false); // Track colonization state to prevent multiple simultaneous colonizations
 
 // Legend toggle state
 const legendCollapsed = ref(true); // Collapsed by default
@@ -2517,7 +2281,14 @@ const openActionPanel = (hexData, event) => {
 const colonizeTerritory = async () => {
   if (!selectedHexData.value) return;
 
+  // Prevent multiple simultaneous colonization attempts
+  if (isColonizing.value) {
+    console.log('[Colonize] Already colonizing, ignoring request');
+    return;
+  }
+
   try {
+    isColonizing.value = true;
     const hexToColonize = selectedHexData.value.h3_index;
 
     console.log(`[Colonize] Attempting to claim ${hexToColonize} for player ${playerId.value}`);
@@ -2552,6 +2323,10 @@ const colonizeTerritory = async () => {
     // Show error message from server or generic error
     const errorMsg = err.response?.data?.message || err.message || 'Error desconocido';
     showToast(errorMsg, 'error');
+  } finally {
+    // CRITICAL: Always reset the colonizing state, even if there was an error
+    isColonizing.value = false;
+    console.log('[Colonize] State reset, ready for next colonization');
   }
 };
 
@@ -3225,7 +3000,14 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
  * Colonize territory from popup
  */
 const colonizeFromPopup = async (h3_index) => {
+  // Prevent multiple simultaneous colonization attempts
+  if (isColonizing.value) {
+    console.log('[Colonize] Already colonizing, ignoring request');
+    return;
+  }
+
   try {
+    isColonizing.value = true;
     console.log(`[Colonize] Attempting to claim ${h3_index} for player ${playerId.value}`);
 
     // Call API
@@ -3271,6 +3053,10 @@ const colonizeFromPopup = async (h3_index) => {
     console.error('❌ Error colonizing territory (POST /api/game/claim):', err);
     const errorMsg = err.response?.data?.message || err.message || 'Error desconocido';
     showToast(errorMsg, 'error');
+  } finally {
+    // CRITICAL: Always reset the colonizing state, even if there was an error
+    isColonizing.value = false;
+    console.log('[Colonize] State reset, ready for next colonization');
   }
 };
 
@@ -3426,19 +3212,49 @@ const fetchUnitTypes = async () => {
 };
 
 /**
- * Switch to military tab and load unit types
+ * Switch to military tab for a specific fief
  */
-const openMilitaryTab = async () => {
+const openRecruitmentForFief = async (fief) => {
   activeKingdomTab.value = 'military';
+  selectedRecruitmentFief.value = fief;
+  
   if (unitTypes.value.length === 0) {
     await fetchUnitTypes();
   }
-  // Reset recruitment form
-  selectedRecruitmentFief.value = null;
-  selectedUnitType.value = null;
-  recruitmentQuantity.value = 1;
-  recruitmentArmyName.value = '';
-  recruitmentMessage.value = { type: '', text: '' };
+};
+
+/**
+ * Handle recruitment event from MilitaryPanel
+ */
+const handleRecruitmentEmit = async ({ fief, unit, quantity, armyName, unit_type_id }) => {
+  try {
+    isRecruiting.value = true;
+    const response = await axios.post(`${API_URL}/api/military/recruit`, {
+      h3_index: fief.h3_index,
+      unit_type_id: unit_type_id || unit.unit_type_id,
+      quantity: quantity,
+      army_name: armyName
+    }, { withCredentials: true });
+
+    if (response.data.success) {
+      showToast(`✅ ${quantity} ${unit.name} reclutados en ${fief.name}`, 'success');
+
+      // Refresh data to reflect resource changes
+      await fetchPlayerData();
+      await updateFiefsUI();
+
+      // Return to fiefs list after successful recruitment
+      activeKingdomTab.value = 'fiefs';
+      selectedRecruitmentFief.value = null;
+    } else {
+      showToast(response.data.message, 'error');
+    }
+  } catch (err) {
+    console.error('❌ Error recruiting units:', err);
+    showToast(err.response?.data?.message || 'Error al reclutar', 'error');
+  } finally {
+    isRecruiting.value = false;
+  }
 };
 
 /**
@@ -3534,6 +3350,35 @@ const canRecruit = computed(() => {
   }
 
   return true;
+});
+
+/**
+ * Switch to military tab and load unit types
+ */
+const openMilitaryTab = async () => {
+  activeKingdomTab.value = 'military';
+  if (unitTypes.value.length === 0) {
+    await fetchUnitTypes();
+  }
+  // Reset recruitment form
+  selectedRecruitmentFief.value = null;
+  selectedUnitType.value = null;
+  recruitmentQuantity.value = 1;
+  recruitmentArmyName.value = 'Guarnición Local';
+  recruitmentMessage.value = { type: '', text: '' };
+};
+
+/**
+ * Calculate total upkeep for selected units
+ */
+const totalUpkeep = computed(() => {
+  if (!selectedUnitType.value || recruitmentQuantity.value <= 0) {
+    return { gold: 0, food: 0 };
+  }
+  return {
+    gold: (selectedUnitType.value.gold_upkeep || 0) * recruitmentQuantity.value,
+    food: (selectedUnitType.value.food_consumption || 0) * recruitmentQuantity.value
+  };
 });
 
 /**
@@ -7501,5 +7346,101 @@ onBeforeUnmount(() => {
   background: rgba(255, 215, 0, 0.2);
   border-color: #ffd700;
   color: #ffd700;
+}
+
+/* Rediseño Tabla Reino y Reclutamiento */
+.dimmed-dash {
+  color: rgba(255, 255, 255, 0.2);
+  font-weight: bold;
+}
+
+.table-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+}
+
+.fief-resources-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 15px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 215, 0, 0.3);
+}
+
+.resource-pill {
+  padding: 6px 14px;
+  background: rgba(26, 22, 18, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #e8d5b5;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.unit-card.unit-unaffordable {
+  opacity: 0.6;
+  filter: grayscale(0.5);
+  cursor: not-allowed;
+}
+
+.unit-card.unit-affordable {
+  border-color: rgba(0, 255, 0, 0.2);
+}
+
+.unit-card.unit-affordable:hover {
+  border-color: rgba(0, 255, 0, 0.5);
+}
+
+.insufficient-fief-resources {
+  margin-top: 12px;
+  padding: 4px;
+  font-size: 0.8rem;
+  color: #ff6b6b;
+  text-align: center;
+  font-style: italic;
+  background: rgba(255, 0, 0, 0.1);
+  border-radius: 4px;
+}
+
+.btn-back-to-fiefs {
+  background: transparent;
+  border: 1px solid #ffd700;
+  color: #ffd700;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: 'Cinzel', serif;
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+  width: 100%;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.btn-back-to-fiefs:hover {
+  background: rgba(255, 215, 0, 0.15);
+  transform: translateX(-5px);
+}
+
+.btn-recruit-micro {
+  background: rgba(255, 215, 0, 0.1) !important;
+  color: #ffd700 !important;
+  border-color: rgba(255, 215, 0, 0.3) !important;
+}
+
+.btn-recruit-micro:hover {
+  background: rgba(255, 215, 0, 0.2) !important;
+  border-color: #ffd700 !important;
+}
+
+.current-fief-mini {
+  padding: 15px !important;
+  border-color: rgba(255, 215, 0, 0.4) !important;
 }
 </style>

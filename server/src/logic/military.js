@@ -1,6 +1,9 @@
 /**
  * Military recruitment logic
+ * BASADO ESTRICTAMENTE EN DB_SCHEMA.md
  */
+
+const { Logger } = require('../utils/logger');
 
 /**
  * Get all unit types with their requirements
@@ -10,7 +13,7 @@
 async function getUnitTypes(pool) {
     const query = `
         SELECT
-            ut.id,
+            ut.unit_type_id,
             ut.name,
             ut.attack,
             ut.health_points,
@@ -18,20 +21,21 @@ async function getUnitTypes(pool) {
             ut.gold_upkeep,
             ut.food_consumption,
             ut.is_siege,
-            ut.flavor_text,
+            ut.descrip,
             COALESCE(
                 json_agg(
                     json_build_object(
                         'resource_type', ur.resource_type,
                         'amount', ur.amount
                     )
-                ) FILTER (WHERE ur.id IS NOT NULL),
+                ) FILTER (WHERE ur.unit_type_id IS NOT NULL),
                 '[]'
             ) AS requirements
         FROM unit_types ut
-        LEFT JOIN unit_requirements ur ON ut.id = ur.unit_type_id
-        GROUP BY ut.id
-        ORDER BY ut.id
+        LEFT JOIN unit_requirements ur ON ut.unit_type_id = ur.unit_type_id
+        GROUP BY ut.unit_type_id, ut.name, ut.attack, ut.health_points, ut.speed,
+                 ut.gold_upkeep, ut.food_consumption, ut.is_siege, ut.descrip
+        ORDER BY ut.unit_type_id
     `;
 
     const result = await pool.query(query);
@@ -94,16 +98,16 @@ async function recruitUnits(pool, params, playerId) {
     try {
         await client.query('BEGIN');
 
-        // Get unit requirements
+        // Get unit requirements - USANDO unit_type_id
         const reqQuery = await client.query(
             'SELECT resource_type, amount FROM unit_requirements WHERE unit_type_id = $1',
             [unit_type_id]
         );
         const requirements = reqQuery.rows;
 
-        // Get territory details
+        // Get territory details - USANDO h3_index como PK
         const territoryQuery = await client.query(
-            `SELECT h3_index, wood_stored, stone_stored, iron_stored, player_id
+            `SELECT td.h3_index, td.wood_stored, td.stone_stored, td.iron_stored, m.player_id
              FROM territory_details td
              JOIN h3_map m ON td.h3_index = m.h3_index
              WHERE td.h3_index = $1`,
@@ -164,29 +168,30 @@ async function recruitUnits(pool, params, playerId) {
             }
         }
 
-        // Find or create army
+        // Find or create army - USANDO army_id como PK
         const armyQuery = await client.query(
-            'SELECT id FROM armies WHERE h3_index = $1 AND name = $2 AND player_id = $3',
+            'SELECT army_id FROM armies WHERE h3_index = $1 AND name = $2 AND player_id = $3',
             [h3_index, army_name, playerId]
         );
 
         let armyId;
         if (armyQuery.rows.length === 0) {
-            // Create new army
+            // Create new army - USANDO army_id, rest_level
             const newArmyQuery = await client.query(
                 `INSERT INTO armies (name, player_id, h3_index, rest_level)
                  VALUES ($1, $2, $3, 100.00)
-                 RETURNING id`,
+                 RETURNING army_id`,
                 [army_name, playerId, h3_index]
             );
-            armyId = newArmyQuery.rows[0].id;
+            armyId = newArmyQuery.rows[0].army_id;
         } else {
-            armyId = armyQuery.rows[0].id;
+            armyId = armyQuery.rows[0].army_id;
         }
 
-        // Create army instance
+        // Insert into troops table (NOT army_instances)
+        // USANDO troop_id, army_id, unit_type_id
         await client.query(
-            `INSERT INTO army_instances (army_id, unit_type_id, quantity, experience, morale)
+            `INSERT INTO troops (army_id, unit_type_id, quantity, experience, morale)
              VALUES ($1, $2, $3, 10.00, 50.00)`,
             [armyId, unit_type_id, quantity]
         );
@@ -201,6 +206,15 @@ async function recruitUnits(pool, params, playerId) {
 
     } catch (error) {
         await client.query('ROLLBACK');
+
+        // Registrar error con contexto completo
+        Logger.error(error, {
+            endpoint: '/api/military/recruit',
+            method: 'POST',
+            userId: playerId,
+            payload: params
+        });
+
         throw error;
     } finally {
         client.release();
