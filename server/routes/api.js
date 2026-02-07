@@ -342,6 +342,24 @@ module.exports = function (pool, config, logic) {
         }
     });
 
+    router.get('/military/troops', requireAuth, async (req, res) => {
+        try {
+            const player_id = req.session.user.player_id;
+            const troops = await military.getTroops(pool, player_id);
+
+            Logger.action('Consultó panel de tropas', player_id);
+
+            res.json({ success: true, troops: troops });
+        } catch (error) {
+            Logger.error(error, {
+                endpoint: '/api/military/troops',
+                method: 'GET',
+                userId: req.session?.user?.player_id
+            });
+            res.status(500).json({ success: false, message: 'Error al obtener tropas' });
+        }
+    });
+
     // ============================================
     // ADMIN AND MESSAGES
     // ============================================

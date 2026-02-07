@@ -221,8 +221,42 @@ async function recruitUnits(pool, params, playerId) {
     }
 }
 
+/**
+ * Get all troops for a player
+ * @param {Pool} pool - Database connection pool
+ * @param {number} playerId - Player ID
+ * @returns {Promise<Array>} Array of troops with details
+ */
+async function getTroops(pool, playerId) {
+    const query = `
+        SELECT
+            t.troop_id,
+            t.quantity,
+            t.experience,
+            t.morale,
+            ut.unit_type_id,
+            ut.name AS unit_name,
+            ut.attack,
+            ut.health_points,
+            ut.speed,
+            a.army_id,
+            a.name AS army_name,
+            a.h3_index,
+            a.rest_level
+        FROM troops t
+        INNER JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
+        INNER JOIN armies a ON t.army_id = a.army_id
+        WHERE a.player_id = $1
+        ORDER BY a.name, ut.name
+    `;
+
+    const result = await pool.query(query, [playerId]);
+    return result.rows;
+}
+
 module.exports = {
     getUnitTypes,
     validateRecruitment,
-    recruitUnits
+    recruitUnits,
+    getTroops
 };

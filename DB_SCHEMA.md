@@ -54,5 +54,5 @@
 - unit_type_id (INT FK -> unit_types.unit_type_id)
 - quantity (INT)
 - experience (DECIMAL 5,2)
-- morale (DECIMAL(5,2)
+- morale (DECIMAL 5,2)
 - last_fed_turn (INT)

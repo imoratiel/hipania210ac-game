@@ -136,11 +136,13 @@
       id="context-panel"
       class="context-panel"
       :class="{ open: activePanel !== null || activeOverlay === 'layers' }"
+      :style="{ transform: (activePanel !== null || activeOverlay === 'layers') ? 'translateX(0)' : 'translateX(-100%)' }"
     >
       <div class="panel-header">
         <h3 class="panel-title">
           {{ activeOverlay === 'layers' ? '🗺️ Capas del Mapa' : panelTitle }}
         </h3>
+        <p style="color: yellow; font-size: 0.8rem;">[DEBUG] activePanel: "{{ activePanel }}" - Should have 'open' class: {{ activePanel !== null || activeOverlay === 'layers' }}</p>
         <button class="panel-close" @click="activeOverlay ? activeOverlay = null : closePanel()">✕</button>
       </div>
 
@@ -281,8 +283,12 @@
         <!-- Kingdom Management Panel - MOVED TO FULLSCREEN OVERLAY -->
 
         <!-- Troops Panel -->
-        <div v-if="activePanel === 'troops'" class="panel-section troops-panel">
-          <p class="panel-placeholder">Contenido de Tropas (próximamente)</p>
+        <div v-if="activePanel === 'troops'" class="panel-section troops-panel" style="display: block !important; opacity: 1 !important; visibility: visible !important;">
+          <TroopsPanel
+            :troops="troops"
+            :loading="loadingTroops"
+            @locate="handleLocateTroop"
+          />
         </div>
 
         <!-- Market Panel -->
@@ -701,6 +707,7 @@ import 'leaflet/dist/leaflet.css';
 // Import modular components
 import KingdomPanel from './KingdomPanel.vue';
 import MilitaryPanel from './MilitaryPanel.vue';
+import TroopsPanel from './TroopsPanel.vue';
 
 // Configure axios to send credentials (cookies) with all requests
 axios.defaults.withCredentials = true;
@@ -819,6 +826,10 @@ const recruitmentArmyName = ref('');
 const recruitmentMessage = ref({ type: '', text: '' });
 const isRecruiting = ref(false);
 const isColonizing = ref(false); // Track colonization state to prevent multiple simultaneous colonizations
+
+// Troops panel state
+const troops = ref([]);
+const loadingTroops = ref(false);
 
 // Legend toggle state
 const legendCollapsed = ref(true); // Collapsed by default
@@ -2433,6 +2444,12 @@ const togglePanel = (panelName) => {
     if (panelName === 'kingdom') {
       displayedFiefsCount.value = FIEFS_PER_PAGE;
     }
+
+    // Fetch troops data when opening troops panel
+    if (panelName === 'troops') {
+      console.log('[DEBUG] Opening troops panel, calling fetchTroops()');
+      fetchTroops();
+    }
   }
 };
 
@@ -3208,6 +3225,60 @@ const fetchUnitTypes = async () => {
     showToast('Error al cargar tipos de unidades', 'error');
   } finally {
     loadingUnitTypes.value = false;
+  }
+};
+
+/**
+ * Fetch all troops for the current player
+ */
+const fetchTroops = async () => {
+  console.log('[DEBUG] fetchTroops called');
+  try {
+    loadingTroops.value = true;
+    console.log('[DEBUG] Loading troops, loadingTroops.value:', loadingTroops.value);
+    const response = await axios.get(`${API_URL}/api/military/troops`, {
+      withCredentials: true
+    });
+
+    console.log('[DEBUG] Troops response:', response.data);
+
+    if (response.data.success) {
+      troops.value = response.data.troops;
+      console.log('✓ Troops loaded:', troops.value.length, troops.value);
+    }
+  } catch (err) {
+    console.error('❌ Error fetching troops:', err);
+    showToast('Error al cargar tropas', 'error');
+  } finally {
+    loadingTroops.value = false;
+    console.log('[DEBUG] Finished loading, loadingTroops.value:', loadingTroops.value);
+  }
+};
+
+/**
+ * Handle locate event from TroopsPanel
+ * Centers the map on the specified troop location
+ */
+const handleLocateTroop = ({ h3_index, army_name, army_id }) => {
+  try {
+    if (!map) {
+      showToast('El mapa aún no está inicializado', 'error');
+      return;
+    }
+
+    const [lat, lng] = cellToLatLng(h3_index);
+    map.flyTo([lat, lng], 11, {
+      duration: 1.0
+    });
+
+    // Close troops panel to see the map
+    activePanel.value = null;
+
+    showToast(`🔍 Localizando ${army_name}`, 'info');
+    console.log(`[Troops] Focused on army ${army_id} at ${h3_index}`);
+  } catch (err) {
+    console.error('❌ Error locating troop:', err);
+    showToast('Error al localizar tropas en el mapa', 'error');
   }
 };
 
