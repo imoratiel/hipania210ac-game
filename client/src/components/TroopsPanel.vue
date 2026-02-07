@@ -3,7 +3,6 @@
     <div class="troops-header">
       <h3>⚔️ Panel de Tropas</h3>
       <p class="troops-subtitle">Visión global de todas las fuerzas militares activas</p>
-      <p style="color: lime; font-size: 0.8rem;">[DEBUG] TroopsPanel renderizado - Loading: {{ loading }} - Troops count: {{ troops.length }}</p>
     </div>
 
     <div v-if="loading" class="loading-text">Cargando tropas...</div>
@@ -108,7 +107,7 @@
 </template>
 
 <script setup>
-import { computed, watch } from 'vue';
+import { computed } from 'vue';
 
 const props = defineProps({
   troops: {
@@ -122,18 +121,6 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['locate']);
-
-console.log('[TroopsPanel] Component mounted');
-console.log('[TroopsPanel] Initial props:', { troops: props.troops, loading: props.loading });
-
-// Watch for changes in props
-watch(() => props.troops, (newTroops) => {
-  console.log('[TroopsPanel] Troops changed:', newTroops);
-}, { immediate: true });
-
-watch(() => props.loading, (newLoading) => {
-  console.log('[TroopsPanel] Loading changed:', newLoading);
-}, { immediate: true });
 
 const totalArmies = computed(() => {
   const uniqueArmies = new Set(props.troops.map(t => t.army_id));

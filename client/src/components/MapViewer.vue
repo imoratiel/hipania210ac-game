@@ -61,8 +61,8 @@
         </button>
         <button
           class="nav-button"
-          :class="{ active: activePanel === 'troops' }"
-          @click="togglePanel('troops')"
+          :class="{ active: activeOverlay === 'troops' }"
+          @click="openOverlay('troops')"
           title="Tropas"
         >
           <span class="nav-icon">⚔️</span>
@@ -142,7 +142,6 @@
         <h3 class="panel-title">
           {{ activeOverlay === 'layers' ? '🗺️ Capas del Mapa' : panelTitle }}
         </h3>
-        <p style="color: yellow; font-size: 0.8rem;">[DEBUG] activePanel: "{{ activePanel }}" - Should have 'open' class: {{ activePanel !== null || activeOverlay === 'layers' }}</p>
         <button class="panel-close" @click="activeOverlay ? activeOverlay = null : closePanel()">✕</button>
       </div>
 
@@ -282,14 +281,7 @@
 
         <!-- Kingdom Management Panel - MOVED TO FULLSCREEN OVERLAY -->
 
-        <!-- Troops Panel -->
-        <div v-if="activePanel === 'troops'" class="panel-section troops-panel" style="display: block !important; opacity: 1 !important; visibility: visible !important;">
-          <TroopsPanel
-            :troops="troops"
-            :loading="loadingTroops"
-            @locate="handleLocateTroop"
-          />
-        </div>
+        <!-- Troops Panel - MOVED TO FULLSCREEN OVERLAY -->
 
         <!-- Market Panel -->
         <div v-if="activePanel === 'market'" class="panel-section market-panel">
@@ -679,6 +671,26 @@
               @back="activeKingdomTab = 'fiefs'"
             />
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Full-Screen Troops Overlay -->
+    <div v-if="activeOverlay === 'troops'" class="game-overlay title-overlay">
+      <div class="overlay-container">
+        <!-- Header -->
+        <div class="overlay-header">
+          <h1 class="overlay-title">⚔️ Panel de Tropas</h1>
+          <button class="overlay-close" @click="closeOverlay" title="Cerrar">✕</button>
+        </div>
+
+        <!-- Troops Content -->
+        <div class="overlay-content troops-content">
+          <TroopsPanel
+            :troops="troops"
+            :loading="loadingTroops"
+            @locate="handleLocateTroop"
+          />
         </div>
       </div>
     </div>
@@ -2426,9 +2438,6 @@ const toggleLegend = () => {
  * @param {string} panelName - Name of the panel to toggle
  */
 const togglePanel = (panelName) => {
-  console.log(`[DEBUG] togglePanel called with: ${panelName}`);
-  console.log(`[DEBUG] activePanel.value before: ${activePanel.value}`);
-
   if (activePanel.value === panelName) {
     // Close if already open
     activePanel.value = null;
@@ -2437,18 +2446,10 @@ const togglePanel = (panelName) => {
     // Open the new panel (closes any other)
     activePanel.value = panelName;
     console.log(`✓ Panel abierto: ${panelName}`);
-    console.log(`[DEBUG] activePanel.value after: ${activePanel.value}`);
-    console.log(`[DEBUG] terrainTypes.length: ${terrainTypes.value.length}`);
 
     // Reset infinite scroll when opening kingdom panel
     if (panelName === 'kingdom') {
       displayedFiefsCount.value = FIEFS_PER_PAGE;
-    }
-
-    // Fetch troops data when opening troops panel
-    if (panelName === 'troops') {
-      console.log('[DEBUG] Opening troops panel, calling fetchTroops()');
-      fetchTroops();
     }
   }
 };
@@ -2468,6 +2469,11 @@ const openOverlay = (overlayName) => {
   activeOverlay.value = overlayName;
   activePanel.value = null; // Close any open panel
   console.log(`✓ Overlay abierto: ${overlayName}`);
+
+  // Fetch troops data when opening troops overlay
+  if (overlayName === 'troops') {
+    fetchTroops();
+  }
 };
 
 /**
@@ -3232,26 +3238,21 @@ const fetchUnitTypes = async () => {
  * Fetch all troops for the current player
  */
 const fetchTroops = async () => {
-  console.log('[DEBUG] fetchTroops called');
   try {
     loadingTroops.value = true;
-    console.log('[DEBUG] Loading troops, loadingTroops.value:', loadingTroops.value);
     const response = await axios.get(`${API_URL}/api/military/troops`, {
       withCredentials: true
     });
 
-    console.log('[DEBUG] Troops response:', response.data);
-
     if (response.data.success) {
       troops.value = response.data.troops;
-      console.log('✓ Troops loaded:', troops.value.length, troops.value);
+      console.log('✓ Troops loaded:', troops.value.length);
     }
   } catch (err) {
     console.error('❌ Error fetching troops:', err);
     showToast('Error al cargar tropas', 'error');
   } finally {
     loadingTroops.value = false;
-    console.log('[DEBUG] Finished loading, loadingTroops.value:', loadingTroops.value);
   }
 };
 
@@ -3271,8 +3272,8 @@ const handleLocateTroop = ({ h3_index, army_name, army_id }) => {
       duration: 1.0
     });
 
-    // Close troops panel to see the map
-    activePanel.value = null;
+    // Close troops overlay to see the map
+    closeOverlay();
 
     showToast(`🔍 Localizando ${army_name}`, 'info');
     console.log(`[Troops] Focused on army ${army_id} at ${h3_index}`);
