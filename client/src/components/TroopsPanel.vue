@@ -1,10 +1,5 @@
 <template>
   <div class="troops-panel">
-    <div class="troops-header">
-      <h3>⚔️ Panel de Tropas</h3>
-      <p class="troops-subtitle">Visión global de todas las fuerzas militares activas</p>
-    </div>
-
     <div v-if="loading" class="loading-text">Cargando tropas...</div>
 
     <div v-else-if="troops.length === 0" class="empty-state">
@@ -13,31 +8,63 @@
     </div>
 
     <div v-else class="troops-content">
+      <!-- Summary Grid -->
       <div class="troops-summary">
-        <div class="summary-stat">
-          <span class="stat-label">Total de Ejércitos:</span>
-          <span class="stat-value">{{ totalArmies }}</span>
+        <div class="summary-card">
+          <div class="card-icon">🏰</div>
+          <div class="card-content">
+            <span class="card-label">Ejércitos</span>
+            <span class="card-value">{{ totalArmies }}</span>
+          </div>
         </div>
-        <div class="summary-stat">
-          <span class="stat-label">Total de Tropas:</span>
-          <span class="stat-value">{{ totalUnits }}</span>
+        <div class="summary-card">
+          <div class="card-icon">⚔️</div>
+          <div class="card-content">
+            <span class="card-label">Tropas Totales</span>
+            <span class="card-value">{{ totalUnits }}</span>
+          </div>
         </div>
-        <div class="summary-stat">
-          <span class="stat-label">Moral Promedio:</span>
-          <span class="stat-value">{{ averageMorale }}%</span>
+        <div class="summary-card">
+          <div class="card-icon">💪</div>
+          <div class="card-content">
+            <span class="card-label">Poder de Combate</span>
+            <span class="card-value">{{ totalCombatPower }}</span>
+          </div>
+        </div>
+        <div class="summary-card">
+          <div class="card-icon">😊</div>
+          <div class="card-content">
+            <span class="card-label">Moral Promedio</span>
+            <span class="card-value">{{ averageMorale }}%</span>
+          </div>
+        </div>
+        <div class="summary-card">
+          <div class="card-icon">🎖️</div>
+          <div class="card-content">
+            <span class="card-label">Experiencia Promedio</span>
+            <span class="card-value">{{ averageExperience }}%</span>
+          </div>
+        </div>
+        <div class="summary-card">
+          <div class="card-icon">🛡️</div>
+          <div class="card-content">
+            <span class="card-label">Descanso Promedio</span>
+            <span class="card-value">{{ averageRest }}%</span>
+          </div>
         </div>
       </div>
 
+      <!-- Troops Table -->
       <div class="troops-table-container">
         <table class="troops-table">
           <thead>
             <tr>
-              <th>Unidad</th>
-              <th>Cantidad</th>
-              <th>Stats</th>
-              <th>Estado</th>
-              <th>Ubicación</th>
-              <th>Acciones</th>
+              <th class="th-unit">Unidad</th>
+              <th class="th-quantity">Cantidad</th>
+              <th class="th-stats">Estadísticas</th>
+              <th class="th-status">Estado</th>
+              <th class="th-location">Ubicación</th>
+              <th class="th-actions">Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -49,16 +76,25 @@
                 <span class="quantity-badge">{{ troop.quantity }}</span>
               </td>
               <td class="stats-cell">
-                <div class="stats-icons">
-                  <span class="stat-item" title="Ataque">⚔️ {{ troop.attack }}</span>
-                  <span class="stat-item" title="Puntos de Vida">❤️ {{ troop.health_points }}</span>
-                  <span class="stat-item" title="Velocidad">🏃 {{ troop.speed }}</span>
+                <div class="stats-grid">
+                  <div class="stat-item" title="Ataque">
+                    <span class="stat-icon">⚔️</span>
+                    <span class="stat-value">{{ troop.attack }}</span>
+                  </div>
+                  <div class="stat-item" title="Puntos de Vida">
+                    <span class="stat-icon">❤️</span>
+                    <span class="stat-value">{{ troop.health_points }}</span>
+                  </div>
+                  <div class="stat-item" title="Velocidad">
+                    <span class="stat-icon">🏃</span>
+                    <span class="stat-value">{{ troop.speed }}</span>
+                  </div>
                 </div>
               </td>
               <td class="status-cell">
                 <div class="status-bars">
                   <div class="status-item">
-                    <span class="status-label">Moral:</span>
+                    <span class="status-label">Moral</span>
                     <div class="progress-bar">
                       <div
                         class="progress-fill morale"
@@ -69,7 +105,7 @@
                     </div>
                   </div>
                   <div class="status-item">
-                    <span class="status-label">Exp:</span>
+                    <span class="status-label">Exp</span>
                     <div class="progress-bar">
                       <div
                         class="progress-fill experience"
@@ -85,7 +121,7 @@
                   <div class="army-name">{{ troop.army_name }}</div>
                   <div class="h3-index">{{ troop.h3_index }}</div>
                   <div class="rest-level" :class="getRestClass(troop.rest_level)">
-                    🛡️ Descanso: {{ Math.round(troop.rest_level) }}%
+                    🛡️ {{ Math.round(troop.rest_level) }}% Descanso
                   </div>
                 </div>
               </td>
@@ -131,10 +167,28 @@ const totalUnits = computed(() => {
   return props.troops.reduce((sum, troop) => sum + troop.quantity, 0);
 });
 
+const totalCombatPower = computed(() => {
+  return props.troops.reduce((sum, troop) => {
+    return sum + (troop.attack * troop.quantity);
+  }, 0);
+});
+
 const averageMorale = computed(() => {
   if (props.troops.length === 0) return 0;
   const totalMorale = props.troops.reduce((sum, troop) => sum + troop.morale, 0);
   return Math.round(totalMorale / props.troops.length);
+});
+
+const averageExperience = computed(() => {
+  if (props.troops.length === 0) return 0;
+  const totalExp = props.troops.reduce((sum, troop) => sum + troop.experience, 0);
+  return Math.round(totalExp / props.troops.length);
+});
+
+const averageRest = computed(() => {
+  if (props.troops.length === 0) return 0;
+  const totalRest = props.troops.reduce((sum, troop) => sum + troop.rest_level, 0);
+  return Math.round(totalRest / props.troops.length);
 });
 
 const getMoraleClass = (morale) => {
@@ -160,56 +214,38 @@ const handleLocate = (troop) => {
 
 <style scoped>
 .troops-panel {
-  padding: 20px;
-  color: #e8d5b5;
+  display: flex;
+  flex-direction: column;
   height: 100%;
-  overflow-y: auto;
-}
-
-.troops-header {
-  text-align: center;
-  margin-bottom: 25px;
-  border-bottom: 2px solid #c5a059;
-  padding-bottom: 15px;
-}
-
-.troops-header h3 {
-  font-family: 'Cinzel', serif;
-  font-size: 1.8rem;
-  color: #ffd700;
-  margin: 0;
-}
-
-.troops-subtitle {
-  color: #a89875;
-  margin-top: 5px;
-  font-size: 0.9rem;
+  color: #e8d5b5;
+  gap: 25px;
+  padding: 0;
 }
 
 .loading-text {
   text-align: center;
-  padding: 40px;
-  font-size: 1.1rem;
+  padding: 60px;
+  font-size: 1.5rem;
   color: #a89875;
 }
 
 .empty-state {
   text-align: center;
-  padding: 60px 20px;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(197, 160, 89, 0.2);
-  border-radius: 8px;
-  margin-top: 20px;
+  padding: 80px 40px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 2px solid rgba(197, 160, 89, 0.3);
+  border-radius: 12px;
+  margin: 40px;
 }
 
 .empty-state p {
-  font-size: 1.1rem;
+  font-size: 1.3rem;
   color: #a89875;
-  margin: 10px 0;
+  margin: 15px 0;
 }
 
 .empty-hint {
-  font-size: 0.9rem;
+  font-size: 1.1rem;
   font-style: italic;
   opacity: 0.7;
 }
@@ -217,46 +253,75 @@ const handleLocate = (troop) => {
 .troops-content {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  height: 100%;
+  gap: 25px;
 }
 
+/* Summary Grid */
 .troops-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+  padding: 0 25px;
+}
+
+.summary-card {
   display: flex;
-  justify-content: space-around;
+  align-items: center;
   gap: 20px;
   background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 215, 0, 0.3);
-  border-radius: 8px;
-  padding: 20px;
+  border: 2px solid rgba(255, 215, 0, 0.3);
+  border-radius: 12px;
+  padding: 25px;
+  transition: all 0.3s;
 }
 
-.summary-stat {
+.summary-card:hover {
+  border-color: rgba(255, 215, 0, 0.6);
+  background: rgba(0, 0, 0, 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+}
+
+.card-icon {
+  font-size: 3rem;
+  line-height: 1;
+  opacity: 0.8;
+}
+
+.card-content {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 5px;
+  flex: 1;
 }
 
-.stat-label {
-  font-size: 0.85rem;
+.card-label {
+  font-size: 0.9rem;
   color: #a89875;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 1.2px;
+  font-weight: 500;
 }
 
-.stat-value {
-  font-size: 1.8rem;
+.card-value {
+  font-size: 2.5rem;
   font-weight: bold;
   color: #ffd700;
   font-family: 'Cinzel', serif;
+  line-height: 1;
 }
 
+/* Table Container */
 .troops-table-container {
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(197, 160, 89, 0.2);
-  border-radius: 8px;
-  padding: 15px;
-  overflow-x: auto;
+  flex: 1;
+  background: rgba(0, 0, 0, 0.3);
+  border: 2px solid rgba(197, 160, 89, 0.3);
+  border-radius: 12px;
+  margin: 0 25px 25px 25px;
+  padding: 20px;
+  overflow: auto;
+  min-height: 0;
 }
 
 .troops-table {
@@ -265,99 +330,126 @@ const handleLocate = (troop) => {
 }
 
 .troops-table thead th {
-  background: rgba(0, 0, 0, 0.4);
+  position: sticky;
+  top: 0;
+  background: rgba(0, 0, 0, 0.8);
   color: #ffd700;
-  padding: 12px 10px;
+  padding: 18px 15px;
   text-align: left;
-  font-size: 0.9rem;
+  font-size: 1rem;
   text-transform: uppercase;
-  letter-spacing: 1px;
-  border-bottom: 2px solid #c5a059;
+  letter-spacing: 1.5px;
+  border-bottom: 3px solid #c5a059;
   font-family: 'Cinzel', serif;
+  font-weight: 600;
+  z-index: 10;
 }
 
 .troop-row {
   background: rgba(0, 0, 0, 0.3);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   transition: background 0.2s;
 }
 
 .troop-row:hover {
-  background: rgba(197, 160, 89, 0.1);
+  background: rgba(197, 160, 89, 0.15);
 }
 
 .troops-table td {
-  padding: 12px 10px;
-  font-size: 0.9rem;
+  padding: 18px 15px;
+  font-size: 1rem;
+  vertical-align: middle;
 }
 
+/* Unit Column */
 .unit-cell {
   font-weight: 600;
   color: #ffd700;
 }
 
 .unit-name {
-  font-size: 1rem;
+  font-size: 1.2rem;
+  font-family: 'Cinzel', serif;
 }
 
+/* Quantity Column */
 .quantity-cell {
   text-align: center;
 }
 
 .quantity-badge {
   background: rgba(255, 215, 0, 0.2);
-  border: 1px solid #ffd700;
-  padding: 4px 12px;
-  border-radius: 12px;
+  border: 2px solid #ffd700;
+  padding: 8px 20px;
+  border-radius: 16px;
   font-weight: bold;
   color: #ffd700;
+  font-size: 1.1rem;
+  display: inline-block;
 }
 
+/* Stats Column */
 .stats-cell {
   white-space: nowrap;
 }
 
-.stats-icons {
+.stats-grid {
   display: flex;
-  gap: 10px;
+  gap: 12px;
 }
 
 .stat-item {
-  font-size: 0.85rem;
-  padding: 3px 8px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px 12px;
 }
 
+.stat-icon {
+  font-size: 1.1rem;
+}
+
+.stat-value {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e8d5b5;
+}
+
+/* Status Column */
 .status-cell {
-  min-width: 200px;
+  min-width: 250px;
 }
 
 .status-bars {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .status-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .status-label {
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   color: #a89875;
-  min-width: 40px;
+  min-width: 45px;
+  font-weight: 600;
+  text-transform: uppercase;
 }
 
 .progress-bar {
   position: relative;
   flex: 1;
-  height: 18px;
-  background: rgba(0, 0, 0, 0.5);
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  height: 24px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
   overflow: hidden;
 }
 
@@ -394,56 +486,64 @@ const handleLocate = (troop) => {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   font-weight: bold;
   color: white;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+  text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.9);
 }
 
+/* Location Column */
 .location-cell {
-  min-width: 180px;
+  min-width: 220px;
 }
 
 .location-info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .army-name {
   font-weight: 600;
   color: #ffd700;
-  font-size: 0.95rem;
+  font-size: 1.1rem;
+  font-family: 'Cinzel', serif;
 }
 
 .h3-index {
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   color: #a89875;
   font-family: monospace;
+  opacity: 0.8;
 }
 
 .rest-level {
-  font-size: 0.75rem;
-  padding: 2px 6px;
-  border-radius: 3px;
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border-radius: 4px;
   display: inline-block;
+  font-weight: 600;
 }
 
 .rest-level.rested {
   color: #4caf50;
-  background: rgba(76, 175, 80, 0.1);
+  background: rgba(76, 175, 80, 0.2);
+  border: 1px solid rgba(76, 175, 80, 0.4);
 }
 
 .rest-level.tired {
   color: #ff9800;
-  background: rgba(255, 152, 0, 0.1);
+  background: rgba(255, 152, 0, 0.2);
+  border: 1px solid rgba(255, 152, 0, 0.4);
 }
 
 .rest-level.exhausted {
   color: #f44336;
-  background: rgba(244, 67, 54, 0.1);
+  background: rgba(244, 67, 54, 0.2);
+  border: 1px solid rgba(244, 67, 54, 0.4);
 }
 
+/* Actions Column */
 .actions-cell {
   text-align: center;
 }
@@ -452,18 +552,24 @@ const handleLocate = (troop) => {
   background: #c5a059;
   border: none;
   color: #111;
-  padding: 6px 14px;
-  border-radius: 4px;
-  font-weight: 600;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 700;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   transition: all 0.2s;
   font-family: 'Cinzel', serif;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .btn-locate:hover {
   background: #ffd700;
   transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+}
+
+.btn-locate:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 </style>

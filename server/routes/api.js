@@ -202,8 +202,19 @@ module.exports = function (pool, config, logic) {
     });
 
     router.get('/game/world-state', async (req, res) => {
-        const result = await pool.query('SELECT current_turn, game_date, is_paused FROM world_state WHERE id = 1');
-        res.json({ success: true, turn: result.rows[0].current_turn, date: result.rows[0].game_date, is_paused: result.rows[0].is_paused });
+        try{
+            const result = await pool.query('SELECT current_turn, game_date, is_paused FROM world_state WHERE id = 1');
+            res.json({ success: true, turn: result.rows[0].current_turn, date: result.rows[0].game_date, is_paused: result.rows[0].is_paused });    
+        } catch (e) { 
+            if (client) 
+                await client.query('ROLLBACK');             
+            Logger.error(error, {
+                endpoint: '/game/world-state',
+                method: 'GET',
+                userId: req.session?.user?.player_id
+            });
+            res.status(500).json({ success: false, error: e.message }); 
+        }        
     });
 
     router.get('/game/my-fiefs', requireAuth, async (req, res) => {
@@ -257,7 +268,17 @@ module.exports = function (pool, config, logic) {
                 new_gold_balance: newGoldResult.rows[0].gold,
                 gold_spent: cost
             });
-        } catch (e) { if (client) await client.query('ROLLBACK'); res.status(500).json({ success: false, error: e.message }); }
+        } catch (e) { 
+            if (client) 
+                await client.query('ROLLBACK');             
+            Logger.error(error, {
+                endpoint: '/territory/explore',
+                method: 'POST',
+                userId: req.session?.user?.player_id,
+                payload: req.body
+            });
+            res.status(500).json({ success: false, error: e.message }); 
+        }
         finally { client.release(); }
     });
 
@@ -285,7 +306,16 @@ module.exports = function (pool, config, logic) {
             await client.query('COMMIT');
             logGameEvent(`[INFRAESTRUCTURA] Jugador ${player_id} mejoró ${building_type} en ${h3_index}`);
             res.json({ success: true, message: `${building_type} mejorada al nivel ${currentLevel + 1}` });
-        } catch (e) { if (client) await client.query('ROLLBACK'); res.status(500).json({ success: false, error: e.message }); }
+        } catch (e) { 
+            if (client) 
+                await client.query('ROLLBACK'); 
+            Logger.error(error, {
+                endpoint: '/territory/upgrade',
+                method: 'POST',
+                userId: req.session?.user?.player_id,
+                payload: req.body
+            });
+            res.status(500).json({ success: false, error: e.message }); }
         finally { client.release(); }
     });
 
@@ -369,13 +399,20 @@ module.exports = function (pool, config, logic) {
             res.json({ success: true, message: 'Mundo reseteado' });
         } catch (error) {
             console.error('Admin reset error:', error);
+            Logger.error(error, {
+                endpoint: '/admin/reset',
+                method: 'POST',
+                userId: req.session?.user?.player_id,
+                payload: req.body
+            });
             res.status(500).json({ success: false, message: 'Error al resetear mundo' });
         }
     });
 
     router.get('/admin/stats', requireAdmin, async (req, res) => {
         try {
-            const world = (await pool.query('SELECT current_turn, game_date, turn_duration_seconds FROM world_state WHERE id = 1')).rows[0];
+            const world = (await pool.query('SELECT current_turn, game_date FROM world_state WHERE id = 1')).rows[0];
+            const config = (await pool.query("SELECT value FROM game_config WHERE \"group\" = 'gameplay' and key = 'turn_duration_seconds'")).rows[0];
             const players = (await pool.query('SELECT COUNT(*) FROM players')).rows[0].count;
             const territories = (await pool.query('SELECT COUNT(*) FROM h3_map WHERE player_id IS NOT NULL')).rows[0].count;
             const messages = (await pool.query('SELECT COUNT(*) FROM messages')).rows[0].count;
@@ -388,11 +425,17 @@ module.exports = function (pool, config, logic) {
                     players: parseInt(players),
                     territories: parseInt(territories),
                     messages: parseInt(messages),
-                    turn_interval_seconds: world.turn_duration_seconds
+                    turn_interval_seconds: config.value
                 }
             });
         } catch (error) {
             console.error('Admin stats error:', error);
+            Logger.error(error, {
+                endpoint: '/admin/stats',
+                method: 'POST',
+                userId: req.session?.user?.player_id,
+                payload: req.body
+            });
             res.status(500).json({ success: false, message: 'Error al obtener estadísticas' });
         }
     });
@@ -403,6 +446,12 @@ module.exports = function (pool, config, logic) {
             res.json({ success: true, message: 'Todas las exploraciones han sido reseteadas' });
         } catch (error) {
             console.error('Admin reset-explorations error:', error);
+            Logger.error(error, {
+                endpoint: '/admin/reset-explorations',
+                method: 'POST',
+                userId: req.session?.user?.player_id,
+                payload: req.body
+            });
             res.status(500).json({ success: false, message: 'Error al resetear exploraciones' });
         }
     });
@@ -412,14 +461,19 @@ module.exports = function (pool, config, logic) {
             const { turn_interval_seconds } = req.body;
             if (!turn_interval_seconds) return res.status(400).json({ success: false, message: 'turn_interval_seconds requerido' });
 
-            await pool.query('UPDATE world_state SET turn_duration_seconds = $1 WHERE id = 1', [turn_interval_seconds]);
             // Also update in game_config for persistence across reloads if applicable
             await pool.query('INSERT INTO game_config ("group", "key", "value") VALUES ($1, $2, $3) ON CONFLICT ("group", "key") DO UPDATE SET value = EXCLUDED.value', ['gameplay', 'turn_duration_seconds', turn_interval_seconds.toString()]);
 
             res.json({ success: true, message: 'Configuración actualizada. Reinicie el servidor para aplicar el nuevo intervalo de tiempo.' });
         } catch (error) {
             console.error('Admin config error:', error);
-            res.status(500).json({ success: false, message: 'Error al actualizar configuración' });
+            Logger.error(error, {
+                endpoint: '/api/admin/config',
+                method: 'POST',
+                userId: req.session?.user?.player_id,
+                payload: req.body
+            });
+            res.status(500).json({ success: false, message: 'Error al actualizar configuración', error: error.message });
         }
     });
 
@@ -427,6 +481,11 @@ module.exports = function (pool, config, logic) {
         try {
             res.json({ success: true, config: config });
         } catch (error) {
+            Logger.error(error, {
+                endpoint: '/admin/game-config',
+                method: 'GET',
+                userId: req.session?.user?.player_id
+            });
             res.status(500).json({ success: false, message: 'Error al obtener configuración' });
         }
     });
@@ -445,6 +504,12 @@ module.exports = function (pool, config, logic) {
             res.json({ success: true, message: 'Configuración de juego actualizada' });
         } catch (error) {
             console.error('Admin update-game-config error:', error);
+            Logger.error(error, {
+                endpoint: '/admin/game-config',
+                method: 'POST',
+                userId: req.session?.user?.player_id,
+                payload: req.body
+            });
             res.status(500).json({ success: false, message: 'Error al actualizar configuración de juego' });
         }
     });

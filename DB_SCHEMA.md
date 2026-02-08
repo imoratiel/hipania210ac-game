@@ -56,3 +56,18 @@
 - experience (DECIMAL 5,2)
 - morale (DECIMAL 5,2)
 - last_fed_turn (INT)
+
+## Tabla: world_state
+- id (SERIAL PK)
+- current_turn (INT)
+- game_date (DATE)
+- is_paused (BOOLEAN)
+- last_updated (TIMESTAMP)
+- days_per_year (INT)
+
+## Tabla: game_config
+- id (SERIAL PK)
+- group (VARCHAR 50)
+- KEY (VARCHAR 50)
+- value (VARCHAR 255)
+

@@ -187,5 +187,3 @@ INSERT INTO unit_combat_counters (attacker_type_id, defender_type_id, damage_mul
 VALUES 
 ((SELECT unit_type_id FROM unit_types WHERE name='Ballesteros'), (SELECT unit_type_id FROM unit_types WHERE name='Caballería Pesada'), 1.60);
 
-
-

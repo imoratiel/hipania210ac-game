@@ -67,3 +67,6 @@ UPDATE territory_details SET
     port_level = 0 
 WHERE farm_level IS NULL;
 
+-- 2. Crear la restricción de unicidad compuesta
+ALTER TABLE game_config 
+ADD CONSTRAINT unique_group_key UNIQUE ("group", "key");
