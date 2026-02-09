@@ -76,16 +76,16 @@ CREATE INDEX IF NOT EXISTS idx_army_h3_main ON armies (h3_index);
 -- ---------------------------------------------------------
 
 INSERT INTO unit_types (name, attack, health_points, speed, detection_range, gold_upkeep, food_consumption, is_siege, descrip) VALUES
-('Milicia', 5, 30, 2, 1, 0.50, 0.75, FALSE, 'Campesinos con lanzas de madera.'),
-('Soldados', 12, 80, 2, 2, 4.50, 2.00, FALSE, 'Infantería de línea profesional.'),
-('Lanceros', 10, 90, 2, 2, 3.75, 1.80, FALSE, 'Muro de picas contra la caballería.'),
-('Arqueros', 13, 50, 2, 3, 5.00, 1.50, FALSE, 'Hostigamiento a larga distancia.'),
-('Ballesteros', 16, 55, 2, 2, 6.50, 1.75, FALSE, 'Potencia de fuego lenta pero letal.'),
-('Caballería Ligera', 14, 75, 4, 4, 7.25, 3.50, FALSE, 'Exploración ofensiva y flanqueo.'),
-('Caballería Pesada', 22, 130, 3, 2, 12.00, 5.50, FALSE, 'El martillo del campo de batalla.'),
-('Explorador', 4, 40, 5, 6, 2.50, 1.25, FALSE, 'Ojos y oídos del general.'),
-('Ariete', 5, 200, 1, 1, 8.00, 0.50, TRUE, 'Madera reforzada para romper portones.'),
-('Catapulta', 35, 110, 1, 1, 22.00, 1.00, TRUE, 'Ingeniería pesada de destrucción.');
+('Milicia', 5, 30, 2, 1, 0.50, 0.1, FALSE, 'Campesinos con lanzas de madera.'),
+('Soldados', 12, 80, 2, 2, 1.50, 0.1, FALSE, 'Infantería de línea profesional.'),
+('Lanceros', 10, 90, 2, 2, 1.50, 0.1, FALSE, 'Muro de picas contra la caballería.'),
+('Arqueros', 13, 50, 2, 3, 2.00, 0.1, FALSE, 'Hostigamiento a larga distancia.'),
+('Ballesteros', 16, 55, 2, 2, 3.00, 0.1, FALSE, 'Potencia de fuego lenta pero letal.'),
+('Caballería Ligera', 14, 75, 4, 4, 4.00, 0.2, FALSE, 'Exploración ofensiva y flanqueo.'),
+('Caballería Pesada', 22, 130, 3, 2, 6.00, 0.3, FALSE, 'El martillo del campo de batalla.'),
+('Explorador', 1, 40, 5, 6, 1.50, 0.1, FALSE, 'Ojos y oídos del general.'),
+('Ariete', 5, 200, 1, 1, 8.00, 0.1, TRUE, 'Madera reforzada para romper portones.'),
+('Catapulta', 35, 210, 1, 1, 22.00, 0.1, TRUE, 'Ingeniería pesada de destrucción.');
 
 
 -- Requisitos para Milicia (Básico)

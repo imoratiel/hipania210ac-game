@@ -426,7 +426,7 @@
               v-if="!selectedHexData.player_id"
               class="action-button colonize-button"
               @click="colonizeTerritory"
-              :disabled="playerGold < 100"
+              :disabled="playerGold < 100 || isColonizing"
             >
               🏰 Colonizar (100 💰)
             </button>
@@ -2284,6 +2284,9 @@ const updateHexagonOpacity = () => {
 const closeActionPanel = () => {
   showActionPanel.value = false;
   selectedHexData.value = null;
+
+  // Reset colonizing state to ensure clean state for next interaction
+  isColonizing.value = false;
 };
 
 /**
@@ -2293,6 +2296,10 @@ const closeActionPanel = () => {
  */
 const openActionPanel = (hexData, event) => {
   selectedHexData.value = hexData;
+
+  // CRITICAL: Reset colonizing state when selecting a new territory
+  // This prevents the button from staying disabled if user switches territories during/after colonization
+  isColonizing.value = false;
 
   // Get mouse position relative to the viewport
   const mouseX = event.originalEvent.clientX;
@@ -2842,7 +2849,11 @@ const showToast = (message, type = 'info') => {
  */
 const showCellDetailsPopup = async (h3_index, latLng) => {
   try {
-    // Fetch detailed cell information from API
+    // CRITICAL: Reset colonizing state when opening a new popup
+    // This ensures the button works correctly even if user switches territories during/after colonization
+    isColonizing.value = false;
+
+    // Fetch detailed cell information from API (always fresh data from server)
     const response = await axios.get(`${API_URL}/api/map/cell-details/${h3_index}`);
     console.log(`[Popup] Data for ${h3_index}:`, response.data);
     const cell = response.data;
@@ -2950,6 +2961,7 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
 
     if (!cell.player_id) {
       const hasEnoughGold = playerGold.value >= 100;
+      const isCurrentlyColonizing = isColonizing.value;
       let isAdjacent = false;
       let disabledReason = '';
 
@@ -2962,8 +2974,10 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
         );
       }
 
-      const canColonize = hasEnoughGold && isAdjacent;
-      if (!hasEnoughGold) disabledReason = 'Oro insuficiente';
+      // Button is disabled if: not enough gold, not adjacent, OR currently colonizing
+      const canColonize = hasEnoughGold && isAdjacent && !isCurrentlyColonizing;
+      if (isCurrentlyColonizing) disabledReason = 'Colonización en progreso...';
+      else if (!hasEnoughGold) disabledReason = 'Oro insuficiente';
       else if (!isAdjacent) disabledReason = 'Debe ser contiguo a tu territorio';
 
       const activeClass = canColonize ? 'btn-colonize' : 'btn-disabled';
