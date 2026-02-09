@@ -887,7 +887,8 @@ const filteredAndSortedFiefs = computed(() => {
     const gold = Number(fief.gold_stored || 0);
     const fertility = Number(fief.fertility || 0);
 
-    const consumption = (population / 100.0) * 0.01;
+    // Daily food consumption matches backend formula (turn_engine.js:195)
+    const consumption = Math.floor(population / 100.0) * FOOD_CONSUMPTION_MULTIPLIER;
     const autonomy = consumption > 0 ? Math.floor(food / consumption) : Infinity;
     
     // Food balance estimated: daily production probability (1.185 avg) - consumption
@@ -1062,6 +1063,9 @@ const LEON_CENTER = [42.599, -5.573];
 const INITIAL_ZOOM = 13;
 const DEBOUNCE_DELAY = 500; // ms
 // REMOVED: ZOOM_THRESHOLD_RES_10 - Now resolution is always 8 (database only has res 8 indices)
+
+// Game mechanics constants
+const FOOD_CONSUMPTION_MULTIPLIER = 0.1; // Daily food consumption = (population / 100) * this value
 
 /**
  * Leer parámetros de la URL (lat, lng, zoom, res)

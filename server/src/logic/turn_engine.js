@@ -190,9 +190,11 @@ async function processGameTurn(pool, config) {
 
         // Daily food consumption
         try {
+            // Buscar esta línea en MapViewer.vue para asegurarnos de que el consumo de comida coincide entre backend y frontend:
+            // const FOOD_CONSUMPTION_MULTIPLIER = 0.1;
             await client.query(`
                 UPDATE territory_details
-                SET food_stored = GREATEST(0, food_stored - (FLOOR(population / 100.0) * 0.5))
+                SET food_stored = GREATEST(0, food_stored - (FLOOR(population / 100.0) * 0.1))
                 WHERE h3_index IN (SELECT h3_index FROM h3_map WHERE player_id IS NOT NULL)
             `);
             Logger.engine(`[TURN ${newTurn}] Food consumption processed`);
