@@ -279,6 +279,84 @@ module.exports = function (pool, config, logic) {
         });
     });
 
+    // Get armies in visible extent (for map icons)
+    router.get('/map/armies', authenticateToken, async (req, res) => {
+        try {
+            const { minLat, maxLat, minLng, maxLng } = req.query;
+
+            // Validate geographic bounds
+            if (!minLat || !maxLat || !minLng || !maxLng) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Missing bounding box parameters'
+                });
+            }
+
+            const bounds = {
+                minLat: parseFloat(minLat),
+                maxLat: parseFloat(maxLat),
+                minLng: parseFloat(minLng),
+                maxLng: parseFloat(maxLng)
+            };
+
+            if (Object.values(bounds).some(isNaN)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid bounding box parameters'
+                });
+            }
+
+            // Convert geographic bounds to H3 cells (same resolution as map)
+            const H3_RESOLUTION = 8;
+            const polygon = [
+                [bounds.minLat, bounds.minLng],
+                [bounds.minLat, bounds.maxLng],
+                [bounds.maxLat, bounds.maxLng],
+                [bounds.maxLat, bounds.minLng]
+            ];
+            const h3CellsArray = Array.from(h3.polygonToCells(polygon, H3_RESOLUTION)).slice(0, 50000);
+
+            if (h3CellsArray.length === 0) {
+                return res.json({
+                    success: true,
+                    armies: [],
+                    current_player_id: req.user.player_id
+                });
+            }
+
+            // Query armies table directly - group by location and player
+            const query = `
+                SELECT
+                    a.h3_index,
+                    a.player_id,
+                    COUNT(DISTINCT a.army_id) as army_count,
+                    SUM(t.quantity) as total_troops
+                FROM armies a
+                LEFT JOIN troops t ON a.army_id = t.army_id
+                WHERE a.h3_index = ANY($1::text[])
+                GROUP BY a.h3_index, a.player_id
+                ORDER BY a.h3_index
+            `;
+
+            const result = await pool.query(query, [h3CellsArray]);
+
+            res.json({
+                success: true,
+                armies: result.rows,
+                current_player_id: req.user.player_id
+            });
+
+        } catch (error) {
+            Logger.error(error, {
+                endpoint: '/map/armies',
+                method: 'GET',
+                userId: req.user?.player_id,
+                payload: req.query
+            });
+            res.status(500).json({ success: false, message: 'Error al obtener tropas del mapa' });
+        }
+    });
+
     router.get('/players/:id', async (req, res) => {
         const result = await pool.query('SELECT player_id, username, gold, color FROM players WHERE player_id = $1', [req.params.id]);
         if (result.rows.length === 0) return res.status(404).json({ error: 'Player not found' });
@@ -305,7 +383,7 @@ module.exports = function (pool, config, logic) {
         const query = `
       SELECT
         m.h3_index,
-        COALESCE(td.custom_name, s.name, 'Territorio sin nombre') AS location_name,
+        COALESCE(td.custom_name, s.name, m.h3_index) AS location_name,
         td.*,
         t.name AS terrain_name,
         t.food_output,

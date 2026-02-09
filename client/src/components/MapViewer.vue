@@ -1050,6 +1050,7 @@ let hexagonLayer = null;
 let settlementMarkersLayer = null;
 let settlementMarkersMap = {}; // Map: settlement name -> marker
 let buildingMarkersLayer = null; // Layer for building icons (farms, castles, etc.)
+let armyMarkersLayer = null; // Layer for army/troop icons
 let highlightLayer = null; // Temporary highlight polygon for navigation
 let debounceTimer = null;
 
@@ -1194,14 +1195,18 @@ const initMap = () => {
   // Territory Pane (Fill) - Bottom
   map.createPane('territoryPane');
   map.getPane('territoryPane').style.zIndex = 400;
-  
+
   // Border Pane (Lines) - Middle
   map.createPane('borderPane');
   map.getPane('borderPane').style.zIndex = 450;
-  
+
   // Star Pane (Icons) - Top
   map.createPane('starPane');
   map.getPane('starPane').style.zIndex = 650;
+
+  // Army Pane (Troop Icons) - Above Stars
+  map.createPane('armyPane');
+  map.getPane('armyPane').style.zIndex = 700;
 
   // OpenStreetMap layer
   osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -1244,6 +1249,7 @@ const initMap = () => {
   // Create separate layers for markers
   settlementMarkersLayer = L.layerGroup().addTo(map);
   buildingMarkersLayer = L.layerGroup().addTo(map);
+  armyMarkersLayer = L.layerGroup().addTo(map);
 
   // Track zoom level
   currentZoom.value = map.getZoom();
@@ -1342,8 +1348,9 @@ const loadHexagonsIfZoomValid = () => {
   if (currentZoom >= MIN_ZOOM_H3 && currentZoom <= MAX_ZOOM_H3) {
     fetchHexagonData();
   } else {
-    // Clear hexagons if zoom is outside valid range
+    // Clear hexagons and army markers if zoom is outside valid range
     clearHexagons();
+    clearArmyMarkers();
     if (currentZoom < MIN_ZOOM_H3) {
       console.log(`Hexágonos ocultos: zoom ${currentZoom} < ${MIN_ZOOM_H3}`);
     } else if (currentZoom > MAX_ZOOM_H3) {
@@ -1387,12 +1394,136 @@ const fetchHexagonData = async () => {
     hexagonCount.value = hexagons.length;
     renderHexagons(hexagons);
 
+    // Fetch and render army markers after hexagons are loaded
+    await fetchArmyData();
+
     loading.value = false;
   } catch (err) {
     console.error('Failed to fetch hexagon data:', err);
     error.value = err.message || 'Failed to load map data';
     loading.value = false;
   }
+};
+
+/**
+ * Clear all army markers from the map
+ */
+const clearArmyMarkers = () => {
+  if (armyMarkersLayer) {
+    armyMarkersLayer.clearLayers();
+  }
+};
+
+/**
+ * Fetch army data from backend based on visible map bounds
+ * Only fetches if zoom level is valid (11-17)
+ */
+const fetchArmyData = async () => {
+  try {
+    const currentZoom = map.getZoom();
+
+    // Only show army markers between zoom 11-17
+    if (currentZoom < MIN_ZOOM_H3 || currentZoom > MAX_ZOOM_H3) {
+      clearArmyMarkers();
+      return;
+    }
+
+    // Get current map bounds (same as hexagons)
+    const bounds = map.getBounds();
+    const params = {
+      minLat: bounds.getSouth(),
+      maxLat: bounds.getNorth(),
+      minLng: bounds.getWest(),
+      maxLng: bounds.getEast()
+    };
+
+    console.log(`Fetching armies for visible area...`);
+
+    const response = await axios.get(`${API_URL}/api/map/armies`, { params });
+
+    if (response.data.success) {
+      renderArmyMarkers(response.data.armies, response.data.current_player_id);
+    }
+  } catch (err) {
+    console.error('Failed to fetch army data:', err);
+    // Don't show error to user - army icons are supplementary
+  }
+};
+
+/**
+ * Render army markers on the map
+ * @param {Array} armies - Array of {h3_index, player_id, army_count, total_troops}
+ * @param {Number} currentPlayerId - The current player's ID
+ */
+const renderArmyMarkers = (armies, currentPlayerId) => {
+  // Clear existing army markers
+  clearArmyMarkers();
+
+  if (!armies || armies.length === 0) {
+    return;
+  }
+
+  console.log(`Rendering ${armies.length} army markers...`);
+
+  armies.forEach(army => {
+    try {
+      // Get center of H3 cell for marker placement
+      const [lat, lng] = cellToLatLng(army.h3_index);
+
+      // Determine icon color: blue for own troops, red for enemies
+      const isOwnTroops = army.player_id === currentPlayerId;
+      const iconColor = isOwnTroops ? '#2196F3' : '#f44336'; // Blue vs Red
+
+      // Create HTML for the icon with troop count
+      const iconHtml = `
+        <div style="
+          background-color: ${iconColor};
+          border: 2px solid ${isOwnTroops ? '#1565C0' : '#c62828'};
+          border-radius: 50%;
+          width: 24px;
+          height: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: white;
+          font-weight: bold;
+          font-size: 11px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+          cursor: pointer;
+        ">
+          ⚔️
+        </div>
+      `;
+
+      // Create custom divIcon
+      const customIcon = L.divIcon({
+        html: iconHtml,
+        className: 'army-marker-icon',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+      });
+
+      // Create marker with popup showing troop details
+      const marker = L.marker([lat, lng], {
+        icon: customIcon,
+        pane: 'armyPane'
+      });
+
+      // Add popup with army information
+      const popupContent = `
+        <div style="text-align: center;">
+          <strong>${isOwnTroops ? 'Tus Tropas' : 'Tropas Enemigas'}</strong><br>
+          <span>Ejércitos: ${army.army_count || 1}</span><br>
+          <span>Tropas: ${army.total_troops || 0}</span>
+        </div>
+      `;
+
+      marker.bindPopup(popupContent);
+      marker.addTo(armyMarkersLayer);
+    } catch (err) {
+      console.error(`Error rendering army marker for ${army.h3_index}:`, err);
+    }
+  });
 };
 
 /**
