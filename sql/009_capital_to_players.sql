@@ -52,3 +52,10 @@ BEGIN
         RAISE WARNING '⚠ Vista v_map_display está vacía (esto es normal si no hay datos)';
     END IF;
 END $$;
+
+-- Insert default values if they don't exist
+INSERT INTO game_config ("group", "key", "value")
+VALUES
+    ('exploration', 'turns_required', '5'),
+    ('exploration', 'gold_cost', '100')
+ON CONFLICT ("group", "key") DO NOTHING;

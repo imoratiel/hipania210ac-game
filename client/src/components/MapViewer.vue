@@ -988,6 +988,7 @@ const filteredAndSortedFiefs = computed(() => {
       explorationStatusIcon,
       explorationStatusShort,
       explorationStatusText,
+      total_troops: fief.total_troops || 0,
       discovered_resource: fief.discovered_resource,
       exploration_end_turn: fief.exploration_end_turn,
       miningStatus,
