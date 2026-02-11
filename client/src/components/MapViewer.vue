@@ -716,6 +716,9 @@ import { cellToBoundary, cellToLatLng, gridDisk, gridDistance, latLngToCell } fr
 import axios from 'axios';
 import 'leaflet/dist/leaflet.css';
 
+// Import map utilities
+import { getHexagonStyles, getCapitalStarIconHTML } from '@/utils/mapStyles.js';
+
 // Import modular components
 import KingdomPanel from './KingdomPanel.vue';
 import MilitaryPanel from './MilitaryPanel.vue';
@@ -2004,69 +2007,16 @@ const renderHexagons = (hexagons) => {
       const boundary = cellToBoundary(hex.h3_index);
 
       // --- CONFIGURATION ---
-      // Estilos especiales
-      const hasRoad = hex.has_road || false;
+      // Calcular estilos usando funciones externas
+      const styles = getHexagonStyles(hex, {
+        playerId: playerId.value,
+        showTerrainLayer: showTerrainLayer.value,
+        isPoliticalView: isPoliticalView.value,
+        isHighRes
+      });
+
+      const { fillColor, fillOpacity, borderColor, borderWeight } = styles;
       const isCapital = hex.is_capital === true;
-      const isMyTerritory = hex.player_id === playerId.value;
-      const playerColor = hex.player_color || null;
-      const terrainColor = hex.terrain_color || hex.color || '#9e9e9e';
-
-      // --- 1. FILL SETUP (territoryPane) ---
-      // Base color: terrain if layer is active, otherwise neutral
-      let fillColor = showTerrainLayer.value ? terrainColor : '#606060';
-      let fillOpacity = 1.0; // Opacidad completa para máxima claridad visual
-
-      // Override fill logic based on priorities
-      if (isCapital && isMyTerritory) {
-         fillColor = '#ff0000';
-         fillOpacity = 1.0;
-      } else if (isMyTerritory) {
-         fillColor = '#ff0000';
-         fillOpacity = 1.0;
-      } else if (isPoliticalView.value && hex.player_id) {
-         // Enemy territory: show player color if political view is active
-         if (playerColor && isPoliticalView.value) {
-           fillColor = playerColor;
-         }
-         fillOpacity = 0.6; // Enemy territory semitransparente para diferenciación
-      } else if (playerColor) {
-         fillOpacity = 0.6;
-      } else if (!showTerrainLayer.value) {
-         // No terrain layer and no player: medium opacity
-         fillOpacity = 0.7;
-      }
-
-      // --- 2. BORDER SETUP (borderPane) ---
-      // Default: color red, weight 3 (from requirements: "color: '#d32f2f', weight: 3")
-      let borderColor = '#d32f2f'; 
-      let borderWeight = 3;
-      
-      // Logic from requirements for CAPITAL
-      if (isCapital) {
-          borderColor = '#ff0000';
-          borderWeight = 6;
-      } 
-      // Logic for other cases (Roads, Enemies) - maintaining some existing logic mixed with new requirements
-      else if (isMyTerritory) {
-          borderColor = '#d32f2f';
-          borderWeight = 3;
-      } else if (isPoliticalView.value && playerColor) {
-           borderColor = playerColor; // Enemy border color
-           borderWeight = 3;
-      } else if (hasRoad) {
-           borderColor = '#d4af37'; // Gold road
-      } else {
-          // Standard terrain border?
-          // If we want to follow the "Two Elements" strict rule for *player* hexagons:
-          // The prompt says: "Cada hexágono del jugador debe tener DOS elementos"
-          // It implies logic mainly for player/capital. But we should render the map consistently.
-          // Using terrain color for neutral borders or keeping red theme?
-          // Assuming neutral hexes just use terrain color or minimal border
-          if (!hex.player_id && !hasRoad) {
-             borderColor = terrainColor;
-             borderWeight = isHighRes ? 0.5 : 1;
-          }
-      }
 
       // --- LAYER 1: FILL (territoryPane) ---
       // "A) El RELLENO: L.polygon con fill: true, fillColor: '#ff0000', fillOpacity: 0.3, stroke: false y pane: 'territoryPane'."
@@ -2118,18 +2068,11 @@ const renderHexagons = (hexagons) => {
 
       // --- LAYER 3: STAR MARKER (starPane) ---
       if (isCapital) {
-        // "3. ICONO DE LA ESTRELLA (⭐)" - REFACTORIZADO A SVG STRICTO - MOVED TO RENDER HEXAGONS
         const [lat, lng] = cellToLatLng(hex.h3_index);
-        
-        console.warn('RENDER ESTRELLA:', [lat, lng]); // Verification log requested
-        
+
         const capitalIcon = L.divIcon({
             className: 'capital-star-marker',
-            html: `
-              <svg viewBox="0 0 24 24" width="32" height="32" style="filter: drop-shadow(0 0 3px rgba(0,0,0,0.8));">
-                <path d="M12 .587l3.668 7.431 8.2 1.192-5.934 5.787 1.4 8.168L12 18.896l-7.335 3.869 1.4-8.168-5.934-5.787 8.2-1.192z" 
-                      fill="#FFD700" stroke="#8B4513" stroke-width="1.5"/>
-              </svg>`,
+            html: getCapitalStarIconHTML(),
             iconSize: [32, 32],
             iconAnchor: [16, 16]
         });
@@ -2138,10 +2081,8 @@ const renderHexagons = (hexagons) => {
             icon: capitalIcon,
             pane: 'starPane',
             interactive: false,
-            zIndexOffset: 1000 // Ultra high priority
+            zIndexOffset: 1000
         }).addTo(hexagonLayer);
-        
-        console.log(`✓ Rendered capital star at ${hex.h3_index}`);
       }
 
     } catch (err) {
