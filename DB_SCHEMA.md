@@ -21,6 +21,8 @@
 - gold_provisions, food_provisions, wood_provisions, etc. (DECIMAL 12,2)
 - rest_level (DECIMAL 5,2) 0 a 100, al llegar a 0 se detiene. Si en un turno no se mueves, está descansando y recupera.
 - created_at (TIMESTAMP)
+- destination (VARCHAR 16)
+- recovering (INT)
 
 ## Tabla: territory_details
 - h3_index (VARCHAR 15 PK) <- ¡OJO! No tiene columna 'id'
