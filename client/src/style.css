@@ -807,11 +807,34 @@ button {
   transition: width 0.3s ease, background-color 0.3s ease;
 }
 
+.stamina-value {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #5d4e37;
+  font-family: 'Courier New', monospace;
+  min-width: 35px;
+  text-align: right;
+}
+
 .status-text {
   margin: 0;
   font-size: 0.7rem;
   color: #2c1e14;
   font-weight: 500;
+}
+
+/* Force Rest Warning */
+.force-rest-warning {
+  margin: 4px 0 0 0;
+  padding: 4px 8px;
+  background: linear-gradient(135deg, rgba(255, 107, 107, 0.2), rgba(244, 67, 54, 0.15));
+  border-left: 3px solid #ff6b6b;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #c62828;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 
 

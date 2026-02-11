@@ -61,3 +61,27 @@ VALUES
     ('exploration', 'turns_required', '5'),
     ('exploration', 'gold_cost', '100')
 ON CONFLICT ("group", "key") DO NOTHING;
+
+
+-- 1. Añadimos el presupuesto de puntos de movimiento actual
+ALTER TABLE armies ADD COLUMN movement_points DECIMAL(5,2) DEFAULT 0.0;
+
+-- 3. Comentario para el esquema
+COMMENT ON COLUMN armies.movement_points IS 'Puntos de movimiento restantes para el turno actual (permite decimales para penalizaciones)';
+
+-- 1. Eliminamos el descanso a nivel de ejército (si existía)
+ALTER TABLE armies DROP COLUMN IF EXISTS rest_level;
+
+-- 2. Añadimos el descanso a nivel de unidad dentro del ejército
+-- Usamos un valor de 0 a 100
+ALTER TABLE troops ADD COLUMN stamina DECIMAL(5,2) DEFAULT 100.0;
+
+-- 3. Comentario para el esquema
+COMMENT ON COLUMN troops.stamina IS 'Nivel de fatiga de este grupo específico de unidades dentro del ejército (0-100)';
+
+-- Añadimos el campo para el bloqueo de movimiento por agotamiento
+ALTER TABLE troops ADD COLUMN force_rest BOOLEAN DEFAULT FALSE;
+
+-- Comentario para el esquema
+COMMENT ON COLUMN troops.force_rest IS 'Si es TRUE, la unidad está colapsada y no puede moverse hasta recuperar el 25% de stamina';
+

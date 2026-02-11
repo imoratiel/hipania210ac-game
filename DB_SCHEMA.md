@@ -23,6 +23,7 @@
 - created_at (TIMESTAMP)
 - destination (VARCHAR 16)
 - recovering (INT)
+- movement_points (DECIMAL 5,2)
 
 ## Tabla: territory_details
 - h3_index (VARCHAR 15 PK) <- ¡OJO! No tiene columna 'id'
@@ -58,6 +59,8 @@
 - experience (DECIMAL 5,2)
 - morale (DECIMAL 5,2)
 - last_fed_turn (INT)
+- stamina (DECIMAL 5,2)
+- force_rest (BOOLEAN)
 
 ## Tabla: world_state
 - id (SERIAL PK)

@@ -265,23 +265,32 @@ export function generateArmyPopup(armyData, config) {
       popupContent += '</div>';
 
       // COMBINED STATUS SECTION (COMPACT - stamina + movement)
-      const restLevel = army.rest_level || 0;
-      const restPercentage = Math.max(0, Math.min(100, restLevel));
-      const restColor = restPercentage < 30 ? '#ff6b6b' : (restPercentage < 60 ? '#ffd93d' : '#4caf50');
-      const restLabel = restPercentage < 30 ? 'Agotado' : (restPercentage < 60 ? 'Cansado' : 'Descansado');
+      // Use minimum stamina (weakest link) from fatigue system
+      const minStamina = army.min_stamina !== undefined ? army.min_stamina : (army.rest_level || 100);
+      const staminaPercentage = Math.max(0, Math.min(100, minStamina));
+      const staminaColor = staminaPercentage < 30 ? '#ff6b6b' : (staminaPercentage < 60 ? '#ffd93d' : '#4caf50');
+      const staminaLabel = staminaPercentage < 30 ? 'Agotado' : (staminaPercentage < 60 ? 'Cansado' : 'Descansado');
 
+      const hasForceRest = army.has_force_rest || false;
       const isRecovering = army.recovering && Number(army.recovering) > 0;
       const isMoving = army.destination && army.destination !== null;
 
       popupContent += '<div class="army-status-compact">';
 
-      // Stamina bar (thin, inline with label)
+      // Stamina bar (thin, inline with label) - Shows weakest unit's stamina
       popupContent += '<div class="stamina-inline">';
-      popupContent += `<span class="stamina-label">💪 ${restLabel}</span>`;
+      popupContent += `<span class="stamina-label">💪 ${staminaLabel}</span>`;
       popupContent += '<div class="rest-bar-thin">';
-      popupContent += `<div class="rest-bar-fill-thin" style="width: ${restPercentage}%; background-color: ${restColor}"></div>`;
+      popupContent += `<div class="rest-bar-fill-thin" style="width: ${staminaPercentage}%; background-color: ${staminaColor}"></div>`;
       popupContent += '</div>';
+      popupContent += `<span class="stamina-value">${Math.round(staminaPercentage)}%</span>`;
       popupContent += '</div>';
+
+      // Force rest warning (if any unit is exhausted)
+      if (hasForceRest) {
+        const exhaustedCount = army.exhausted_units || 0;
+        popupContent += `<p class="force-rest-warning">⛔ DESCANSO FORZADO (${exhaustedCount} unidad${exhaustedCount !== 1 ? 'es' : ''})</p>`;
+      }
 
       // Movement status (compact)
       if (isRecovering) {
@@ -299,12 +308,15 @@ export function generateArmyPopup(armyData, config) {
       if (isOwnArmy) {
         popupContent += '<div class="army-actions-compact">';
 
-        // Move button
-        const canMove = !isRecovering;
+        // Move button - Blocked if recovering OR has force_rest
+        const canMove = !isRecovering && !hasForceRest;
         const moveClass = canMove ? 'army-action-icon' : 'army-action-icon army-action-disabled';
-        const moveTitle = !canMove
-          ? `Recuperándose: ${army.recovering} turno${Number(army.recovering) !== 1 ? 's' : ''}`
-          : 'Mover';
+        let moveTitle = 'Mover';
+        if (hasForceRest) {
+          moveTitle = '⛔ Unidades agotadas - Descanso forzado';
+        } else if (isRecovering) {
+          moveTitle = `Recuperándose: ${army.recovering} turno${Number(army.recovering) !== 1 ? 's' : ''}`;
+        }
         popupContent += `<button id="army-move-${army.army_id}" class="${moveClass}" ${!canMove ? 'disabled' : ''} title="${moveTitle}">📍</button>`;
 
         // Stop button

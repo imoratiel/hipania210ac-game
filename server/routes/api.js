@@ -414,12 +414,13 @@ module.exports = function (pool, config, logic) {
             // 1. Get armies basic info + resources + rest
             const armiesQuery = `
                 SELECT 
-                    a.army_id, a.name, a.player_id, a.rest_level,
+                    a.army_id, a.name, a.player_id, 
                     a.gold_provisions, a.food_provisions, a.wood_provisions,
                     p.username as player_name,
                     p.color as player_color,
                     a.destination,
-                    a.recovering
+                    a.recovering,
+                    a.movement_points
                 FROM armies a
                 JOIN players p ON a.player_id = p.player_id
                 WHERE a.h3_index = $1
@@ -428,12 +429,15 @@ module.exports = function (pool, config, logic) {
             const armiesResult = await pool.query(armiesQuery, [h3_index]);
             const armies = armiesResult.rows;
 
-            // 2. For each army, get units
+            // 2. For each army, get units and fatigue status
+            const ArmySimulationService = require('../services/ArmySimulationService');
+
             for (let army of armies) {
                 const unitsQuery = `
-                    SELECT 
+                    SELECT
                         t.quantity, t.experience, t.morale,
-                        ut.name as unit_name, ut.attack, ut.health_points
+                        ut.name as unit_name, ut.attack, ut.health_points,
+                        t.stamina, t.force_rest
                     FROM troops t
                     JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
                     WHERE t.army_id = $1
@@ -443,6 +447,18 @@ module.exports = function (pool, config, logic) {
 
                 // Calculate total troops for summary
                 army.total_count = army.units.reduce((sum, u) => sum + u.quantity, 0);
+
+                // Get fatigue status (weakest link)
+                const fatigueStatus = await ArmySimulationService.getArmyFatigueStatus(army.army_id);
+                if (fatigueStatus.success) {
+                    army.min_stamina = fatigueStatus.minStamina;
+                    army.has_force_rest = fatigueStatus.hasForceRest;
+                    army.exhausted_units = fatigueStatus.exhaustedUnits;
+                } else {
+                    army.min_stamina = 100;
+                    army.has_force_rest = false;
+                    army.exhausted_units = 0;
+                }
             }
 
             res.json({

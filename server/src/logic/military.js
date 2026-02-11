@@ -178,8 +178,8 @@ async function recruitUnits(pool, params, playerId) {
         if (armyQuery.rows.length === 0) {
             // Create new army - USANDO army_id, rest_level
             const newArmyQuery = await client.query(
-                `INSERT INTO armies (name, player_id, h3_index, rest_level)
-                 VALUES ($1, $2, $3, 100.00)
+                `INSERT INTO armies (name, player_id, h3_index)
+                 VALUES ($1, $2, $3)
                  RETURNING army_id`,
                 [army_name, playerId, h3_index]
             );
@@ -191,8 +191,8 @@ async function recruitUnits(pool, params, playerId) {
         // Insert into troops table (NOT army_instances)
         // USANDO troop_id, army_id, unit_type_id
         await client.query(
-            `INSERT INTO troops (army_id, unit_type_id, quantity, experience, morale)
-             VALUES ($1, $2, $3, 10.00, 50.00)`,
+            `INSERT INTO troops (army_id, unit_type_id, quantity, experience, morale, stamina, force_rest)
+             VALUES ($1, $2, $3, 10.00, 50.00, 100.00, false)`,
             [armyId, unit_type_id, quantity]
         );
 

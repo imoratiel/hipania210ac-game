@@ -27,7 +27,7 @@ CREATE TABLE terrain_types (
 );
 
 INSERT INTO terrain_types (terrain_type_id, name, color, fertility, wood_output, fishing_output, stone_output, iron_output, movement_cost, defense_bonus) VALUES
-(1, 'Mar', '#0a4b78', 0, 0, 100, 0, 0, 10.0, 0),
+(1, 'Mar', '#0a4b78', 0, 0, 100, 0, 0, -1.0, 0),
 (2, 'Costa', '#fff59d', 10, 5, 85, 5, 0, 1.0, 0),
 (3, 'Agua', '#4fc3f7', 0, 0, 70, 0, 0, 5.0, 0),
 (4, 'Río', '#00bcd4', 90, 10, 50, 0, 0, 1.5, 20),
