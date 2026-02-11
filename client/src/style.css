@@ -853,3 +853,102 @@ button {
   font-style: italic;
   margin: 0;
 }
+
+/* Movement Status Variants */
+.army-status.army-recovering {
+  color: #ff6b6b;
+  font-weight: 600;
+}
+
+.army-status.army-moving {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+.army-status.army-stationed {
+  color: #5d4e37;
+}
+
+.destination-hex {
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  background: rgba(76, 175, 80, 0.15);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+/* Actions Section */
+.army-actions-section {
+  padding: 12px 15px;
+  background: linear-gradient(135deg, rgba(197, 160, 89, 0.08), rgba(197, 160, 89, 0.03));
+  border-top: 2px solid rgba(197, 160, 89, 0.3);
+}
+
+.army-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Action Buttons */
+.army-action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 8px;
+  background: linear-gradient(135deg, #f4e4bc, #e8d5b5);
+  border: 2px solid #c5a059;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: 'Cinzel', serif;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.army-action-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #ffd700, #f4e4bc);
+  border-color: #8B6914;
+  box-shadow: 0 4px 8px rgba(139, 105, 20, 0.3);
+  transform: translateY(-2px);
+}
+
+.army-action-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.army-action-btn.army-action-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: rgba(200, 200, 200, 0.3);
+  border-color: #999;
+}
+
+.army-action-btn .action-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.army-action-btn .action-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #1a1612;
+  text-align: center;
+}
+
+.army-action-btn:hover:not(:disabled) .action-label {
+  color: #8B6914;
+}
+
+/* Responsive adjustments for smaller popups */
+@media (max-width: 350px) {
+  .army-actions-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

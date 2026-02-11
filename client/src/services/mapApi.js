@@ -8,8 +8,9 @@ import axios from 'axios';
 // API Base URL from environment or default to localhost
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-// Axios is already configured with credentials in MapViewer.vue
-// axios.defaults.withCredentials = true;
+// Configure axios to send credentials (cookies) with all requests
+// This is CRITICAL for JWT authentication via HttpOnly cookies
+axios.defaults.withCredentials = true;
 
 // ============================================
 // MAP ENDPOINTS
@@ -239,9 +240,7 @@ export async function recruitTroops(payload) {
  * Get current authenticated user info
  */
 export async function getAuthMe() {
-  const response = await axios.get(`${API_URL}/api/auth/me`, {
-    withCredentials: true
-  });
+  const response = await axios.get(`${API_URL}/api/auth/me`);
   return response.data;
 }
 
@@ -249,8 +248,6 @@ export async function getAuthMe() {
  * Logout current user
  */
 export async function logout() {
-  const response = await axios.post(`${API_URL}/api/auth/logout`, {}, {
-    withCredentials: true
-  });
+  const response = await axios.post(`${API_URL}/api/auth/logout`);
   return response.data;
 }

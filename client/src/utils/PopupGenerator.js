@@ -301,14 +301,77 @@ export function generateArmyPopup(armyData, config) {
       popupContent += '</div>';
       popupContent += '</div>';
 
-      // MOVEMENT STATUS
+      // MOVEMENT STATUS (Updated with destination and recovering)
       popupContent += '<div class="army-status-section">';
-      // For now, all armies are static (could add is_moving field later)
-      const isMoving = false; // TODO: Get from database when movement system is implemented
-      const statusIcon = isMoving ? '🏃' : '📍';
-      const statusText = isMoving ? 'En marcha' : 'Estacionado';
-      popupContent += `<p class="army-status"><strong>Estado:</strong> ${statusIcon} ${statusText}</p>`;
+
+      const isRecovering = army.recovering && Number(army.recovering) > 0;
+      const isMoving = army.destination && army.destination !== null;
+
+      if (isRecovering) {
+        const turnsLeft = Number(army.recovering);
+        popupContent += `<p class="army-status army-recovering"><strong>Estado:</strong> 🛌 Recuperándose (${turnsLeft} turno${turnsLeft !== 1 ? 's' : ''})</p>`;
+      } else if (isMoving) {
+        popupContent += `<p class="army-status army-moving"><strong>Estado:</strong> 🏃 En marcha hacia: <span class="destination-hex">${army.destination}</span></p>`;
+      } else {
+        popupContent += `<p class="army-status army-stationed"><strong>Estado:</strong> 📍 Estacionado</p>`;
+      }
+
       popupContent += '</div>';
+
+      // ACTIONS SECTION (only for own armies)
+      if (isOwnArmy) {
+        popupContent += '<div class="army-actions-section">';
+        popupContent += '<p class="army-section-title">⚙️ Acciones</p>';
+        popupContent += '<div class="army-actions-grid">';
+
+        // Move button
+        const canMove = !isRecovering;
+        const moveClass = canMove ? 'army-action-btn' : 'army-action-btn army-action-disabled';
+        const moveTitle = !canMove
+          ? `Recuperándose: ${army.recovering} turno${Number(army.recovering) !== 1 ? 's' : ''}`
+          : 'Mover ejército a nueva ubicación';
+        popupContent += `<button id="army-move-${army.army_id}" class="${moveClass}" ${!canMove ? 'disabled' : ''} title="${moveTitle}">`;
+        popupContent += `<span class="action-icon">📍</span>`;
+        popupContent += `<span class="action-label">Mover</span>`;
+        popupContent += `</button>`;
+
+        // Stop button
+        const canStop = isMoving;
+        const stopClass = canStop ? 'army-action-btn' : 'army-action-btn army-action-disabled';
+        popupContent += `<button id="army-stop-${army.army_id}" class="${stopClass}" ${!canStop ? 'disabled' : ''} title="Detener movimiento actual">`;
+        popupContent += `<span class="action-icon">🛑</span>`;
+        popupContent += `<span class="action-label">Detener</span>`;
+        popupContent += `</button>`;
+
+        // Conquer button
+        popupContent += `<button id="army-conquer-${army.army_id}" class="army-action-btn" title="Asediar/Conquistar el feudo actual">`;
+        popupContent += `<span class="action-icon">⚔️</span>`;
+        popupContent += `<span class="action-label">Conquistar</span>`;
+        popupContent += `</button>`;
+
+        // Split button
+        popupContent += `<button id="army-split-${army.army_id}" class="army-action-btn" title="Dividir el ejército en dos">`;
+        popupContent += `<span class="action-icon">👥</span>`;
+        popupContent += `<span class="action-label">Separar</span>`;
+        popupContent += `</button>`;
+
+        // Merge button
+        const canMerge = armyData.armies.length > 1;
+        const mergeClass = canMerge ? 'army-action-btn' : 'army-action-btn army-action-disabled';
+        popupContent += `<button id="army-merge-${army.army_id}" class="${mergeClass}" ${!canMerge ? 'disabled' : ''} title="Fusionar con otro ejército en esta ubicación">`;
+        popupContent += `<span class="action-icon">🔗</span>`;
+        popupContent += `<span class="action-label">Unir</span>`;
+        popupContent += `</button>`;
+
+        // Supply button
+        popupContent += `<button id="army-supply-${army.army_id}" class="army-action-btn" title="Recargar comida desde feudo adyacente">`;
+        popupContent += `<span class="action-icon">🌾</span>`;
+        popupContent += `<span class="action-label">Abastecer</span>`;
+        popupContent += `</button>`;
+
+        popupContent += '</div>';
+        popupContent += '</div>';
+      }
 
       // Separator between armies (if multiple)
       if (index < armyData.armies.length - 1) {

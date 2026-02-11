@@ -713,7 +713,6 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import L from 'leaflet';
 import { cellToBoundary, cellToLatLng, gridDistance, latLngToCell } from 'h3-js';
-import axios from 'axios';
 import 'leaflet/dist/leaflet.css';
 
 // Import map utilities
@@ -727,9 +726,6 @@ import * as mapApi from '@/services/mapApi.js';
 import KingdomPanel from './KingdomPanel.vue';
 import MilitaryPanel from './MilitaryPanel.vue';
 import TroopsPanel from './TroopsPanel.vue';
-
-// Configure axios to send credentials (cookies) with all requests
-axios.defaults.withCredentials = true;
 
 const mapContainer = ref(null);
 const loading = ref(false);
@@ -1070,7 +1066,6 @@ let highlightLayer = null; // Temporary highlight polygon for navigation
 let debounceTimer = null;
 
 // Configuration
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const MIN_ZOOM = 9; // Zoom mínimo del mapa
 const MIN_ZOOM_H3 = 11; // Hexágonos visibles desde zoom 11
 const MAX_ZOOM_H3 = 17; // Hexágonos visibles hasta zoom 17
@@ -1635,11 +1630,11 @@ const formatDate = (date) => {
 const syncWithServer = async () => {
   try {
     console.log('[Sync] Checking server for game state updates...');
-    const response = await axios.get(`${API_URL}/api/game/world-state`);
+    const response = await mapApi.getWorldState();
 
-    if (response.data.success) {
-      const serverTurn = response.data.turn;
-      const serverDate = new Date(response.data.date);
+    if (response.success) {
+      const serverTurn = response.turn;
+      const serverDate = new Date(response.date);
 
       // Check if turn has changed
       if (serverTurn !== currentTurn.value) {
@@ -1719,7 +1714,6 @@ const updateFiefsUI = async () => {
   try {
     loadingFiefs.value = true;
     console.log(`[Fiefs] Updating fiefs list for player ${playerId.value}...`);
-    console.log(`[Fiefs] API URL: ${API_URL}/api/game/my-fiefs`);
 
     const data = await mapApi.getMyFiefs();
 
@@ -2789,17 +2783,17 @@ const goToCapital = async () => {
     }
 
     // Fetch capital from game/capital endpoint (uses is_capital flag in h3_map)
-    const response = await axios.get(`${API_URL}/api/game/capital`);
+    const response = await mapApi.getCapital();
 
-    if (!response.data.success) {
-      showToast(response.data.message, 'warning');
+    if (!response.success) {
+      showToast(response.message, 'warning');
       return;
     }
 
     // Cache the capital location
-    capitalH3Index.value = response.data.h3_index;
+    capitalH3Index.value = response.h3_index;
 
-    await focusOnHex(response.data.h3_index);
+    await focusOnHex(response.h3_index);
     showToast('Navegando a tu capital ⭐', 'success');
   } catch (err) {
     console.error('Error navigating to capital (GET /api/game/capital):', err);
@@ -2926,9 +2920,8 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
     isColonizing.value = false;
 
     // Fetch detailed cell information from API (always fresh data from server)
-    const response = await axios.get(`${API_URL}/api/map/cell-details/${h3_index}`);
-    console.log(`[Popup] Data for ${h3_index}:`, response.data);
-    const cell = response.data;
+    const cell = await mapApi.getCellDetails(h3_index);
+    console.log(`[Popup] Data for ${h3_index}:`, cell);
 
     // Build popup HTML content using external generator
     const popupContent = generateCellPopupContent(cell, {
@@ -3025,6 +3018,52 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
       .setLatLng(latLng)
       .setContent(popupContent)
       .openOn(map);
+
+    // Add event listeners to action buttons (after popup is rendered)
+    setTimeout(() => {
+      if (data.armies && data.armies.length > 0) {
+        data.armies.forEach(army => {
+          // Only add listeners for own armies
+          if (army.player_id === playerId.value) {
+            // Move button
+            const moveBtn = document.getElementById(`army-move-${army.army_id}`);
+            if (moveBtn && !moveBtn.disabled) {
+              moveBtn.addEventListener('click', () => handleArmyMove(army));
+            }
+
+            // Stop button
+            const stopBtn = document.getElementById(`army-stop-${army.army_id}`);
+            if (stopBtn && !stopBtn.disabled) {
+              stopBtn.addEventListener('click', () => handleArmyStop(army));
+            }
+
+            // Conquer button
+            const conquerBtn = document.getElementById(`army-conquer-${army.army_id}`);
+            if (conquerBtn) {
+              conquerBtn.addEventListener('click', () => handleArmyConquer(army));
+            }
+
+            // Split button
+            const splitBtn = document.getElementById(`army-split-${army.army_id}`);
+            if (splitBtn) {
+              splitBtn.addEventListener('click', () => handleArmySplit(army));
+            }
+
+            // Merge button
+            const mergeBtn = document.getElementById(`army-merge-${army.army_id}`);
+            if (mergeBtn && !mergeBtn.disabled) {
+              mergeBtn.addEventListener('click', () => handleArmyMerge(army, data.armies));
+            }
+
+            // Supply button
+            const supplyBtn = document.getElementById(`army-supply-${army.army_id}`);
+            if (supplyBtn) {
+              supplyBtn.addEventListener('click', () => handleArmySupply(army));
+            }
+          }
+        });
+      }
+    }, 100);
 
   } catch (error) {
     console.error('Error fetching army details:', error);
@@ -3295,14 +3334,14 @@ const openRecruitmentForFief = async (fief) => {
 const handleRecruitmentEmit = async ({ fief, unit, quantity, armyName, unit_type_id }) => {
   try {
     isRecruiting.value = true;
-    const response = await axios.post(`${API_URL}/api/military/recruit`, {
+    const response = await mapApi.recruitTroops({
       h3_index: fief.h3_index,
       unit_type_id: unit_type_id || unit.unit_type_id,
       quantity: quantity,
       army_name: armyName
-    }, { withCredentials: true });
+    });
 
-    if (response.data.success) {
+    if (response.success) {
       showToast(`✅ ${quantity} ${unit.name} reclutados en ${fief.name}`, 'success');
 
       // Refresh data to reflect resource changes
@@ -3313,7 +3352,7 @@ const handleRecruitmentEmit = async ({ fief, unit, quantity, armyName, unit_type
       activeKingdomTab.value = 'fiefs';
       selectedRecruitmentFief.value = null;
     } else {
-      showToast(response.data.message, 'error');
+      showToast(response.message, 'error');
     }
   } catch (err) {
     console.error('❌ Error recruiting units:', err);
@@ -3348,16 +3387,14 @@ const recruitUnits = async () => {
     isRecruiting.value = true;
     recruitmentMessage.value = { type: '', text: '' };
 
-    const response = await axios.post(`${API_URL}/api/military/recruit`, {
+    const response = await mapApi.recruitTroops({
       h3_index: selectedRecruitmentFief.value.h3_index,
       unit_type_id: selectedUnitType.value.id,
       quantity: recruitmentQuantity.value,
       army_name: recruitmentArmyName.value.trim()
-    }, {
-      withCredentials: true
     });
 
-    if (response.data.success) {
+    if (response.success) {
       recruitmentMessage.value = {
         type: 'success',
         text: `✓ ${recruitmentQuantity.value} ${selectedUnitType.value.name} reclutado(s) en ${selectedRecruitmentFief.value.name}`
@@ -3372,7 +3409,7 @@ const recruitUnits = async () => {
       recruitmentArmyName.value = '';
       selectedUnitType.value = null;
     } else {
-      recruitmentMessage.value = { type: 'error', text: response.data.message };
+      recruitmentMessage.value = { type: 'error', text: response.message };
     }
   } catch (err) {
     console.error('❌ Error recruiting units:', err);
@@ -3463,13 +3500,11 @@ const checkAuth = async () => {
     }
 
     // Verify session with server
-    const response = await axios.get(`${API_URL}/api/auth/me`, {
-      withCredentials: true
-    });
+    const response = await mapApi.getAuthMe();
 
-    if (response.data.success) {
-      currentUser.value = response.data.user;
-      localStorage.setItem('user', JSON.stringify(response.data.user));
+    if (response.success) {
+      currentUser.value = response.user;
+      localStorage.setItem('user', JSON.stringify(response.user));
       console.log(`[Auth] ✓ Session verified: ${currentUser.value.username} (${currentUser.value.role})`);
     } else {
       // No session, clear user data
@@ -3504,11 +3539,9 @@ const handleLogout = async () => {
     console.log('[Auth] Logging out...');
 
     // Call logout endpoint to destroy session
-    const response = await axios.post(`${API_URL}/api/auth/logout`, {}, {
-      withCredentials: true
-    });
+    const response = await mapApi.logout();
 
-    if (response.data.success) {
+    if (response.success) {
       console.log('[Auth] ✓ Logout successful');
     }
   } catch (err) {
@@ -3540,9 +3573,9 @@ watch(
     // Load capital when opening Kingdom Management panel
     if (newValue === 'reino' && !capitalH3Index.value) {
       try {
-        const response = await axios.get(`${API_URL}/api/game/capital`);
-        if (response.data.success) {
-          capitalH3Index.value = response.data.h3_index;
+        const response = await mapApi.getCapital();
+        if (response.success) {
+          capitalH3Index.value = response.h3_index;
         }
       } catch (error) {
         console.error('Error loading capital for Kingdom Management:', error);
