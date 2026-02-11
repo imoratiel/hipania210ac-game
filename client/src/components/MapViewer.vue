@@ -720,6 +720,9 @@ import 'leaflet/dist/leaflet.css';
 import { getHexagonStyles, getCapitalStarIconHTML } from '@/utils/mapStyles.js';
 import { generateCellPopupContent } from '@/utils/popupGenerator.js';
 
+// Import API service
+import * as mapApi from '@/services/mapApi.js';
+
 // Import modular components
 import KingdomPanel from './KingdomPanel.vue';
 import MilitaryPanel from './MilitaryPanel.vue';
@@ -1400,8 +1403,7 @@ const fetchHexagonData = async () => {
     };
 
     console.log(`Fetching hexagons at resolution ${currentResolution.value}...`);
-    const response = await axios.get(`${API_URL}/api/map/region`, { params });
-    const hexagons = response.data;
+    const hexagons = await mapApi.getMapRegion(params);
 
     hexagonCount.value = hexagons.length;
     renderHexagons(hexagons);
@@ -1451,10 +1453,10 @@ const fetchArmyData = async () => {
 
     console.log(`Fetching armies for visible area...`);
 
-    const response = await axios.get(`${API_URL}/api/map/armies`, { params });
+    const data = await mapApi.getMapArmies(params);
 
-    if (response.data.success) {
-      renderArmyMarkers(response.data.armies, response.data.current_player_id);
+    if (data.success) {
+      renderArmyMarkers(data.armies, data.current_player_id);
     }
   } catch (err) {
     console.error('Failed to fetch army data:', err);
@@ -1543,10 +1545,10 @@ const renderArmyMarkers = (armies, currentPlayerId) => {
  */
 const fetchPlayerData = async () => {
   try {
-    const response = await axios.get(`${API_URL}/api/players/${playerId.value}`);
-    if (response.data) {
-      playerGold.value = response.data.gold;
-      console.log(`✓ Player data loaded: ${response.data.username} has ${playerGold.value} gold`);
+    const data = await mapApi.getPlayer(playerId.value);
+    if (data) {
+      playerGold.value = data.gold;
+      console.log(`✓ Player data loaded: ${data.username} has ${playerGold.value} gold`);
     }
   } catch (err) {
     console.error('Failed to fetch player data:', err);
@@ -1558,9 +1560,9 @@ const fetchPlayerData = async () => {
  */
 const fetchTerrainTypes = async () => {
   try {
-    const response = await axios.get(`${API_URL}/api/terrain-types`);
+    const data = await mapApi.getTerrainTypes();
     // Sort alphabetically by name
-    terrainTypes.value = response.data.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    terrainTypes.value = data.sort((a, b) => a.name.localeCompare(b.name, 'es'));
     console.log(`✓ Loaded ${terrainTypes.value.length} terrain types (sorted alphabetically)`);
   } catch (err) {
     console.error('Failed to fetch terrain types:', err);
@@ -1572,10 +1574,10 @@ const fetchTerrainTypes = async () => {
  */
 const fetchWorldState = async () => {
   try {
-    const response = await axios.get(`${API_URL}/api/game/world-state`);
-    if (response.data.success) {
-      currentTurn.value = response.data.turn;
-      gameDate.value = new Date(response.data.date);
+    const data = await mapApi.getWorldState();
+    if (data.success) {
+      currentTurn.value = data.turn;
+      gameDate.value = new Date(data.date);
       formattedDate.value = formatDate(gameDate.value);
       dayOfYear.value = currentTurn.value % 365;
       console.log(`✓ World state loaded: Turn ${currentTurn.value}, Day ${dayOfYear.value}/365, Date ${formattedDate.value}`);
@@ -1590,13 +1592,11 @@ const fetchWorldState = async () => {
  */
 const loadExplorationConfig = async () => {
   try {
-    const response = await axios.get(`${API_URL}/api/admin/game-config`, {
-      withCredentials: true
-    });
-    if (response.data.success && response.data.config.exploration) {
+    const data = await mapApi.getGameConfig();
+    if (data.success && data.config.exploration) {
       explorationConfig.value = {
-        turns_required: Number(response.data.config.exploration.turns_required || 5),
-        gold_cost: Number(response.data.config.exploration.gold_cost || 100)
+        turns_required: Number(data.config.exploration.turns_required || 5),
+        gold_cost: Number(data.config.exploration.gold_cost || 100)
       };
       console.log(`✓ Exploration config loaded:`, explorationConfig.value);
     }
@@ -1726,16 +1726,16 @@ const updateFiefsUI = async () => {
     console.log(`[Fiefs] Updating fiefs list for player ${playerId.value}...`);
     console.log(`[Fiefs] API URL: ${API_URL}/api/game/my-fiefs`);
 
-    const response = await axios.get(`${API_URL}/api/game/my-fiefs`);
+    const data = await mapApi.getMyFiefs();
 
     console.log('[Fiefs] ===== RAW SERVER RESPONSE =====');
-    console.log('[Fiefs] Full response:', response.data);
-    console.log('[Fiefs] Success:', response.data.success);
-    console.log('[Fiefs] Fiefs array:', response.data.fiefs);
-    console.log('[Fiefs] Fiefs count:', response.data.fiefs?.length);
+    console.log('[Fiefs] Full response:', data);
+    console.log('[Fiefs] Success:', data.success);
+    console.log('[Fiefs] Fiefs array:', data.fiefs);
+    console.log('[Fiefs] Fiefs count:', data.fiefs?.length);
 
-    if (response.data.success) {
-      const receivedFiefs = response.data.fiefs;
+    if (data.success) {
+      const receivedFiefs = data.fiefs;
 
       // Debug: Log first fief structure if exists
       if (receivedFiefs && receivedFiefs.length > 0) {
@@ -1823,19 +1823,17 @@ const loadMessages = async () => {
     loadingMessages.value = true;
     console.log(`[Messages] Loading messages for player ${playerId.value}...`);
 
-    const response = await axios.get(`${API_URL}/api/messages`, {
-      params: {
-        unread_only: false  // Load all messages, not just unread
-      }
+    const data = await mapApi.getMessages({
+      unread_only: false  // Load all messages, not just unread
     });
 
-    console.log('[Messages] Response:', response.data);
+    console.log('[Messages] Response:', data);
 
-    if (response.data.success) {
-      myMessages.value = response.data.messages || [];
+    if (data.success) {
+      myMessages.value = data.messages || [];
       console.log(`[Messages] ✓ Loaded ${myMessages.value.length} messages (${unreadCount.value} unread)`);
     } else {
-      console.error('[Messages] Server returned success=false:', response.data);
+      console.error('[Messages] Server returned success=false:', data);
       myMessages.value = [];
     }
   } catch (err) {
@@ -1867,14 +1865,14 @@ const readMessage = async (message) => {
     // Mark as read on server if not already read
     if (!message.is_read) {
       console.log(`[Messages] Marking message ${message.id} as read...`);
-      const response = await axios.put(`${API_URL}/api/messages/${message.id}/read`);
+      const data = await mapApi.markMessageAsRead(message.id);
 
-      if (response.data.success) {
+      if (data.success) {
         // Update local state
         message.is_read = true;
         console.log(`[Messages] ✓ Message ${message.id} marked as read`);
       } else {
-        console.error('[Messages] Failed to mark message as read:', response.data);
+        console.error('[Messages] Failed to mark message as read:', data);
       }
     }
   } catch (err) {
@@ -2416,13 +2414,11 @@ const colonizeTerritory = async () => {
     console.log(`[Colonize] Attempting to claim ${hexToColonize} for player ${playerId.value}`);
 
     // Call API
-    const response = await axios.post(`${API_URL}/api/game/claim`, {
-      h3_index: hexToColonize
-    });
+    const data = await mapApi.claimTerritory(hexToColonize);
 
-    if (response.data.success) {
+    if (data.success) {
       // Update player gold
-      playerGold.value = response.data.new_gold;
+      playerGold.value = data.new_gold;
 
       // Close action panel
       closeActionPanel();
@@ -2432,12 +2428,12 @@ const colonizeTerritory = async () => {
       await fetchHexagonData();
 
       // Show success toast
-      const message = response.data.is_capital
+      const message = data.is_capital
         ? '👑 ¡Capital fundada! Tu reino comienza aquí.'
         : '🏰 ¡Territorio colonizado! Recursos añadidos.';
       showToast(message, 'success');
     } else {
-      showToast(response.data.message, 'error');
+      showToast(data.message, 'error');
     }
   } catch (err) {
     console.error('❌ Error colonizing territory:', err);
@@ -2593,9 +2589,9 @@ const selectMessage = async (message) => {
   // Load thread messages
   if (message.thread_id) {
     try {
-      const response = await axios.get(`${API_URL}/api/messages/thread/${message.thread_id}`);
-      if (response.data.success) {
-        threadMessages.value = response.data.messages;
+      const data = await mapApi.getMessageThread(message.thread_id);
+      if (data.success) {
+        threadMessages.value = data.messages;
       }
     } catch (error) {
       console.error('Error loading thread (GET /api/messages/thread/):', error);
@@ -2608,7 +2604,7 @@ const selectMessage = async (message) => {
   // Mark message as read if it's unread and we're the receiver
   if (!message.is_read && message.receiver_id === playerId.value) {
     try {
-      await axios.put(`${API_URL}/api/messages/${message.id}/read`);
+      await mapApi.markMessageAsRead(message.id);
       message.is_read = true;
       console.log(`✓ Message ${message.id} marked as read`);
     } catch (error) {
@@ -2659,9 +2655,9 @@ const sendMessage = async () => {
       payload.parent_id = parentMessage.value.id;
     }
 
-    const response = await axios.post(`${API_URL}/api/messages`, payload);
+    const data = await mapApi.sendMessage(payload);
 
-    if (response.data.success) {
+    if (data.success) {
       // Show success toast
       showToast('📨 Mensaje entregado al mensajero real', 'success');
       // Clear only subject and body, keep recipient for convenience
@@ -2671,7 +2667,7 @@ const sendMessage = async () => {
       // Reload messages
       await loadMessages();
     } else {
-      showToast('Error al enviar mensaje: ' + (response.data.message || 'Error desconocido'), 'error');
+      showToast('Error al enviar mensaje: ' + (data.message || 'Error desconocido'), 'error');
     }
   } catch (error) {
     console.error('Error sending message (POST /api/messages):', error);
@@ -3004,13 +3000,11 @@ const colonizeFromPopup = async (h3_index) => {
     console.log(`[Colonize] Attempting to claim ${h3_index} for player ${playerId.value}`);
 
     // Call API
-    const response = await axios.post(`${API_URL}/api/game/claim`, {
-      h3_index: h3_index
-    });
+    const data = await mapApi.claimTerritory(h3_index);
 
-    if (response.data.success) {
+    if (data.success) {
       // Update player gold
-      playerGold.value = response.data.new_gold_balance || response.data.new_gold;
+      playerGold.value = data.new_gold_balance || data.new_gold;
 
       // CRITICAL: Immediately add this hex to player's territories for adjacency checks
       playerHexes.value.add(h3_index);
@@ -3026,21 +3020,21 @@ const colonizeFromPopup = async (h3_index) => {
       await updateFiefsUI();
 
       // Show success toast (including iron vein message if found)
-      let message = response.data.is_capital
+      let message = data.is_capital
         ? '👑 ¡Capital fundada! Tu reino comienza aquí.'
         : '🏰 ¡Territorio colonizado!';
 
-      if (response.data.iron_vein_found && response.data.iron_message) {
-        message += ' ' + response.data.iron_message;
+      if (data.iron_vein_found && data.iron_message) {
+        message += ' ' + data.iron_message;
       }
 
-      if (response.data.gold_vein_found && response.data.gold_message) {
-        message += ' ' + response.data.gold_message;
+      if (data.gold_vein_found && data.gold_message) {
+        message += ' ' + data.gold_message;
       }
 
       showToast(message, 'success');
     } else {
-      showToast(response.data.message, 'error');
+      showToast(data.message, 'error');
     }
   } catch (err) {
     console.error('❌ Error colonizing territory (POST /api/game/claim):', err);
@@ -3061,25 +3055,21 @@ const exploreFromPopup = async (h3_index) => {
     console.log(`[Explore] Starting exploration for ${h3_index}`);
 
     // Call API
-    const response = await axios.post(`${API_URL}/api/territory/explore`, {
-      h3_index: h3_index
-    }, {
-      withCredentials: true
-    });
+    const data = await mapApi.exploreTerritory(h3_index);
 
-    if (response.data.success) {
+    if (data.success) {
       // Update player gold
-      playerGold.value = response.data.new_gold_balance;
+      playerGold.value = data.new_gold_balance;
 
-      const endTurn = response.data.exploration_end_turn;
-      console.log(`✓ Exploration started! Gold spent: ${response.data.gold_spent}, Ends at turn: ${endTurn}`);
+      const endTurn = data.exploration_end_turn;
+      console.log(`✓ Exploration started! Gold spent: ${data.gold_spent}, Ends at turn: ${endTurn}`);
 
       // Close popup
       map.closePopup();
 
       // Show success toast with clear info
-      const msg = endTurn 
-        ? `⛏️ ¡Exploración iniciada! Los prospectores finalizarán en el turno ${endTurn}.` 
+      const msg = endTurn
+        ? `⛏️ ¡Exploración iniciada! Los prospectores finalizarán en el turno ${endTurn}.`
         : '⛏️ ¡Exploración iniciada! Los prospectores se han puesto en marcha.';
       showToast(msg, 'success');
 
@@ -3087,7 +3077,7 @@ const exploreFromPopup = async (h3_index) => {
       await fetchHexagonData();
       await updateFiefsUI();
     } else {
-      showToast(response.data.message, 'error');
+      showToast(data.message, 'error');
     }
   } catch (err) {
     console.error('❌ Error starting exploration:', err);
@@ -3104,22 +3094,18 @@ const exploreFiefFromTable = async (h3_index) => {
     console.log(`[Explore] Starting exploration for ${h3_index} from table`);
 
     // Call API
-    const response = await axios.post(`${API_URL}/api/territory/explore`, {
-      h3_index: h3_index
-    }, {
-      withCredentials: true
-    });
+    const data = await mapApi.exploreTerritory(h3_index);
 
-    if (response.data.success) {
+    if (data.success) {
       // Update player gold
-      playerGold.value = response.data.new_gold_balance;
+      playerGold.value = data.new_gold_balance;
 
-      console.log(`✓ Exploration started! Gold spent: ${response.data.gold_spent}, Ends at turn: ${response.data.exploration_end_turn}`);
+      console.log(`✓ Exploration started! Gold spent: ${data.gold_spent}, Ends at turn: ${data.exploration_end_turn}`);
 
       // Show success toast
-      const endTurn = response.data.exploration_end_turn;
-      const msg = endTurn 
-        ? `⛏️ ¡Exploración iniciada! Finalizará en el turno ${endTurn}.` 
+      const endTurn = data.exploration_end_turn;
+      const msg = endTurn
+        ? `⛏️ ¡Exploración iniciada! Finalizará en el turno ${endTurn}.`
         : '⛏️ ¡Exploración iniciada! Los prospectores se han puesto en marcha.';
       showToast(msg, 'success');
 
@@ -3127,7 +3113,7 @@ const exploreFiefFromTable = async (h3_index) => {
       await updateFiefsUI();
       await fetchHexagonData();
     } else {
-      showToast(response.data.message, 'error');
+      showToast(data.message, 'error');
     }
   } catch (err) {
     console.error('❌ Error starting exploration:', err);
@@ -3144,18 +3130,13 @@ const upgradeInfrastructure = async (h3_index, building_type) => {
     console.log(`[Infrastructure] Upgrading ${building_type} in ${h3_index}`);
 
     // Call API
-    const response = await axios.post(`${API_URL}/api/territory/upgrade`, {
-      h3_index: h3_index,
-      building_type: building_type
-    }, {
-      withCredentials: true
-    });
+    const data = await mapApi.upgradeBuilding(h3_index, building_type);
 
-    if (response.data.success) {
+    if (data.success) {
       // Update player gold
-      playerGold.value = response.data.new_gold_balance;
+      playerGold.value = data.new_gold_balance;
 
-      console.log(`✓ Infrastructure upgraded! ${building_type}: ${response.data.old_level} → ${response.data.new_level}`);
+      console.log(`✓ Infrastructure upgraded! ${building_type}: ${data.old_level} → ${data.new_level}`);
 
       // Close popup
       map.closePopup();
@@ -3167,13 +3148,13 @@ const upgradeInfrastructure = async (h3_index, building_type) => {
         lumber: 'Aserradero',
         port: 'Puerto'
       };
-      showToast(`🏗️ ${buildingNames[building_type]} mejorada a nivel ${response.data.new_level}`, 'success');
+      showToast(`🏗️ ${buildingNames[building_type]} mejorada a nivel ${data.new_level}`, 'success');
 
       // Refresh the map and fiefs list
       await fetchHexagonData();
       await updateFiefsUI();
     } else {
-      showToast(response.data.message, 'error');
+      showToast(data.message, 'error');
     }
   } catch (err) {
     console.error('❌ Error upgrading infrastructure (POST /api/territory/upgrade):', err);
@@ -3188,12 +3169,10 @@ const upgradeInfrastructure = async (h3_index, building_type) => {
 const fetchUnitTypes = async () => {
   try {
     loadingUnitTypes.value = true;
-    const response = await axios.get(`${API_URL}/api/military/unit-types`, {
-      withCredentials: true
-    });
+    const data = await mapApi.getUnitTypes();
 
-    if (response.data.success) {
-      unitTypes.value = response.data.unit_types;
+    if (data.success) {
+      unitTypes.value = data.unit_types;
       console.log('✓ Unit types loaded:', unitTypes.value.length);
     }
   } catch (err) {
@@ -3210,12 +3189,10 @@ const fetchUnitTypes = async () => {
 const fetchTroops = async () => {
   try {
     loadingTroops.value = true;
-    const response = await axios.get(`${API_URL}/api/military/troops`, {
-      withCredentials: true
-    });
+    const data = await mapApi.getTroops(playerId.value);
 
-    if (response.data.success) {
-      troops.value = response.data.troops;
+    if (data.success) {
+      troops.value = data.troops;
       console.log('✓ Troops loaded:', troops.value.length);
     }
   } catch (err) {
