@@ -3683,54 +3683,87 @@ const processArmyMovement = async (armyId, targetH3, armyName) => {
 
 /**
  * Maneja eventos de teclado (principalmente ESC para cerrar paneles/estados)
- * Implementa una lógica jerárquica de cierre
+ * Implementa una lógica jerárquica de cierre - UNA acción por pulsación
  */
 const handleKeyDown = (event) => {
   // Solo procesar la tecla ESC
   if (event.key !== 'Escape') return;
 
-  console.log('[MapViewer] ESC presionado - Verificando estados...');
+  console.log('[MapViewer] 🔑 ESC presionado - Verificando estados...');
+
+  let actionTaken = false;
 
   // PRIORIDAD 1: Cancelar modo de selección de destino
   if (MapInteractionController.isInteracting()) {
-    console.log('[MapViewer] Cancelando modo de selección');
+    console.log('[MapViewer] ⭐ PRIORIDAD 1: Cancelando modo de selección');
     MapInteractionController.cancelSelection();
 
-    // Resetear cursor
+    // Resetear cursor a grab (cursor por defecto de Leaflet)
     if (map) {
-      map.getContainer().style.cursor = '';
+      const container = map.getContainer();
+      container.style.cursor = 'grab';
+      console.log('[MapViewer] Cursor reseteado a grab');
     }
 
     showToast('Selección cancelada', 'info');
-    event.preventDefault();
-    return;
+    actionTaken = true;
   }
 
-  // PRIORIDAD 2: Cerrar popup de Leaflet si está abierto
-  if (map && map.isPopupOpen()) {
-    console.log('[MapViewer] Cerrando popup del mapa');
-    map.closePopup();
-    event.preventDefault();
-    return;
+  // PRIORIDAD 2: Cerrar CUALQUIER popup de Leaflet (feudos, tropas, etc.)
+  // CRÍTICO: Verificar SIEMPRE si hay popups, incluso si ya se tomó otra acción
+  if (!actionTaken) {
+    // Método 1: Verificar DOM directamente (más confiable)
+    const popupElements = document.querySelectorAll('.leaflet-popup');
+    console.log(`[MapViewer] Popups en DOM: ${popupElements.length}`);
+
+    // Método 2: Usar API de Leaflet si está disponible
+    let isOpen = false;
+    if (map && typeof map.isPopupOpen === 'function') {
+      isOpen = map.isPopupOpen();
+      console.log(`[MapViewer] Estado popup (isPopupOpen): ${isOpen}`);
+    } else {
+      console.log(`[MapViewer] map.isPopupOpen no disponible (map existe: ${!!map})`);
+    }
+
+    if (isOpen || popupElements.length > 0) {
+      console.log('[MapViewer] ⭐ PRIORIDAD 2: Cerrando popup del mapa');
+
+      // Intentar cerrar mediante Leaflet
+      if (map && typeof map.closePopup === 'function') {
+        map.closePopup();
+      }
+
+      // Fallback: Remover del DOM directamente
+      popupElements.forEach(popup => {
+        console.log('[MapViewer] Removiendo popup del DOM manualmente');
+        popup.remove();
+      });
+
+      actionTaken = true;
+    }
   }
 
-  // PRIORIDAD 3: Cerrar paneles laterales/overlays
-  if (activeOverlay.value) {
-    console.log(`[MapViewer] Cerrando overlay: ${activeOverlay.value}`);
+  // PRIORIDAD 3: Cerrar paneles laterales/overlays (Reino, Mensajes, Tropas)
+  if (!actionTaken && activeOverlay.value) {
+    console.log(`[MapViewer] ⭐ PRIORIDAD 3: Cerrando overlay: ${activeOverlay.value}`);
     activeOverlay.value = null;
-    event.preventDefault();
-    return;
+    actionTaken = true;
   }
 
   // PRIORIDAD 4: Cerrar panel de usuario si está abierto
-  if (showUserPanel.value) {
-    console.log('[MapViewer] Cerrando panel de usuario');
+  if (!actionTaken && showUserPanel.value) {
+    console.log('[MapViewer] ⭐ PRIORIDAD 4: Cerrando panel de usuario');
     showUserPanel.value = false;
-    event.preventDefault();
-    return;
+    actionTaken = true;
   }
 
-  console.log('[MapViewer] ESC presionado pero no hay estados para cerrar');
+  if (actionTaken) {
+    console.log('[MapViewer] ✅ Acción ejecutada, previniendo propagación');
+    event.preventDefault();
+    event.stopPropagation();
+  } else {
+    console.log('[MapViewer] ℹ️ ESC presionado pero no hay estados para cerrar');
+  }
 };
 
 // Lifecycle hooks
