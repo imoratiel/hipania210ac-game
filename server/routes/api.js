@@ -745,9 +745,13 @@ module.exports = function (pool, config, logic) {
             // 3. Calculate distance (for now, simple grid distance)
             const distance = h3.gridDistance(army.h3_index, target_h3);
 
-            // 4. Validate destination is reachable (for now, just check it's not too far)
-            const MAX_DISTANCE = 10; // TODO: Configurable
+            // 4. Validate destination is reachable
+            const MAX_DISTANCE = 100;
             if (distance > MAX_DISTANCE) {
+                Logger.army(army_id, 'MOVE_ERROR',
+                    `Distancia excedida: ${distance} hexágonos (Máx: ${MAX_DISTANCE})`,
+                    { army_id, from: army.h3_index, to: target_h3, distance, max_distance: MAX_DISTANCE }
+                );
                 return res.status(400).json({
                     success: false,
                     message: `Destino demasiado lejano (${distance} hexágonos, máximo ${MAX_DISTANCE})`
