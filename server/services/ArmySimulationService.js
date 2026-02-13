@@ -367,9 +367,158 @@ class ArmySimulationService {
   }
 
   /**
+   * Calcula la ruta óptima desde la posición actual del ejército hasta targetH3 usando A*,
+   * y la guarda en army_routes. También actualiza armies.destination.
+   * Si ya existía una ruta, la sobreescribe.
+   *
+   * @param {number} armyId  - ID del ejército
+   * @param {string} targetH3 - Índice H3 del destino
+   * @returns {Promise<Object>} - { success, path, steps, message }
+   */
+  static async calculateAndSaveRoute(armyId, targetH3) {
+    const client = await pool.connect();
+    let inTransaction = false;
+    try {
+      // 1. Obtener posición actual del ejército
+      const armyResult = await client.query(
+        'SELECT army_id, name, h3_index FROM armies WHERE army_id = $1',
+        [armyId]
+      );
+      if (armyResult.rows.length === 0) {
+        Logger.army(armyId, 'ERROR', 'Ejército no encontrado para calcular ruta');
+        return { success: false, message: `Ejército ${armyId} no encontrado` };
+      }
+      const army = armyResult.rows[0];
+      const startH3 = army.h3_index;
+
+      if (startH3 === targetH3) {
+        return { success: true, path: [], steps: 0, message: 'Ya está en el destino' };
+      }
+
+      // 2. A* con caché de costes de terreno (consultas en batch)
+      const terrainCache = new Map();
+
+      const fetchTerrainCosts = async (hexes) => {
+        const uncached = hexes.filter(h => !terrainCache.has(h));
+        if (uncached.length === 0) return;
+        const result = await client.query(
+          `SELECT hm.h3_index, tt.movement_cost
+           FROM h3_map hm
+           JOIN terrain_types tt ON hm.terrain_type_id = tt.terrain_type_id
+           WHERE hm.h3_index = ANY($1)`,
+          [uncached]
+        );
+        const found = new Set();
+        for (const row of result.rows) {
+          terrainCache.set(row.h3_index, parseFloat(row.movement_cost));
+          found.add(row.h3_index);
+        }
+        // Hexágonos no encontrados en mapa = impasables
+        for (const hex of uncached) {
+          if (!found.has(hex)) terrainCache.set(hex, -1);
+        }
+      };
+
+      // openSet: [{ hex, f, g }] — el nodo con menor f se procesa primero
+      const openSet = [];
+      const gScore = new Map([[startH3, 0]]);
+      const cameFrom = new Map();
+      const closedSet = new Set();
+
+      openSet.push({ hex: startH3, f: h3.gridDistance(startH3, targetH3), g: 0 });
+
+      const MAX_NODES = 15000;
+      let explored = 0;
+      let pathFound = false;
+
+      while (openSet.length > 0 && explored < MAX_NODES) {
+        explored++;
+        // Extraer nodo con menor f
+        openSet.sort((a, b) => a.f - b.f);
+        const current = openSet.shift();
+
+        if (current.hex === targetH3) {
+          pathFound = true;
+          break;
+        }
+        if (closedSet.has(current.hex)) continue;
+        closedSet.add(current.hex);
+
+        const neighbors = h3.gridDisk(current.hex, 1).filter(n => n !== current.hex);
+        await fetchTerrainCosts(neighbors);
+
+        for (const neighbor of neighbors) {
+          if (closedSet.has(neighbor)) continue;
+          const rawCost = terrainCache.get(neighbor);
+          if (rawCost === undefined || rawCost < 0) continue; // fuera de mapa o impasable
+          const cost = Math.max(1, rawCost);
+          const tentativeG = gScore.get(current.hex) + cost;
+          if (!gScore.has(neighbor) || tentativeG < gScore.get(neighbor)) {
+            gScore.set(neighbor, tentativeG);
+            cameFrom.set(neighbor, current.hex);
+            const f = tentativeG + h3.gridDistance(neighbor, targetH3);
+            const idx = openSet.findIndex(n => n.hex === neighbor);
+            if (idx >= 0) openSet[idx] = { hex: neighbor, f, g: tentativeG };
+            else openSet.push({ hex: neighbor, f, g: tentativeG });
+          }
+        }
+      }
+
+      if (!pathFound) {
+        Logger.army(armyId, 'ROUTE_CALC',
+          `Sin ruta hacia ${targetH3} (${explored} nodos explorados)`,
+          { from: startH3, to: targetH3, explored }
+        );
+        return { success: false, message: `No se encontró ruta hacia ${targetH3}` };
+      }
+
+      // 3. Reconstruir camino (excluye la posición actual, incluye el destino)
+      const path = [];
+      let cur = targetH3;
+      while (cur !== startH3) {
+        path.unshift(cur);
+        cur = cameFrom.get(cur);
+        if (cur === undefined) {
+          return { success: false, message: 'Error reconstruyendo la ruta' };
+        }
+      }
+
+      // 4. Guardar en DB (sobreescribe ruta anterior si existe)
+      await client.query('BEGIN');
+      inTransaction = true;
+      await client.query(
+        `INSERT INTO army_routes (army_id, path, updated_at)
+         VALUES ($1, $2::jsonb, CURRENT_TIMESTAMP)
+         ON CONFLICT (army_id) DO UPDATE SET path = $2::jsonb, updated_at = CURRENT_TIMESTAMP`,
+        [armyId, JSON.stringify(path)]
+      );
+      await client.query(
+        'UPDATE armies SET destination = $1 WHERE army_id = $2',
+        [targetH3, armyId]
+      );
+      await client.query('COMMIT');
+      inTransaction = false;
+
+      Logger.army(armyId, 'ROUTE_CALC',
+        `Army ${armyId} generada ruta de ${path.length} pasos hacia ${targetH3}`,
+        { army_name: army.name, from: startH3, to: targetH3, steps: path.length, nodes_explored: explored }
+      );
+
+      return { success: true, path, steps: path.length, message: `Ruta calculada: ${path.length} pasos` };
+
+    } catch (error) {
+      if (inTransaction) await client.query('ROLLBACK').catch(() => {});
+      Logger.army(armyId, 'ERROR', `Error calculando ruta: ${error.message}`, { error: error.stack });
+      Logger.error(error, { context: 'ArmySimulationService.calculateAndSaveRoute', armyId });
+      return { success: false, message: error.message };
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Ejecuta el turno de movimiento completo de un ejército.
-   * Calcula PM desde la velocidad base de las unidades y mueve
-   * al ejército tantos pasos como permitan los PM.
+   * Lee la ruta pre-calculada de army_routes y avanza tantos pasos como permitan los PM.
    *
    * @param {number} armyId - ID del ejército
    * @returns {Promise<Object>} - { success, moved, arrived, stepsCount, forceExhausted, message }
@@ -380,10 +529,13 @@ class ArmySimulationService {
     try {
       await client.query('BEGIN');
 
-      // Obtener estado del ejército
+      // 1. Obtener estado del ejército + ruta pre-calculada
       const armyResult = await client.query(
-        `SELECT army_id, name, h3_index, destination, recovering, player_id
-         FROM armies WHERE army_id = $1`,
+        `SELECT a.army_id, a.name, a.h3_index, a.destination, a.recovering, a.player_id,
+                ar.path
+         FROM armies a
+         LEFT JOIN army_routes ar ON ar.army_id = a.army_id
+         WHERE a.army_id = $1`,
         [armyId]
       );
 
@@ -411,6 +563,18 @@ class ArmySimulationService {
         return { success: true, moved: false, message: `${army.name} se está recuperando` };
       }
 
+      // Parsear path desde JSONB (pg devuelve el array directamente si es JSONB)
+      const rawPath = army.path;
+      const remainingPath = Array.isArray(rawPath)
+        ? [...rawPath]
+        : (rawPath ? JSON.parse(rawPath) : []);
+
+      if (remainingPath.length === 0) {
+        await client.query('ROLLBACK');
+        Logger.army(armyId, 'MOVE_SKIP', 'Sin ruta calculada en army_routes');
+        return { success: true, moved: false, message: `${army.name} sin ruta calculada` };
+      }
+
       // ── PASO 1: Calcular Puntos de Movimiento ────────────────────────────────
       const troopsResult = await client.query(
         `SELECT t.troop_id, t.stamina, t.force_rest, ut.speed
@@ -431,8 +595,8 @@ class ArmySimulationService {
       let pm             = hasForceRest ? 0 : minSpeed;
 
       Logger.army(armyId, 'TURN_START',
-        `PM totales ${pm} (velocidad mínima: ${minSpeed}, force_rest: ${hasForceRest})`,
-        { army_name: army.name, destination: army.destination, min_speed: minSpeed, pm_assigned: pm, has_force_rest: hasForceRest }
+        `PM totales ${pm}. Ruta: ${remainingPath.length} pasos restantes`,
+        { army_name: army.name, pm_assigned: pm, path_remaining: remainingPath.length, has_force_rest: hasForceRest }
       );
 
       if (pm === 0) {
@@ -441,118 +605,104 @@ class ArmySimulationService {
         return { success: true, moved: false, message: `${army.name} no puede moverse (force_rest activo)` };
       }
 
-      // ── PASO 2: Bucle de Desplazamiento ──────────────────────────────────────
+      // Pre-fetch costes de terreno para los primeros pasos de la ruta
+      const pathSlice = remainingPath.slice(0, minSpeed + 2);
+      const terrainResult = await client.query(
+        `SELECT hm.h3_index, tt.movement_cost
+         FROM h3_map hm
+         JOIN terrain_types tt ON hm.terrain_type_id = tt.terrain_type_id
+         WHERE hm.h3_index = ANY($1)`,
+        [pathSlice]
+      );
+      const costMap = {};
+      for (const row of terrainResult.rows) {
+        costMap[row.h3_index] = parseFloat(row.movement_cost);
+      }
+
+      // ── PASO 2: Procesar desplazamiento siguiendo la ruta ─────────────────────
       let currentPos   = army.h3_index;
-      const destination = army.destination;
       let stepsCount   = 0;
       let forceExhausted = false;
 
-      while (pm > 0 && currentPos !== destination) {
-        // Obtener vecinos y sus costes de terreno en una sola query
-        const neighbors = h3.gridDisk(currentPos, 1).filter(hex => hex !== currentPos);
+      while (pm > 0 && remainingPath.length > 0) {
+        const nextHex  = remainingPath[0];
+        const rawCost  = costMap[nextHex];
 
-        const terrainResult = await client.query(
-          `SELECT hm.h3_index, tt.movement_cost
-           FROM h3_map hm
-           JOIN terrain_types tt ON hm.terrain_type_id = tt.terrain_type_id
-           WHERE hm.h3_index = ANY($1)`,
-          [neighbors]
-        );
-
-        // Construir mapa de coste por hexágono
-        const costMap = {};
-        for (const row of terrainResult.rows) {
-          costMap[row.h3_index] = parseFloat(row.movement_cost);
+        if (rawCost === undefined || rawCost < 0) {
+          // Hex impasable o fuera del mapa — ruta inválida en este punto
+          Logger.army(armyId, 'MOVE_BLOCKED',
+            `Hex ${nextHex} impasable o fuera de mapa en ruta`,
+            { hex: nextHex, raw_cost: rawCost }
+          );
+          break;
         }
 
-        // Seleccionar vecino más cercano al destino que NO sea impassable
-        let closestNeighbor   = null;
-        let neighborCost      = 0;
-        let minDist           = Infinity;
+        const cost = Math.max(1, rawCost);
 
-        for (const neighbor of neighbors) {
-          const rawCost = costMap[neighbor];
-          if (rawCost === undefined || rawCost < 0) continue; // fuera del mapa o impassable
-
-          const cost = Math.max(1, rawCost); // Mínimo 1 para evitar bucle infinito
-
-          const dist = h3.gridDistance(neighbor, destination);
-          if (dist < minDist) {
-            minDist         = dist;
-            closestNeighbor = neighbor;
-            neighborCost    = cost;
-          }
-        }
-
-        if (!closestNeighbor) {
-          Logger.army(armyId, 'MOVE_BLOCKED', `Sin vecinos accesibles desde ${currentPos}`);
-          break; // Bloqueado por terreno
-        }
-
-        // ── Regla de Avance ───────────────────────────────────────────────────
-        if (pm >= neighborCost) {
-          // Paso normal: restar coste a PM y a stamina
-          pm -= neighborCost;
-
-          await this._consumeStaminaWithClient(client, armyId, neighborCost);
-
+        if (pm >= cost) {
+          // Paso normal: restar coste a PM y stamina
+          pm -= cost;
+          await this._consumeStaminaWithClient(client, armyId, cost);
         } else {
-          // Esfuerzo extra: PM insuficiente pero el ejército fuerza el paso
+          // Esfuerzo extra: PM insuficiente pero el ejército fuerza el último paso
           forceExhausted = true;
           const pmBeforeExhaustion = pm;
           pm = 0;
-
-          // Todas las unidades quedan a stamina 0 con force_rest
           await client.query(
-            `UPDATE troops SET stamina = 0, force_rest = TRUE WHERE army_id = $1`,
+            'UPDATE troops SET stamina = 0, force_rest = TRUE WHERE army_id = $1',
             [armyId]
           );
-          // Periodo de recuperación obligatorio
           await client.query(
-            `UPDATE armies SET recovering = 1 WHERE army_id = $1`,
+            'UPDATE armies SET recovering = 1 WHERE army_id = $1',
             [armyId]
           );
-
           Logger.army(armyId, 'FATIGUE_COLLAPSE',
-            `¡Esfuerzo extra! PM insuficientes (${pmBeforeExhaustion} PM disponibles, coste ${neighborCost}). force_rest activado en todas las unidades. recovering = 1`,
-            { pm_available: pmBeforeExhaustion, terrain_cost: neighborCost }
+            `Esfuerzo extra! ${pmBeforeExhaustion} PM disponibles, coste ${cost}. force_rest activado`,
+            { pm_available: pmBeforeExhaustion, terrain_cost: cost }
           );
         }
 
-        // Mover el ejército al siguiente hexágono
+        // Mover el ejército al siguiente hexágono de la ruta
         const prevPos = currentPos;
-        currentPos = closestNeighbor;
-        await client.query(
-          `UPDATE armies SET h3_index = $1 WHERE army_id = $2`,
-          [currentPos, armyId]
-        );
+        currentPos = nextHex;
+        remainingPath.shift();
         stepsCount++;
 
-        Logger.army(armyId, 'STEP',
-          `De ${prevPos} a ${closestNeighbor}. PM restantes: ${pm}`,
-          { from: prevPos, to: closestNeighbor, pm_remaining: pm, terrain_cost: neighborCost, step: stepsCount }
+        await client.query(
+          'UPDATE armies SET h3_index = $1 WHERE army_id = $2',
+          [currentPos, armyId]
         );
 
-        if (forceExhausted) break; // No seguir tras agotamiento total
+        Logger.army(armyId, 'ROUTE_STEP',
+          `Army ${armyId} avanzado a ${currentPos}. Pasos restantes en ruta: ${remainingPath.length}`,
+          { from: prevPos, to: currentPos, pm_remaining: pm, steps_left: remainingPath.length, terrain_cost: cost }
+        );
+
+        if (forceExhausted) break;
       }
 
-      // ── Verificar si llegó al destino ─────────────────────────────────────
-      const arrived = currentPos === destination;
+      // ── Actualizar/limpiar ruta ───────────────────────────────────────────────
+      const arrived = remainingPath.length === 0;
+
       if (arrived) {
-        await client.query(
-          'UPDATE armies SET destination = NULL WHERE army_id = $1',
-          [armyId]
-        );
+        await client.query('DELETE FROM army_routes WHERE army_id = $1', [armyId]);
+        await client.query('UPDATE armies SET destination = NULL WHERE army_id = $1', [armyId]);
         Logger.army(armyId, 'MOVE_ARRIVED',
-          `Llegó a su destino ${destination} en ${stepsCount} pasos`,
-          { destination, steps: stepsCount }
+          `Llegó a su destino ${army.destination} en ${stepsCount} pasos`,
+          { destination: army.destination, steps: stepsCount }
+        );
+      } else {
+        // Guardar el path restante
+        await client.query(
+          `UPDATE army_routes SET path = $1::jsonb, updated_at = CURRENT_TIMESTAMP WHERE army_id = $2`,
+          [JSON.stringify(remainingPath), armyId]
         );
       }
 
       await client.query('COMMIT');
 
       Logger.army(armyId, 'TURN_END',
-        `Turno completado. Pasos: ${stepsCount}, Llegó: ${arrived}, Agotado: ${forceExhausted}`,
+        `Pasos: ${stepsCount}, Llegó: ${arrived}, Agotado: ${forceExhausted}`,
         { steps: stepsCount, arrived, force_exhausted: forceExhausted, final_pos: currentPos }
       );
 
@@ -568,7 +718,7 @@ class ArmySimulationService {
       };
 
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       Logger.army(armyId, 'ERROR',
         `Error en executeArmyTurn: ${error.message}`,
         { error: error.stack }

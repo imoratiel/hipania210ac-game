@@ -420,8 +420,7 @@ module.exports = function (pool, config, logic) {
                     p.username as player_name,
                     p.color as player_color,
                     a.destination,
-                    a.recovering,
-                    a.movement_points
+                    a.recovering
                 FROM armies a
                 JOIN players p ON a.player_id = p.player_id
                 WHERE a.h3_index = $1
@@ -733,19 +732,8 @@ module.exports = function (pool, config, logic) {
                 });
             }
 
-            // 2. Check if army can move (no force_rest)
-            const canMove = await ArmySimulationService.canArmyMove(army_id);
-            if (!canMove) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'El ejército tiene unidades agotadas y debe descansar'
-                });
-            }
-
-            // 3. Calculate distance (for now, simple grid distance)
+            // 2. Validate distance (upper bound check before running A*)
             const distance = h3.gridDistance(army.h3_index, target_h3);
-
-            // 4. Validate destination is reachable
             const MAX_DISTANCE = 100;
             if (distance > MAX_DISTANCE) {
                 Logger.army(army_id, 'MOVE_ERROR',
@@ -758,53 +746,31 @@ module.exports = function (pool, config, logic) {
                 });
             }
 
-            // 5. Calculate stamina cost (10 per hex moved, configurable)
-            const STAMINA_COST_PER_HEX = 10; // TODO: Get from terrain modifiers
-            const totalStaminaCost = distance * STAMINA_COST_PER_HEX;
-
-            // 6. Consume stamina
-            const staminaResult = await ArmySimulationService.consumeStamina(army_id, totalStaminaCost);
-
-            if (!staminaResult.success) {
-                return res.status(500).json({
+            // 3. Calculate A* route and save it (overwrites any existing route)
+            const routeResult = await ArmySimulationService.calculateAndSaveRoute(army_id, target_h3);
+            if (!routeResult.success) {
+                return res.status(400).json({
                     success: false,
-                    message: 'Error al procesar consumo de stamina: ' + staminaResult.message
+                    message: routeResult.message || 'No se pudo calcular la ruta hacia ese destino'
                 });
             }
 
-            // 7. Update army destination and recovering turns
-            const recoveringTurns = Math.ceil(distance / 2); // 1 turn per 2 hexes
-            await pool.query(
-                `UPDATE armies
-                 SET destination = $1,
-                     recovering = $2
-                 WHERE army_id = $3`,
-                [target_h3, recoveringTurns, army_id]
-            );
-
-            // 8. Log action
+            // 4. Log action
             Logger.action(
-                `Movió ejército "${army.name}" desde ${army.h3_index} hacia ${target_h3} (${distance} hexágonos)`,
+                `Destino fijado para "${army.name}": ${army.h3_index} → ${target_h3} (ruta: ${routeResult.steps} pasos)`,
                 player_id,
-                {
-                    army_id,
-                    from: army.h3_index,
-                    to: target_h3,
-                    distance,
-                    stamina_consumed: totalStaminaCost,
-                    recovering_turns: recoveringTurns
-                }
+                { army_id, from: army.h3_index, to: target_h3, distance, steps: routeResult.steps }
             );
 
             res.json({
                 success: true,
-                message: `${army.name} en marcha hacia ${target_h3} (${distance} hex, ${recoveringTurns} turnos)`,
+                message: `${army.name} en marcha hacia ${target_h3} (${routeResult.steps} pasos en ruta)`,
                 data: {
                     army_name: army.name,
+                    from: army.h3_index,
+                    to: target_h3,
                     distance,
-                    stamina_consumed: totalStaminaCost,
-                    recovering_turns: recoveringTurns,
-                    exhausted_units: staminaResult.exhaustedUnits || 0
+                    steps: routeResult.steps
                 }
             });
 

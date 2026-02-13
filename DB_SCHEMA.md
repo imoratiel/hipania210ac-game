@@ -79,6 +79,15 @@
 - last_updated (TIMESTAMP)
 - days_per_year (INT)
 
+## Tabla: army_routes
+- army_id (INT PK FK -> armies.army_id ON DELETE CASCADE)
+- path (JSONB NOT NULL) — Array ordenado de índices H3 que forman la ruta, excluyendo la posición actual. Ej: ["88392...", "88392..."]
+- created_at (TIMESTAMP)
+- updated_at (TIMESTAMP)
+- Generada por ArmySimulationService.calculateAndSaveRoute() con algoritmo A*
+- Leída y actualizada cada turno por executeArmyTurn() (elimina hexágonos visitados)
+- Se elimina cuando el ejército llega al destino (path vacío)
+
 ## Tabla: game_config
 - id (SERIAL PK)
 - group (VARCHAR 50)
