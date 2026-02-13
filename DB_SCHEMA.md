@@ -30,7 +30,16 @@
 - wood_stored, iron_stored, stone_stored, food_stored (INT)
 - discovered_resource (VARCHAR)
 
-## Tabla: unit_requirements 
+## Tabla: terrain_types
+- terrain_type_id (SERIAL PK)
+- name (VARCHAR 50)
+- color (VARCHAR 7)
+- food_output, wood_output, stone_output, iron_output, fishing_output (INT)
+- defense_bonus (INT)
+- movement_cost (DECIMAL 5,2 DEFAULT 1.0) ← usado por executeArmyTurn; -1 = impasable (Mar)
+  - Valores típicos: Mar=-1, Costa=1, Río=1.5, Bosque=2, Colinas=2, Pantano=3, Alta Montaña=5
+
+## Tabla: unit_requirements
 - id (SERIAL PK)
 - unit_type_id (INT FK -> unit_types.unit_type_id)
 - resource_type VARCHAR(20),

@@ -9,6 +9,7 @@ const LOG_FILES = {
     actions: path.join(LOGS_DIR, 'actions.log'),
     engine: path.join(LOGS_DIR, 'engine.log'),
     exceptions: path.join(LOGS_DIR, 'exceptions.log'),
+    armies: path.join(LOGS_DIR, 'armies.log'), // Simulación de ejércitos
     legacy: path.join(LOGS_DIR, 'server.log') // Compatibilidad con código existente
 };
 
@@ -84,6 +85,21 @@ function logEngine(message, metadata = {}) {
     const fullMessage = `${message}${metaInfo}`;
 
     appendToLog(LOG_FILES.engine, fullMessage);
+}
+
+/**
+ * Registrar eventos de simulación de ejércitos
+ * Formato: [TIMESTAMP] [ARMY_ID] [EVENT_TYPE] - Mensaje detallado
+ * @param {number|string} armyId - ID del ejército
+ * @param {string} eventType - Tipo de evento (MOVE_START, MOVE_STEP, STAMINA_DECREASE, etc.)
+ * @param {string} message - Mensaje detallado del evento
+ * @param {Object} metadata - Datos adicionales opcionales
+ */
+function logArmy(armyId, eventType, message, metadata = {}) {
+    const metaInfo = Object.keys(metadata).length > 0 ? ` | ${JSON.stringify(metadata)}` : '';
+    const fullMessage = `[ARMY:${armyId}] [${eventType}] ${message}${metaInfo}`;
+
+    appendToLog(LOG_FILES.armies, fullMessage);
 }
 
 /**
@@ -214,6 +230,15 @@ const Logger = {
      * @param {Object} metadata - Metadata adicional
      */
     engine: logEngine,
+
+    /**
+     * Registrar eventos de simulación de ejércitos
+     * @param {number} armyId - ID del ejército
+     * @param {string} eventType - Tipo de evento
+     * @param {string} message - Mensaje detallado
+     * @param {Object} metadata - Metadata adicional
+     */
+    army: logArmy,
 
     /**
      * Registrar error con stack trace

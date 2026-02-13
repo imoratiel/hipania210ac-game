@@ -1,6 +1,7 @@
 const { logEconomyEvent } = require('./economy');
 const { determineDiscoveredResource } = require('./discovery');
 const { Logger } = require('../utils/logger');
+const ArmySimulationService = require('../../services/ArmySimulationService');
 const h3 = require('h3-js');
 
 /**
@@ -482,6 +483,173 @@ async function processExplorations(client, turn, config) {
 }
 
 /**
+ * Process passive stamina recovery for all armies
+ * Also handles decrementing recovering counter and regenerating movement points
+ * @param {Object} client - PostgreSQL client (within transaction)
+ * @param {number} turn - Current turn number
+ * @param {Object} config - Game configuration
+ */
+async function processArmyRecovery(client, turn, config) {
+    try {
+        Logger.engine(`[TURN ${turn}] Processing passive stamina recovery...`);
+
+        // Get all armies
+        const armiesResult = await client.query(`
+            SELECT
+                a.army_id,
+                a.name,
+                a.player_id,
+                a.recovering,
+                p.username
+            FROM armies a
+            JOIN players p ON a.player_id = p.player_id
+        `);
+
+        let recoveredCount = 0;
+        let releasedCount = 0;
+        let recoveringDecrementedCount = 0;
+        let errorCount = 0;
+
+        for (const army of armiesResult.rows) {
+            try {
+                // Process passive stamina recovery for this army
+                const result = await ArmySimulationService.processPassiveRecovery(army.army_id);
+
+                if (result.success) {
+                    recoveredCount++;
+                    if (result.releasedUnits && result.releasedUnits > 0) {
+                        releasedCount += result.releasedUnits;
+                        Logger.engine(`[TURN ${turn}] Army ${army.army_id} (${army.name}): ${result.releasedUnits} units released from force_rest`);
+                    }
+                } else {
+                    errorCount++;
+                    Logger.error(new Error(result.message || 'Unknown recovery error'), {
+                        context: 'turn_engine.processArmyRecovery',
+                        phase: 'stamina_recovery',
+                        turn: turn,
+                        armyId: army.army_id
+                    });
+                }
+
+                // Decrement recovering counter and regenerate movement points
+                const recoveringValue = parseInt(army.recovering) || 0;
+                if (recoveringValue > 0) {
+                    // Decrement recovering counter
+                    await client.query(`
+                        UPDATE armies
+                        SET recovering = GREATEST(0, recovering - 1)
+                        WHERE army_id = $1
+                    `, [army.army_id]);
+                    recoveringDecrementedCount++;
+
+                    if (recoveringValue === 1) {
+                        Logger.engine(`[TURN ${turn}] Army ${army.army_id} (${army.name}) finished recovering and is ready to move`);
+                    }
+                }
+
+                // movement_points is no longer used - PM is calculated live in executeArmyTurn
+
+            } catch (armyError) {
+                errorCount++;
+                Logger.error(armyError, {
+                    context: 'turn_engine.processArmyRecovery',
+                    phase: 'army_recovery',
+                    turn: turn,
+                    armyId: army.army_id
+                });
+                // Continue with other armies
+            }
+        }
+
+        Logger.engine(`[TURN ${turn}] Army recovery completed: ${recoveredCount} armies recovered stamina, ${releasedCount} units released from force_rest, ${recoveringDecrementedCount} armies recovering decremented, ${errorCount} errors`);
+    } catch (error) {
+        Logger.error(error, {
+            context: 'turn_engine.processArmyRecovery',
+            phase: 'global',
+            turn: turn
+        });
+        // Don't throw - allow turn to continue
+    }
+}
+
+/**
+ * Process automatic army movements (armies moving toward their destination)
+ * @param {Object} client - PostgreSQL client (within transaction)
+ * @param {number} turn - Current turn number
+ * @param {Object} config - Game configuration
+ */
+async function processArmyMovements(client, turn, config) {
+    try {
+        Logger.engine(`[TURN ${turn}] Processing automatic army movements...`);
+
+        // Get all armies that have a destination set
+        const armiesResult = await client.query(`
+            SELECT
+                a.army_id,
+                a.name,
+                a.player_id,
+                a.h3_index,
+                a.destination,
+                a.recovering,
+                p.username
+            FROM armies a
+            JOIN players p ON a.player_id = p.player_id
+            WHERE a.destination IS NOT NULL
+        `);
+
+        let movedCount = 0;
+        let arrivedCount = 0;
+        let blockedCount = 0;
+        let errorCount = 0;
+
+        for (const army of armiesResult.rows) {
+            try {
+                // Execute full movement turn for this army (multiple steps until PM exhausted)
+                const result = await ArmySimulationService.executeArmyTurn(army.army_id);
+
+                if (result.success && result.moved && result.arrived) {
+                    arrivedCount++;
+                    Logger.engine(`[TURN ${turn}] Army ${army.army_id} (${army.name}) arrived at destination after ${result.stepsCount} steps`);
+                } else if (result.success && result.moved) {
+                    movedCount++;
+                    const exhaustedNote = result.forceExhausted ? ' [AGOTADO]' : '';
+                    Logger.engine(`[TURN ${turn}] Army ${army.army_id} (${army.name}) moved ${result.stepsCount} step(s)${exhaustedNote}`);
+                } else if (result.success && !result.moved) {
+                    // Blocked by recovering, force_rest, or no PM
+                    blockedCount++;
+                } else {
+                    errorCount++;
+                    Logger.error(new Error(result.message || 'Unknown movement error'), {
+                        context: 'turn_engine.processArmyMovements',
+                        phase: 'army_movement',
+                        turn: turn,
+                        armyId: army.army_id
+                    });
+                }
+            } catch (armyError) {
+                errorCount++;
+                Logger.error(armyError, {
+                    context: 'turn_engine.processArmyMovements',
+                    phase: 'army_movement',
+                    turn: turn,
+                    armyId: army.army_id
+                });
+                // Continue with other armies
+            }
+        }
+
+        Logger.engine(`[TURN ${turn}] Army movements completed: ${movedCount} moved, ${arrivedCount} arrived, ${blockedCount} blocked, ${errorCount} errors`);
+    } catch (error) {
+        Logger.error(error, {
+            context: 'turn_engine.processArmyMovements',
+            phase: 'global',
+            turn: turn
+        });
+        // Don't throw - allow turn to continue
+    }
+}
+
+/**
  * Process a single game turn
  * @param {Object} pool - PostgreSQL pool
  * @param {Object} config - Game configuration
@@ -582,6 +750,12 @@ async function processGameTurn(pool, config) {
 
         // Military food consumption (every turn)
         await processMilitaryConsumption(client, newTurn, config);
+
+        // Army passive stamina recovery (every turn, before movements)
+        await processArmyRecovery(client, newTurn, config);
+
+        // Army automatic movements (every turn)
+        await processArmyMovements(client, newTurn, config);
 
         // Monthly production (day 1 of each month)
         const gameDate = new Date(newDate);
@@ -688,5 +862,7 @@ module.exports = {
     processHarvestManually: processHarvest,
     processExplorationsManually: processExplorations,
     processMonthlyProductionManually: processMonthlyProduction,
-    processMilitaryConsumptionManually: processMilitaryConsumption
+    processMilitaryConsumptionManually: processMilitaryConsumption,
+    processArmyRecoveryManually: processArmyRecovery,
+    processArmyMovementsManually: processArmyMovements
 };
