@@ -245,6 +245,15 @@ export async function moveArmy(armyId, targetH3) {
   return response.data;
 }
 
+/**
+ * Get active routes for all own armies (for route visualization)
+ * Returns: { success, routes: [{army_id, name, h3_index, destination, path}] }
+ */
+export async function getMyRoutes() {
+  const response = await axios.get(`${API_URL}/api/military/my-routes`);
+  return response.data;
+}
+
 // ============================================
 // AUTH ENDPOINTS
 // ============================================

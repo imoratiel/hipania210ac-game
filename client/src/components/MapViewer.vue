@@ -719,6 +719,7 @@ import 'leaflet/dist/leaflet.css';
 import { getHexagonStyles, getCapitalStarIconHTML } from '@/utils/mapStyles.js';
 import { generateCellPopupContent, generateArmyPopup } from '@/utils/popupGenerator.js';
 import MapInteractionController from '@/utils/MapInteractionController.js';
+import RouteVisualizer from '@/utils/RouteVisualizer.js';
 
 // Import API service
 import * as mapApi from '@/services/mapApi.js';
@@ -1219,6 +1220,9 @@ const initMap = () => {
   map.createPane('armyPane');
   map.getPane('armyPane').style.zIndex = 700;
 
+  // Inicializar visualizador de rutas (crea su propio pane routePane z-600)
+  RouteVisualizer.init(map);
+
   // OpenStreetMap layer
   osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors',
@@ -1425,14 +1429,38 @@ const clearArmyMarkers = () => {
 };
 
 /**
+ * Obtiene las rutas activas propias del servidor y las dibuja en el mapa.
+ * Se llama desde fetchArmyData para mantener las rutas sincronizadas.
+ */
+const fetchAndDrawRoutes = async () => {
+  try {
+    const data = await mapApi.getMyRoutes();
+    if (!data.success) return;
+
+    RouteVisualizer.clear();
+    for (const route of data.routes) {
+      if (route.path && route.path.length > 0) {
+        RouteVisualizer.drawPath(route.army_id, route.path, route.h3_index);
+      }
+    }
+  } catch (err) {
+    // Las rutas son supplementarias — silenciar errores de red
+    console.warn('[MapViewer] fetchAndDrawRoutes:', err.message);
+  }
+};
+
+/**
  * Fetch army data from backend based on visible map bounds
  * Only fetches if zoom level is valid (11-17)
  */
 const fetchArmyData = async () => {
   try {
+    // Rutas siempre visibles, independientemente del nivel de zoom
+    await fetchAndDrawRoutes();
+
     const currentZoom = map.getZoom();
 
-    // Only show army markers between zoom 11-17
+    // Army icon markers only visible between zoom 11-17
     if (currentZoom < MIN_ZOOM_H3 || currentZoom > MAX_ZOOM_H3) {
       clearArmyMarkers();
       return;
@@ -3664,7 +3692,12 @@ const processArmyMovement = async (armyId, targetH3, armyName) => {
     if (response.success) {
       showToast(`✅ ${response.message || `${armyName} en marcha hacia ${targetH3}`}`, 'success');
 
-      // Refrescar datos del mapa
+      // Dibujar ruta inmediatamente (feedback visual instantáneo)
+      if (response.data?.path && response.data?.from) {
+        RouteVisualizer.drawPath(armyId, response.data.path, response.data.from);
+      }
+
+      // Refrescar datos del mapa (también redibujará rutas vía fetchAndDrawRoutes)
       await fetchHexagonData();
     } else {
       showToast(`⚠️ ${response.message || 'No se pudo mover el ejército'}`, 'warning');

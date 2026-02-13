@@ -770,7 +770,8 @@ module.exports = function (pool, config, logic) {
                     from: army.h3_index,
                     to: target_h3,
                     distance,
-                    steps: routeResult.steps
+                    steps: routeResult.steps,
+                    path: routeResult.path   // Array de H3 para dibujar la ruta en el frontend
                 }
             });
 
@@ -787,6 +788,28 @@ module.exports = function (pool, config, logic) {
                 message: 'Error al mover ejército',
                 error: error.message
             });
+        }
+    });
+
+    // Devuelve las rutas activas de todos los ejércitos del jugador autenticado
+    router.get('/military/my-routes', authenticateToken, async (req, res) => {
+        try {
+            const player_id = req.user.player_id;
+            const result = await pool.query(
+                `SELECT a.army_id, a.name, a.h3_index, a.destination, ar.path
+                 FROM armies a
+                 JOIN army_routes ar ON ar.army_id = a.army_id
+                 WHERE a.player_id = $1`,
+                [player_id]
+            );
+            res.json({ success: true, routes: result.rows });
+        } catch (error) {
+            Logger.error(error, {
+                endpoint: '/military/my-routes',
+                method: 'GET',
+                userId: req.user?.player_id
+            });
+            res.status(500).json({ success: false, message: 'Error al obtener rutas' });
         }
     });
 
