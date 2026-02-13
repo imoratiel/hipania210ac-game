@@ -1066,163 +1066,18 @@ module.exports = function (pool, config, logic) {
     // ============================================
     // GAME ENGINE CONTROL (ADMIN ONLY)
     // ============================================
-    const { processGameTurn, isEngineActive, processHarvestManually } = require('../src/logic/turn_engine');
 
     router.get('/admin/engine/status', authenticateToken, requireAdmin, TurnController.GetEngineStatus);
 
-    router.post('/admin/engine/pause', authenticateToken, requireAdmin, async (req, res) => {
-        try {
-            Logger.action(`Acceso administrativo a /admin/engine/pause - Pausando juego`, req.user.player_id);
+    router.post('/admin/engine/pause', authenticateToken, requireAdmin, TurnController.SetGamePaused);
 
-            await pool.query('UPDATE world_state SET is_paused = true WHERE id = 1');
+    router.post('/admin/engine/resume', authenticateToken, requireAdmin, TurnController.SetGameResumed);
 
-            Logger.action(`Juego pausado exitosamente`, req.user.player_id);
-            res.json({ success: true, message: 'Juego pausado. El motor seguirá corriendo pero no procesará turnos.' });
-        } catch (error) {
-            Logger.error(error, {
-                endpoint: '/admin/engine/pause',
-                method: 'POST',
-                userId: req.user?.player_id
-            });
-            res.status(500).json({ success: false, message: 'Error al pausar juego' });
-        }
-    });
+    router.post('/admin/engine/force-turn', authenticateToken, requireAdmin, TurnController.ForceGameTurn);
 
-    router.post('/admin/engine/resume', authenticateToken, requireAdmin, async (req, res) => {
-        try {
-            Logger.action(`Acceso administrativo a /admin/engine/resume - Reanudando juego`, req.user.player_id);
+    router.post('/admin/engine/force-harvest', authenticateToken, requireAdmin, TurnController.ForceGameHarvest);
 
-            await pool.query('UPDATE world_state SET is_paused = false WHERE id = 1');
-
-            Logger.action(`Juego reanudado exitosamente`, req.user.player_id);
-            res.json({ success: true, message: 'Juego reanudado. El motor procesará el siguiente turno según el intervalo configurado.' });
-        } catch (error) {
-            Logger.error(error, {
-                endpoint: '/admin/engine/resume',
-                method: 'POST',
-                userId: req.user?.player_id
-            });
-            res.status(500).json({ success: false, message: 'Error al reanudar juego' });
-        }
-    });
-
-    router.post('/admin/engine/force-turn', authenticateToken, requireAdmin, async (req, res) => {
-        try {
-            Logger.action(`Acceso administrativo a /admin/engine/force-turn - Forzando procesamiento de turno`, req.user.player_id);
-
-            // Force process a turn manually
-            const result = await processGameTurn(pool, config);
-
-            if (result.paused) {
-                Logger.action(`Intento de forzar turno bloqueado: juego está pausado`, req.user.player_id);
-                return res.status(400).json({
-                    success: false,
-                    message: 'No se puede forzar turno: el juego está pausado. Usa /admin/engine/resume primero.'
-                });
-            }
-
-            if (result.success) {
-                Logger.action(`Turno forzado exitosamente: turno ${result.turn}`, req.user.player_id);
-                res.json({
-                    success: true,
-                    message: `Turno ${result.turn} procesado exitosamente`,
-                    turn: result.turn,
-                    date: result.date
-                });
-            } else {
-                Logger.action(`Error al forzar turno`, req.user.player_id);
-                res.status(500).json({ success: false, message: 'Error al procesar turno' });
-            }
-        } catch (error) {
-            Logger.error(error, {
-                endpoint: '/admin/engine/force-turn',
-                method: 'POST',
-                userId: req.user?.player_id
-            });
-            res.status(500).json({ success: false, message: 'Error al forzar procesamiento de turno' });
-        }
-    });
-
-    router.post('/admin/engine/force-harvest', authenticateToken, requireAdmin, async (req, res) => {
-        try {
-            Logger.action(`Acceso administrativo a /admin/engine/force-harvest - Forzando procesamiento de cosecha`, req.user.player_id);
-
-            const worldState = await pool.query('SELECT current_turn FROM world_state WHERE id = 1');
-            const currentTurn = worldState.rows[0].current_turn;
-
-            // Force process harvest manually
-            const client = await pool.connect();
-            try {
-                await client.query('BEGIN');
-
-                // Import processHarvest function
-                const { processHarvestManually } = require('../src/logic/turn_engine');
-                await processHarvestManually(client, currentTurn, config);
-
-                await client.query('COMMIT');
-
-                Logger.action(`Cosecha forzada exitosamente en turno ${currentTurn}`, req.user.player_id);
-                res.json({
-                    success: true,
-                    message: `Cosecha procesada exitosamente en turno ${currentTurn}`,
-                    turn: currentTurn
-                });
-            } catch (error) {
-                if (client) await client.query('ROLLBACK');
-                throw error;
-            } finally {
-                client.release();
-            }
-        } catch (error) {
-            Logger.error(error, {
-                endpoint: '/admin/engine/force-harvest',
-                method: 'POST',
-                userId: req.user?.player_id
-            });
-            res.status(500).json({ success: false, message: 'Error al forzar procesamiento de cosecha' });
-        }
-    });
-
-    // Force exploration processing (admin only, for testing)
-    router.post('/admin/engine/force-exploration', authenticateToken, requireAdmin, async (req, res) => {
-        try {
-            Logger.action(`Acceso administrativo a /admin/engine/force-exploration - Forzando procesamiento de exploraciones`, req.user.player_id);
-
-            const worldState = await pool.query('SELECT current_turn FROM world_state WHERE id = 1');
-            const currentTurn = worldState.rows[0].current_turn;
-
-            // Force process explorations manually
-            const client = await pool.connect();
-            try {
-                await client.query('BEGIN');
-
-                // Import processExplorations function
-                const { processExplorationsManually } = require('../src/logic/turn_engine');
-                await processExplorationsManually(client, currentTurn, config);
-
-                await client.query('COMMIT');
-
-                Logger.action(`Exploraciones forzadas exitosamente en turno ${currentTurn}`, req.user.player_id);
-                res.json({
-                    success: true,
-                    message: `Exploraciones procesadas exitosamente en turno ${currentTurn}`,
-                    turn: currentTurn
-                });
-            } catch (error) {
-                if (client) await client.query('ROLLBACK');
-                throw error;
-            } finally {
-                client.release();
-            }
-        } catch (error) {
-            Logger.error(error, {
-                endpoint: '/admin/engine/force-exploration',
-                method: 'POST',
-                userId: req.user?.player_id
-            });
-            res.status(500).json({ success: false, message: 'Error al forzar procesamiento de exploraciones' });
-        }
-    });
+    router.post('/admin/engine/force-exploration', authenticateToken, requireAdmin, TurnController.ForceGameExploration);
 
     return router;
 };

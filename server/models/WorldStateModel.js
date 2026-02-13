@@ -8,6 +8,14 @@ class WorldStateModel {
         
         return turn;
     }
+    async SetGamePaused() {
+        await pool.query('UPDATE world_state SET is_paused = true WHERE id = 1');        
+        return;
+    }
+    async SetGameResumed() {
+        await pool.query('UPDATE world_state SET is_paused = false WHERE id = 1');        
+        return;
+    }
 }
 
 module.exports = new WorldStateModel();
