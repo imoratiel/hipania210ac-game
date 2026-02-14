@@ -4,8 +4,9 @@ const h3 = require('h3-js');
 const { authenticateToken, requireAdmin, generateToken } = require('../src/middleware/auth');
 
 
-// Controllers
-const TurnController = require('../controllers/TurnController.js');
+// Controllers/Services
+const TurnController = require('../src/controllers/TurnController.js');
+const MessageService = require('../src/services/MessageService.js');
 
 
 // This file will contain all the endpoints moved from index.js
@@ -16,7 +17,7 @@ module.exports = function (pool, config, logic) {
     const { logGameEvent, Logger } = require('../src/utils/logger');
     const { formatDaysToYearsAndDays, getTerrainColor } = logic.territory;
     const military = require('../src/logic/military');
-    const ArmySimulationService = require('../services/ArmySimulationService');
+    const ArmySimulationService = require('../src/services/ArmySimulationService');
 
     // ============================================
     // AUTHENTICATION ENDPOINTS
@@ -965,10 +966,11 @@ module.exports = function (pool, config, logic) {
         }
     });
 
-    router.get('/messages', authenticateToken, async (req, res) => {
-        const result = await pool.query('SELECT m.*, s.username as sender_username FROM messages m LEFT JOIN players s ON m.sender_id = s.player_id WHERE m.receiver_id = $1 OR m.sender_id = $1 ORDER BY m.sent_at DESC', [req.user.player_id]);
-        res.json({ success: true, messages: result.rows });
-    });
+    // ============================================
+    // MESSAGES
+    // ============================================
+
+    router.get('/messages', authenticateToken,  MessageService.GetMessagesByUserId );
 
     router.post('/messages', authenticateToken, async (req, res) => {
         const { recipient_username, subject, body } = req.body;

@@ -1,7 +1,7 @@
 const { logEconomyEvent } = require('./economy');
 const { determineDiscoveredResource } = require('./discovery');
 const { Logger } = require('../utils/logger');
-const ArmySimulationService = require('../../services/ArmySimulationService');
+const ArmySimulationService = require('../services/ArmySimulationService');
 const h3 = require('h3-js');
 
 /**

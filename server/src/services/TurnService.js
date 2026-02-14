@@ -1,5 +1,5 @@
-const ArmyModel = require('../models/WorldStateModel.js');
-const { processGameTurn, processHarvestManually } = require('../src/logic/turn_engine');
+const WorldStateModel = require('../models/WorldStateModel.js');
+const { processGameTurn, processHarvestManually } = require('../logic/turn_engine');
 
 class TurnService {
     async GetGlobalStatus() {

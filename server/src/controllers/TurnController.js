@@ -1,5 +1,5 @@
 const TurnService = require('../services/TurnService.js');
-const { isEngineActive } = require('../src/logic/turn_engine.js');
+const { isEngineActive } = require('../logic/turn_engine.js');
 
 class TurnController {
 

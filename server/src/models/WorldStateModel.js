@@ -1,4 +1,4 @@
-const db = require('../db.js'); // Tu conexión a DB
+const db = require('../../db.js'); // Tu conexión a DB
 
 class WorldStateModel {
     async GetCurrentTurn() {

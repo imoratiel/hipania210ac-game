@@ -11,8 +11,8 @@
  */
 
 const config = require('../config/constants.js');
-const pool = require('../db');
-const { Logger } = require('../src/utils/logger');
+const pool = require('../../db');
+const { Logger } = require('../../src/utils/logger');
 const h3 = require('h3-js');
 
 class ArmySimulationService {
