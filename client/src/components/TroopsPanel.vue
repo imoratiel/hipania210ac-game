@@ -1,20 +1,20 @@
 <template>
   <div class="troops-panel">
-    <div v-if="loading" class="loading-text">Cargando tropas...</div>
+    <div v-if="loading" class="loading-text">Cargando ejércitos...</div>
 
-    <div v-else-if="troops.length === 0" class="empty-state">
-      <p>No tienes tropas reclutadas.</p>
+    <div v-else-if="armies.length === 0" class="empty-state">
+      <p>No tienes ejércitos activos.</p>
       <p class="empty-hint">Ve a la lista de feudos para reclutar tu primera unidad.</p>
     </div>
 
     <div v-else class="troops-content">
-      <!-- Summary Grid -->
-      <div class="troops-summary">
+      <!-- Summary Row -->
+      <div class="troops-summary" style="grid-template-columns: repeat(5, 1fr)">
         <div class="summary-card">
           <div class="card-icon">🏰</div>
           <div class="card-content">
             <span class="card-label">Ejércitos</span>
-            <span class="card-value">{{ totalArmies }}</span>
+            <span class="card-value">{{ armies.length }}</span>
           </div>
         </div>
         <div class="summary-card">
@@ -45,51 +45,31 @@
             <span class="card-value">{{ averageExperience }}%</span>
           </div>
         </div>
-        <div class="summary-card">
-          <div class="card-icon">🛡️</div>
-          <div class="card-content">
-            <span class="card-label">Descanso Promedio</span>
-            <span class="card-value">{{ averageRest }}%</span>
-          </div>
-        </div>
       </div>
 
-      <!-- Troops Table -->
+      <!-- Armies Table -->
       <div class="troops-table-container">
         <table class="troops-table">
           <thead>
             <tr>
-              <th class="th-unit">Unidad</th>
-              <th class="th-quantity">Cantidad</th>
-              <th class="th-stats">Estadísticas</th>
+              <th class="th-unit">Nombre</th>
+              <th class="th-quantity">Tropas</th>
+              <th class="th-quantity">Fuerza</th>
               <th class="th-status">Estado</th>
               <th class="th-location">Ubicación</th>
               <th class="th-actions">Acciones</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="troop in troops" :key="troop.troop_id" class="troop-row">
+            <tr v-for="army in armies" :key="army.army_id" class="troop-row">
               <td class="unit-cell">
-                <div class="unit-name">{{ troop.unit_name }}</div>
+                <div class="unit-name">{{ army.name }}</div>
               </td>
               <td class="quantity-cell">
-                <span class="quantity-badge">{{ troop.quantity }}</span>
+                <span class="quantity-badge">{{ army.total_troops }}</span>
               </td>
-              <td class="stats-cell">
-                <div class="stats-grid">
-                  <div class="stat-item" title="Ataque">
-                    <span class="stat-icon">⚔️</span>
-                    <span class="stat-value">{{ troop.attack }}</span>
-                  </div>
-                  <div class="stat-item" title="Puntos de Vida">
-                    <span class="stat-icon">❤️</span>
-                    <span class="stat-value">{{ troop.health_points }}</span>
-                  </div>
-                  <div class="stat-item" title="Velocidad">
-                    <span class="stat-icon">🏃</span>
-                    <span class="stat-value">{{ troop.speed }}</span>
-                  </div>
-                </div>
+              <td class="quantity-cell">
+                <span class="quantity-badge">{{ army.total_combat_power }}</span>
               </td>
               <td class="status-cell">
                 <div class="status-bars">
@@ -98,10 +78,10 @@
                     <div class="progress-bar">
                       <div
                         class="progress-fill morale"
-                        :style="{ width: troop.morale + '%' }"
-                        :class="getMoraleClass(troop.morale)"
+                        :style="{ width: army.average_moral + '%' }"
+                        :class="getMoraleClass(army.average_moral)"
                       ></div>
-                      <span class="progress-text">{{ Math.round(troop.morale) }}%</span>
+                      <span class="progress-text">{{ army.average_moral }}%</span>
                     </div>
                   </div>
                   <div class="status-item">
@@ -109,26 +89,24 @@
                     <div class="progress-bar">
                       <div
                         class="progress-fill experience"
-                        :style="{ width: troop.experience + '%' }"
+                        :style="{ width: army.average_experience + '%' }"
                       ></div>
-                      <span class="progress-text">{{ Math.round(troop.experience) }}%</span>
+                      <span class="progress-text">{{ army.average_experience }}%</span>
                     </div>
                   </div>
                 </div>
               </td>
               <td class="location-cell">
                 <div class="location-info">
-                  <div class="army-name">{{ troop.army_name }}</div>
-                  <div class="h3-index">{{ troop.h3_index }}</div>
-                  <div class="rest-level" :class="getRestClass(troop.rest_level)">
-                    🛡️ {{ Math.round(troop.rest_level) }}% Descanso
-                  </div>
+                  <div v-if="army.location_name" class="army-name">{{ army.location_name }}</div>
+                  <div class="h3-index">{{ army.h3_index }}</div>
+                  <div class="h3-index">X: {{ army.coord_x }}, Y: {{ army.coord_y }}</div>
                 </div>
               </td>
               <td class="actions-cell">
                 <button
                   class="btn-locate"
-                  @click="handleLocate(troop)"
+                  @click="handleLocate(army)"
                   title="Centrar mapa en esta ubicación"
                 >
                   🔍 Localizar
@@ -146,7 +124,7 @@
 import { computed } from 'vue';
 
 const props = defineProps({
-  troops: {
+  armies: {
     type: Array,
     default: () => []
   },
@@ -158,37 +136,24 @@ const props = defineProps({
 
 const emit = defineEmits(['locate']);
 
-const totalArmies = computed(() => {
-  const uniqueArmies = new Set(props.troops.map(t => t.army_id));
-  return uniqueArmies.size;
-});
-
 const totalUnits = computed(() => {
-  return props.troops.reduce((sum, troop) => sum + troop.quantity, 0);
+  return props.armies.reduce((sum, a) => sum + (a.total_troops || 0), 0);
 });
 
 const totalCombatPower = computed(() => {
-  return props.troops.reduce((sum, troop) => {
-    return sum + (troop.attack * troop.quantity);
-  }, 0);
+  return props.armies.reduce((sum, a) => sum + (a.total_combat_power || 0), 0);
 });
 
 const averageMorale = computed(() => {
-  if (props.troops.length === 0) return 0;
-  const totalMorale = props.troops.reduce((sum, troop) => sum + troop.morale, 0);
-  return Math.round(totalMorale / props.troops.length);
+  if (props.armies.length === 0) return 0;
+  const total = props.armies.reduce((sum, a) => sum + (a.average_moral || 0), 0);
+  return Math.round(total / props.armies.length);
 });
 
 const averageExperience = computed(() => {
-  if (props.troops.length === 0) return 0;
-  const totalExp = props.troops.reduce((sum, troop) => sum + troop.experience, 0);
-  return Math.round(totalExp / props.troops.length);
-});
-
-const averageRest = computed(() => {
-  if (props.troops.length === 0) return 0;
-  const totalRest = props.troops.reduce((sum, troop) => sum + troop.rest_level, 0);
-  return Math.round(totalRest / props.troops.length);
+  if (props.armies.length === 0) return 0;
+  const total = props.armies.reduce((sum, a) => sum + (a.average_experience || 0), 0);
+  return Math.round(total / props.armies.length);
 });
 
 const getMoraleClass = (morale) => {
@@ -197,17 +162,11 @@ const getMoraleClass = (morale) => {
   return 'low';
 };
 
-const getRestClass = (restLevel) => {
-  if (restLevel >= 70) return 'rested';
-  if (restLevel >= 40) return 'tired';
-  return 'exhausted';
-};
-
-const handleLocate = (troop) => {
+const handleLocate = (army) => {
   emit('locate', {
-    h3_index: troop.h3_index,
-    army_name: troop.army_name,
-    army_id: troop.army_id
+    h3_index: army.h3_index,
+    army_name: army.name,
+    army_id: army.army_id
   });
 };
 </script>

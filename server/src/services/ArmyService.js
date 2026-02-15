@@ -4,6 +4,7 @@ const ArmySimulationService = require('./ArmySimulationService.js');
 const h3 = require('h3-js');
 const pool = require('../../db.js');
 const GAME_CONFIG = require('../config/constants.js');
+const NameGenerator = require('../logic/NameGenerator.js');
 
 class ArmyService {
     async GetArmyDetails(req, res) {
@@ -49,9 +50,10 @@ class ArmyService {
         const client = await pool.connect();
         try {
             const player_id = req.user.player_id;
-            const { h3_index, unit_type_id, quantity, army_name } = req.body;
+            const { h3_index, unit_type_id, quantity } = req.body;
+            const army_name = req.body.army_name || NameGenerator.generate();
 
-            if (!h3_index || !unit_type_id || !quantity || !army_name) {
+            if (!h3_index || !unit_type_id || !quantity) {
                 return res.status(400).json({ success: false, message: 'Faltan parámetros requeridos' });
             }
             if (quantity <= 0) {
@@ -140,6 +142,16 @@ class ArmyService {
             res.status(500).json({ success: false, message: 'Error al obtener tropas' });
         }
     }
+    async GetArmies(req, res) {
+        try {
+            const player_id = req.user.player_id;
+            const result = await ArmyModel.GetArmies(player_id);
+            res.json({ success: true, armies: result.rows });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/military/armies', method: 'GET', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al obtener ejércitos' });
+        }
+    }
     async MoveArmy(req, res) {
         try {
             const player_id = req.user.player_id;
@@ -204,6 +216,31 @@ class ArmyService {
         } catch (error) {
             Logger.error(error, { endpoint: '/military/my-routes', method: 'GET', userId: req.user?.player_id });
             res.status(500).json({ success: false, message: 'Error al obtener rutas' });
+        }
+    }
+    async renameArmy(req, res) {
+        try {
+            const player_id = req.user.player_id;
+            const { army_id, new_name } = req.body;
+
+            if (!army_id || typeof new_name !== 'string') {
+                return res.status(400).json({ success: false, message: 'Faltan parámetros requeridos' });
+            }
+            const trimmed = new_name.trim();
+            if (trimmed.length < 3 || trimmed.length > 25) {
+                return res.status(400).json({ success: false, message: 'El nombre debe tener entre 3 y 25 caracteres' });
+            }
+
+            const updated = await ArmyModel.updateName(army_id, player_id, trimmed);
+            if (!updated) {
+                return res.status(404).json({ success: false, message: 'Ejército no encontrado o no te pertenece' });
+            }
+
+            Logger.army(army_id, 'RENAME', `[RENAME] Army ${army_id} changed name to ${trimmed}`, { player_id, new_name: trimmed });
+            res.json({ success: true, new_name: updated.name });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/military/rename', method: 'PATCH', userId: req.user?.player_id, payload: req.body });
+            res.status(500).json({ success: false, message: 'Error al renombrar ejército' });
         }
     }
     async GetArmiesInRegion(req, res) {

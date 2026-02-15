@@ -180,6 +180,32 @@ class ArmyModel {
         const result = await db.query(query, [player_id]);
         return result;
     }
+    async GetArmies(player_id) {
+        const query = `
+            SELECT
+                a.army_id,
+                a.name,
+                a.h3_index,
+                m.coord_x,
+                m.coord_y,
+                COALESCE(td.custom_name, s.name) AS location_name,
+                COALESCE(SUM(t.quantity), 0)::int AS total_troops,
+                COALESCE(SUM(t.quantity * ut.attack), 0)::int AS total_combat_power,
+                COALESCE(ROUND(AVG(t.morale)), 0)::int AS average_moral,
+                COALESCE(ROUND(AVG(t.experience)), 0)::int AS average_experience
+            FROM armies a
+            LEFT JOIN h3_map m ON a.h3_index = m.h3_index
+            LEFT JOIN territory_details td ON a.h3_index = td.h3_index
+            LEFT JOIN settlements s ON a.h3_index = s.h3_index
+            LEFT JOIN troops t ON t.army_id = a.army_id
+            LEFT JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
+            WHERE a.player_id = $1
+            GROUP BY a.army_id, a.name, a.h3_index, m.coord_x, m.coord_y, td.custom_name, s.name
+            ORDER BY a.name
+        `;
+        const result = await db.query(query, [player_id]);
+        return result;
+    }
     async GetArmyWithPlayer(army_id) {
         const result = await db.query(
             'SELECT army_id, name, h3_index, player_id FROM armies WHERE army_id = $1',
@@ -196,6 +222,13 @@ class ArmyModel {
             [player_id]
         );
         return result;
+    }
+    async updateName(armyId, playerId, newName) {
+        const result = await db.query(
+            'UPDATE armies SET name = $1 WHERE army_id = $2 AND player_id = $3 RETURNING *',
+            [newName, armyId, playerId]
+        );
+        return result.rows[0];
     }
 }
 

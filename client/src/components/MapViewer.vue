@@ -687,7 +687,7 @@
         <!-- Troops Content -->
         <div class="overlay-content troops-content">
           <TroopsPanel
-            :troops="troops"
+            :armies="armies"
             :loading="loadingTroops"
             @locate="handleLocateTroop"
           />
@@ -845,7 +845,7 @@ const isRecruiting = ref(false);
 const isColonizing = ref(false); // Track colonization state to prevent multiple simultaneous colonizations
 
 // Troops panel state
-const troops = ref([]);
+const armies = ref([]);
 const loadingTroops = ref(false);
 
 // Legend toggle state
@@ -3321,15 +3321,15 @@ const fetchUnitTypes = async () => {
 const fetchTroops = async () => {
   try {
     loadingTroops.value = true;
-    const data = await mapApi.getTroops(playerId.value);
+    const data = await mapApi.getArmies();
 
     if (data.success) {
-      troops.value = data.troops;
-      console.log('✓ Troops loaded:', troops.value.length);
+      armies.value = data.armies;
+      console.log('✓ Armies loaded:', armies.value.length);
     }
   } catch (err) {
-    console.error('❌ Error fetching troops:', err);
-    showToast('Error al cargar tropas', 'error');
+    console.error('❌ Error fetching armies:', err);
+    showToast('Error al cargar ejércitos', 'error');
   } finally {
     loadingTroops.value = false;
   }

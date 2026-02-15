@@ -223,6 +223,11 @@ export async function getTroops(playerId) {
   return response.data;
 }
 
+export async function getArmies() {
+  const response = await axios.get(`${API_URL}/api/military/armies`);
+  return response.data;
+}
+
 /**
  * Recruit troops
  * @param {Object} payload - { h3_index, unit_type_id, quantity, army_name?, army_id? }

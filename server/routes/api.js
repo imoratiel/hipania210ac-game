@@ -60,8 +60,10 @@ module.exports = function () {
     router.get('/military/unit-types', ArmyService.GetUnitTypes);
     router.post('/military/recruit', authenticateToken, ArmyService.Recruit);
     router.get('/military/troops', authenticateToken, ArmyService.GetTroops);
+    router.get('/military/armies', authenticateToken, (req, res) => ArmyService.GetArmies(req, res));
     router.post('/military/move-army', authenticateToken, ArmyService.MoveArmy);
     router.get('/military/my-routes', authenticateToken, ArmyService.GetMyRoutes);
+    router.patch('/military/rename', authenticateToken, (req, res) => ArmyService.renameArmy(req, res));
 
     // ============================================
     // ADMIN AND MESSAGES
