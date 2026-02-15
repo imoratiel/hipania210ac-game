@@ -126,75 +126,7 @@ module.exports = function (pool, config, logic) {
     router.get('/map/armies', authenticateToken, ArmyService.GetArmiesInRegion);
 
     // Get detailed army info for a specific hex (for popup)
-    router.get('/map/army-details/:h3_index', authenticateToken, async (req, res) => {
-        try {
-            const { h3_index } = req.params;
-
-            // 1. Get armies basic info + resources + rest
-            const armiesQuery = `
-                SELECT 
-                    a.army_id, a.name, a.player_id, 
-                    a.gold_provisions, a.food_provisions, a.wood_provisions,
-                    p.username as player_name,
-                    p.color as player_color,
-                    a.destination,
-                    a.recovering
-                FROM armies a
-                JOIN players p ON a.player_id = p.player_id
-                WHERE a.h3_index = $1
-            `;
-
-            const armiesResult = await pool.query(armiesQuery, [h3_index]);
-            const armies = armiesResult.rows;
-
-            // 2. For each army, get units and fatigue status
-            const ArmySimulationService = require('../services/ArmySimulationService');
-
-            for (let army of armies) {
-                const unitsQuery = `
-                    SELECT
-                        t.quantity, t.experience, t.morale,
-                        ut.name as unit_name, ut.attack, ut.health_points,
-                        t.stamina, t.force_rest
-                    FROM troops t
-                    JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
-                    WHERE t.army_id = $1
-                `;
-                const unitsResult = await pool.query(unitsQuery, [army.army_id]);
-                army.units = unitsResult.rows;
-
-                // Calculate total troops for summary
-                army.total_count = army.units.reduce((sum, u) => sum + u.quantity, 0);
-
-                // Get fatigue status (weakest link)
-                const fatigueStatus = await ArmySimulationService.getArmyFatigueStatus(army.army_id);
-                if (fatigueStatus.success) {
-                    army.min_stamina = fatigueStatus.minStamina;
-                    army.has_force_rest = fatigueStatus.hasForceRest;
-                    army.exhausted_units = fatigueStatus.exhaustedUnits;
-                } else {
-                    army.min_stamina = 100;
-                    army.has_force_rest = false;
-                    army.exhausted_units = 0;
-                }
-            }
-
-            res.json({
-                success: true,
-                armies: armies,
-                current_player_id: req.user.player_id
-            });
-
-        } catch (error) {
-            Logger.error(error, {
-                endpoint: '/map/army-details',
-                method: 'GET',
-                userId: req.user?.player_id,
-                payload: req.params
-            });
-            res.status(500).json({ success: false, message: 'Error al obtener detalles del ejército' });
-        }
-    });
+    router.get('/map/army-details/:h3_index', authenticateToken, ArmyService.GetArmyDetails);
 
     router.get('/players/:id', async (req, res) => {
         const result = await pool.query('SELECT player_id, username, gold, color FROM players WHERE player_id = $1', [req.params.id]);

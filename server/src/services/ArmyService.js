@@ -1,8 +1,39 @@
 const { Logger } = require('../utils/logger');
 const ArmyModel = require('../models/ArmyModel.js');
+const ArmySimulationService = require('./ArmySimulationService.js');
 const h3 = require('h3-js');
 
 class ArmyService {
+    async GetArmyDetails(req, res) {
+        try {
+            const { h3_index } = req.params;
+
+            const armiesResult = await ArmyModel.GetArmyDetailsByHex(h3_index);
+            const armies = armiesResult.rows;
+
+            for (const army of armies) {
+                const unitsResult = await ArmyModel.GetArmyUnits(army.army_id);
+                army.units = unitsResult.rows;
+                army.total_count = army.units.reduce((sum, u) => sum + u.quantity, 0);
+
+                const fatigueStatus = await ArmySimulationService.getArmyFatigueStatus(army.army_id);
+                if (fatigueStatus.success) {
+                    army.min_stamina = fatigueStatus.minStamina;
+                    army.has_force_rest = fatigueStatus.hasForceRest;
+                    army.exhausted_units = fatigueStatus.exhaustedUnits;
+                } else {
+                    army.min_stamina = 100;
+                    army.has_force_rest = false;
+                    army.exhausted_units = 0;
+                }
+            }
+
+            res.json({ success: true, armies, current_player_id: req.user.player_id });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/map/army-details', method: 'GET', userId: req.user?.player_id, payload: req.params });
+            res.status(500).json({ success: false, message: 'Error al obtener detalles del ejército' });
+        }
+    }
     async GetArmiesInRegion(req, res) {
         try {
             const { minLat, maxLat, minLng, maxLng } = req.query;
@@ -50,3 +81,4 @@ class ArmyService {
 }
 
 module.exports = new ArmyService();
+ 
