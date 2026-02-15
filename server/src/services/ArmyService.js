@@ -146,7 +146,14 @@ class ArmyService {
         try {
             const player_id = req.user.player_id;
             const result = await ArmyModel.GetArmies(player_id);
-            res.json({ success: true, armies: result.rows });
+            const armies = result.rows.map(a => ({
+                ...a,
+                total_troops: parseInt(a.total_troops) || 0,
+                total_combat_power: parseInt(a.total_combat_power) || 0,
+                average_moral: parseInt(a.average_moral) || 0,
+                min_stamina: parseInt(a.min_stamina) || 0,
+            }));
+            res.json({ success: true, armies });
         } catch (error) {
             Logger.error(error, { endpoint: '/military/armies', method: 'GET', userId: req.user?.player_id });
             res.status(500).json({ success: false, message: 'Error al obtener ejércitos' });

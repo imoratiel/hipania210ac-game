@@ -72,27 +72,19 @@
                 <span class="quantity-badge">{{ army.total_combat_power }}</span>
               </td>
               <td class="status-cell">
-                <div class="status-bars">
-                  <div class="status-item">
-                    <span class="status-label">Moral</span>
-                    <div class="progress-bar">
-                      <div
-                        class="progress-fill morale"
-                        :style="{ width: army.average_moral + '%' }"
-                        :class="getMoraleClass(army.average_moral)"
-                      ></div>
-                      <span class="progress-text">{{ army.average_moral }}%</span>
+                <div style="display: flex; flex-direction: column; gap: 5px;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="display: inline-block; width: 80px; font-size: 10px; color: #a89875; font-weight: 600; text-transform: uppercase;">Moral</span>
+                    <div style="position: relative; flex: 1; height: 14px; background: #1a1a1a; border: 1px solid #444; border-radius: 3px; overflow: hidden;">
+                      <div :style="{ width: army.average_moral + '%', height: '100%', background: getMoraleColor(army.average_moral) }"></div>
+                      <span style="position: absolute; width: 100%; text-align: center; font-size: 9px; top: 1px; color: #fff; font-weight: bold; text-shadow: 1px 1px 2px #000; line-height: 14px;">{{ army.average_moral }}%</span>
                     </div>
                   </div>
-                  <div class="status-item">
-                    <span class="status-label">Estamina</span>
-                    <div class="progress-bar">
-                      <div
-                        class="progress-fill stamina"
-                        :style="{ width: army.min_estamina + '%' }"
-                        :class="getStaminaClass(army.min_estamina)"
-                      ></div>
-                      <span class="progress-text">{{ army.min_estamina }}%</span>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="display: inline-block; width: 80px; font-size: 10px; color: #a89875; font-weight: 600; text-transform: uppercase;">Estamina</span>
+                    <div style="position: relative; flex: 1; height: 14px; background: #1a1a1a; border: 1px solid #444; border-radius: 3px; overflow: hidden;">
+                      <div :style="{ width: (army.min_stamina || 0) + '%', height: '100%', background: getStaminaColor(army.min_stamina || 0) }"></div>
+                      <span style="position: absolute; width: 100%; text-align: center; font-size: 9px; top: 1px; color: #fff; font-weight: bold; text-shadow: 1px 1px 2px #000; line-height: 14px;">{{ army.min_stamina || 0 }}%</span>
                     </div>
                   </div>
                 </div>
@@ -153,20 +145,20 @@ const averageMorale = computed(() => {
 
 const averageMinStamina = computed(() => {
   if (props.armies.length === 0) return 0;
-  const total = props.armies.reduce((sum, a) => sum + (a.min_estamina || 0), 0);
+  const total = props.armies.reduce((sum, a) => sum + (a.min_stamina || 0), 0);
   return Math.round(total / props.armies.length);
 });
 
-const getMoraleClass = (morale) => {
-  if (morale >= 70) return 'high';
-  if (morale >= 40) return 'medium';
-  return 'low';
+const getMoraleColor = (morale) => {
+  if (morale >= 70) return '#4caf50';
+  if (morale >= 40) return '#ff9800';
+  return '#f44336';
 };
 
-const getStaminaClass = (stamina) => {
-  if (stamina > 60) return 'high';
-  if (stamina >= 25) return 'medium';
-  return 'low';
+const getStaminaColor = (stamina) => {
+  if (stamina > 60) return '#4caf50';
+  if (stamina >= 25) return '#ff9800';
+  return '#f44336';
 };
 
 const handleLocate = (army) => {
