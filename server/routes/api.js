@@ -18,6 +18,7 @@ module.exports = function (pool, config, logic) {
     const LoginService = require('../src/services/LoginService.js');
     const TerrainService = require('../src/services/TerrainService.js');
     const ArmyService = require('../src/services/ArmyService.js');
+    const KingdomService = require('../src/services/KingdomService.js');
 
     // ============================================
     // AUTHENTICATION ENDPOINTS
@@ -150,132 +151,14 @@ module.exports = function (pool, config, logic) {
         }
     });
 
-    router.get('/game/my-fiefs', authenticateToken, async (req, res) => {
-        const query = `
-      SELECT
-        m.h3_index,
-        m.coord_x,
-        m.coord_y,
-        COALESCE(td.custom_name, s.name, m.h3_index) AS location_name,
-        td.*,
-        t.name AS terrain_name,
-        t.food_output,
-        COALESCE(garrison.total_troops, 0) AS total_troops,
-        p.capital_h3
-      FROM h3_map m
-      JOIN territory_details td ON m.h3_index = td.h3_index
-      JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
-      JOIN players p ON m.player_id = p.player_id
-      LEFT JOIN settlements s ON m.h3_index = s.h3_index
-      LEFT JOIN (
-        SELECT a.h3_index, SUM(tr.quantity) AS total_troops
-        FROM armies a
-        JOIN troops tr ON a.army_id = tr.army_id
-        WHERE a.player_id = $1
-        GROUP BY a.h3_index
-      ) garrison ON m.h3_index = garrison.h3_index
-      WHERE m.player_id = $1
-      ORDER BY td.population DESC
-    `;
-        const result = await pool.query(query, [req.user.player_id]);
-
-        // Add calculated is_capital field to each fief
-        const fiefsWithCapital = result.rows.map(row => ({
-            ...row,
-            is_capital: (row.h3_index === row.capital_h3)
-        }));
-
-        res.json({ success: true, fiefs: fiefsWithCapital });
-    });
+    router.get('/game/my-fiefs', authenticateToken, KingdomService.GetMyFiefs);
 
     // ============================================
     // TERRITORY AND INFRASTRUCTURE
     // ============================================
-    router.post('/territory/explore', authenticateToken, async (req, res) => {
-        const client = await pool.connect();
-        try {
-            const { h3_index } = req.body;
-            const player_id = req.user.player_id;
-            await client.query('BEGIN');
-            const ownership = await client.query('SELECT player_id FROM h3_map WHERE h3_index = $1', [h3_index]);
-            if (ownership.rows[0]?.player_id !== player_id) { await client.query('ROLLBACK'); return res.status(403).json({ success: false, message: 'No posees este territorio' }); }
+    router.post('/territory/explore', authenticateToken, KingdomService.StartExploration);
 
-            const details = await client.query('SELECT exploration_end_turn, discovered_resource FROM territory_details WHERE h3_index = $1', [h3_index]);
-            if (details.rows[0].discovered_resource !== null || details.rows[0].exploration_end_turn !== null) { await client.query('ROLLBACK'); return res.status(400).json({ success: false, message: 'Exploración ya realizada o en curso' }); }
-
-            const player = await client.query('SELECT gold FROM players WHERE player_id = $1', [player_id]);
-            const cost = config.exploration.gold_cost;
-            if (player.rows[0].gold < cost) { await client.query('ROLLBACK'); return res.status(400).json({ success: false, message: 'Oro insuficiente' }); }
-
-            const world = await client.query('SELECT current_turn FROM world_state WHERE id = 1');
-            const endTurn = world.rows[0].current_turn + config.exploration.turns_required;
-
-            await client.query('UPDATE players SET gold = gold - $1 WHERE player_id = $2', [cost, player_id]);
-            await client.query('UPDATE territory_details SET exploration_end_turn = $1 WHERE h3_index = $2', [endTurn, h3_index]);
-            await client.query('COMMIT');
-            logGameEvent(`[EXPLORACIÓN] Jugador ${player_id} inició exploración en ${h3_index}`);
-
-            // Fetch updated player gold
-            const newGoldResult = await client.query('SELECT gold FROM players WHERE player_id = $1', [player_id]);
-
-            res.json({
-                success: true,
-                message: `Exploración iniciada, finaliza en turno ${endTurn}`,
-                exploration_end_turn: endTurn,
-                new_gold_balance: newGoldResult.rows[0].gold,
-                gold_spent: cost
-            });
-        } catch (e) {
-            if (client)
-                await client.query('ROLLBACK');
-            Logger.error(error, {
-                endpoint: '/territory/explore',
-                method: 'POST',
-                userId: req.user?.player_id,
-                payload: req.body
-            });
-            res.status(500).json({ success: false, error: e.message });
-        }
-        finally { client.release(); }
-    });
-
-    router.post('/territory/upgrade', authenticateToken, async (req, res) => {
-        const client = await pool.connect();
-        try {
-            const { h3_index, building_type } = req.body;
-            const player_id = req.user.player_id;
-            const ownership = await client.query('SELECT player_id FROM h3_map WHERE h3_index = $1', [h3_index]);
-            if (ownership.rows[0]?.player_id !== player_id) return res.status(403).json({ success: false, message: 'No posees este territorio' });
-
-            const territory = (await client.query(`SELECT td.*, t.name as terrain_type, t.food_output, t.wood_output, m.is_coast FROM territory_details td JOIN h3_map m ON td.h3_index = m.h3_index JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id WHERE td.h3_index = $1`, [h3_index])).rows[0];
-            const error = logic.infrastructure.validateUpgrade(building_type, territory);
-            if (error) return res.status(400).json({ success: false, message: error });
-
-            const currentLevel = territory[`${building_type}_level`] || 0;
-            const cost = logic.infrastructure.calculateUpgradeCost(building_type, currentLevel, config);
-
-            const player = (await client.query('SELECT gold FROM players WHERE player_id = $1', [player_id])).rows[0];
-            if (player.gold < cost) return res.status(400).json({ success: false, message: 'Oro insuficiente' });
-
-            await client.query('BEGIN');
-            await client.query('UPDATE players SET gold = gold - $1 WHERE player_id = $2', [cost, player_id]);
-            await client.query(`UPDATE territory_details SET ${building_type}_level = $1 WHERE h3_index = $2`, [currentLevel + 1, h3_index]);
-            await client.query('COMMIT');
-            logGameEvent(`[INFRAESTRUCTURA] Jugador ${player_id} mejoró ${building_type} en ${h3_index}`);
-            res.json({ success: true, message: `${building_type} mejorada al nivel ${currentLevel + 1}` });
-        } catch (e) {
-            if (client)
-                await client.query('ROLLBACK');
-            Logger.error(error, {
-                endpoint: '/territory/upgrade',
-                method: 'POST',
-                userId: req.user?.player_id,
-                payload: req.body
-            });
-            res.status(500).json({ success: false, error: e.message });
-        }
-        finally { client.release(); }
-    });
+    router.post('/territory/upgrade', authenticateToken, KingdomService.UpgradeBuilding);
 
     // ============================================
     // MILITARY RECRUITMENT
