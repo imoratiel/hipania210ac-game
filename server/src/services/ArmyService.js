@@ -2,6 +2,8 @@ const { Logger } = require('../utils/logger');
 const ArmyModel = require('../models/ArmyModel.js');
 const ArmySimulationService = require('./ArmySimulationService.js');
 const h3 = require('h3-js');
+const pool = require('../../db.js');
+const GAME_CONFIG = require('../config/constants.js');
 
 class ArmyService {
     async GetArmyDetails(req, res) {
@@ -32,6 +34,176 @@ class ArmyService {
         } catch (error) {
             Logger.error(error, { endpoint: '/map/army-details', method: 'GET', userId: req.user?.player_id, payload: req.params });
             res.status(500).json({ success: false, message: 'Error al obtener detalles del ejército' });
+        }
+    }
+    async GetUnitTypes(req, res) {
+        try {
+            const result = await ArmyModel.GetUnitTypes();
+            res.json({ success: true, unit_types: result.rows });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/military/unit-types', method: 'GET', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al obtener tipos de unidades' });
+        }
+    }
+    async Recruit(req, res) {
+        const client = await pool.connect();
+        try {
+            const player_id = req.user.player_id;
+            const { h3_index, unit_type_id, quantity, army_name } = req.body;
+
+            if (!h3_index || !unit_type_id || !quantity || !army_name) {
+                return res.status(400).json({ success: false, message: 'Faltan parámetros requeridos' });
+            }
+            if (quantity <= 0) {
+                return res.status(400).json({ success: false, message: 'La cantidad debe ser mayor a 0' });
+            }
+
+            await client.query('BEGIN');
+
+            const reqResult = await ArmyModel.GetUnitRequirements(client, unit_type_id);
+            const requirements = reqResult.rows;
+
+            const terrResult = await ArmyModel.GetTerritoryForRecruitment(client, h3_index);
+            if (terrResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Territorio no encontrado' });
+            }
+            const territory = terrResult.rows[0];
+
+            if (territory.player_id !== player_id) {
+                await client.query('ROLLBACK');
+                return res.status(403).json({ success: false, message: 'No posees este territorio' });
+            }
+
+            const playerResult = await ArmyModel.GetPlayerGold(client, player_id);
+            const player = playerResult.rows[0];
+
+            // Validate resources
+            for (const req of requirements) {
+                const needed = req.amount * quantity;
+                if (req.resource_type === 'gold' && player.gold < needed) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({ success: false, message: `Oro insuficiente. Necesitas ${needed} oro, pero solo tienes ${player.gold}.` });
+                } else if (req.resource_type === 'wood_stored' && (territory.wood_stored || 0) < needed) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({ success: false, message: `Madera insuficiente. Necesitas ${needed}, pero solo tienes ${territory.wood_stored || 0}.` });
+                } else if (req.resource_type === 'stone_stored' && (territory.stone_stored || 0) < needed) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({ success: false, message: `Piedra insuficiente. Necesitas ${needed}, pero solo tienes ${territory.stone_stored || 0}.` });
+                } else if (req.resource_type === 'iron_stored' && (territory.iron_stored || 0) < needed) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({ success: false, message: `Hierro insuficiente. Necesitas ${needed}, pero solo tienes ${territory.iron_stored || 0}.` });
+                }
+            }
+
+            // Deduct resources
+            for (const req of requirements) {
+                const cost = req.amount * quantity;
+                if (req.resource_type === 'gold') {
+                    await ArmyModel.DeductPlayerGold(client, player_id, cost);
+                } else {
+                    await ArmyModel.DeductTerritoryResource(client, h3_index, req.resource_type, cost);
+                }
+            }
+
+            // Find or create army
+            const existingArmy = await ArmyModel.FindArmy(client, h3_index, army_name, player_id);
+            let army_id;
+            if (existingArmy.rows.length === 0) {
+                const newArmy = await ArmyModel.CreateArmy(client, army_name, player_id, h3_index);
+                army_id = newArmy.rows[0].army_id;
+            } else {
+                army_id = existingArmy.rows[0].army_id;
+            }
+
+            await ArmyModel.AddTroops(client, army_id, unit_type_id, quantity);
+            await client.query('COMMIT');
+
+            Logger.action(`Reclutó ${quantity} unidades (tipo ${unit_type_id}) en ${h3_index}`, player_id, { army_name, unit_type_id, quantity });
+            res.json({ success: true, message: 'Unidades reclutadas exitosamente', army_id });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            Logger.error(error, { endpoint: '/military/recruit', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            res.status(500).json({ success: false, message: 'Error al reclutar unidades', error: error.message });
+        } finally {
+            client.release();
+        }
+    }
+    async GetTroops(req, res) {
+        try {
+            const player_id = req.user.player_id;
+            const result = await ArmyModel.GetTroops(player_id);
+            Logger.action('Consultó panel de tropas', player_id);
+            res.json({ success: true, troops: result.rows });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/military/troops', method: 'GET', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al obtener tropas' });
+        }
+    }
+    async MoveArmy(req, res) {
+        try {
+            const player_id = req.user.player_id;
+            const { army_id, target_h3 } = req.body;
+
+            if (!army_id || !target_h3) {
+                return res.status(400).json({ success: false, message: 'Faltan parámetros requeridos (army_id, target_h3)' });
+            }
+
+            const armyResult = await ArmyModel.GetArmyWithPlayer(army_id);
+            if (armyResult.rows.length === 0) {
+                return res.status(404).json({ success: false, message: 'Ejército no encontrado' });
+            }
+
+            const army = armyResult.rows[0];
+            if (army.player_id !== player_id) {
+                return res.status(403).json({ success: false, message: 'No tienes permiso para mover este ejército' });
+            }
+
+            const distance = h3.gridDistance(army.h3_index, target_h3);
+            const MAX_DISTANCE = GAME_CONFIG.MAP.MAX_MOVEMENT_DISTANCE;
+            if (distance > MAX_DISTANCE) {
+                Logger.army(army_id, 'MOVE_ERROR',
+                    `Distancia excedida: ${distance} hexágonos (Máx: ${MAX_DISTANCE})`,
+                    { army_id, from: army.h3_index, to: target_h3, distance, max_distance: MAX_DISTANCE }
+                );
+                return res.status(400).json({ success: false, message: `Destino demasiado lejano (${distance} hexágonos, máximo ${MAX_DISTANCE})` });
+            }
+
+            const routeResult = await ArmySimulationService.calculateAndSaveRoute(army_id, target_h3);
+            if (!routeResult.success) {
+                return res.status(400).json({ success: false, message: routeResult.message || 'No se pudo calcular la ruta hacia ese destino' });
+            }
+
+            Logger.action(
+                `Destino fijado para "${army.name}": ${army.h3_index} → ${target_h3} (ruta: ${routeResult.steps} pasos)`,
+                player_id,
+                { army_id, from: army.h3_index, to: target_h3, distance, steps: routeResult.steps }
+            );
+
+            res.json({
+                success: true,
+                message: `${army.name} en marcha hacia ${target_h3} (${routeResult.steps} pasos en ruta)`,
+                data: {
+                    army_name: army.name,
+                    from: army.h3_index,
+                    to: target_h3,
+                    distance,
+                    steps: routeResult.steps,
+                    path: routeResult.path
+                }
+            });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/military/move-army', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            res.status(500).json({ success: false, message: 'Error al mover ejército', error: error.message });
+        }
+    }
+    async GetMyRoutes(req, res) {
+        try {
+            const result = await ArmyModel.GetMyRoutes(req.user.player_id);
+            res.json({ success: true, routes: result.rows });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/military/my-routes', method: 'GET', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al obtener rutas' });
         }
     }
     async GetArmiesInRegion(req, res) {

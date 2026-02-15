@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const h3 = require('h3-js');
 const { authenticateToken, requireAdmin, generateToken } = require('../src/middleware/auth');
 
 // This file will contain all the endpoints moved from index.js
@@ -10,9 +9,6 @@ const { authenticateToken, requireAdmin, generateToken } = require('../src/middl
 module.exports = function (pool, config, logic) {
     const { logGameEvent, Logger } = require('../src/utils/logger');
     const { formatDaysToYearsAndDays, getTerrainColor } = logic.territory;
-    const military = require('../src/logic/military');
-    const ArmySimulationService = require('../src/services/ArmySimulationService');
-
     const TurnService = require('../src/services/TurnService.js');
     const MessageService = require('../src/services/MessageService.js');
     const LoginService = require('../src/services/LoginService.js');
@@ -163,188 +159,12 @@ module.exports = function (pool, config, logic) {
     // ============================================
     // MILITARY RECRUITMENT
     // ============================================
-    router.get('/military/unit-types', async (req, res) => {
-        try {
-            const unitTypes = await military.getUnitTypes(pool);
-            res.json({ success: true, unit_types: unitTypes });
-        } catch (error) {
-            Logger.error(error, {
-                endpoint: '/api/military/unit-types',
-                method: 'GET',
-                userId: req.user?.player_id
-            });
-            res.status(500).json({ success: false, message: 'Error al obtener tipos de unidades' });
-        }
-    });
+    router.get('/military/unit-types', ArmyService.GetUnitTypes);
+    router.post('/military/recruit', authenticateToken, ArmyService.Recruit);
+    router.get('/military/troops', authenticateToken, ArmyService.GetTroops);
+    router.post('/military/move-army', authenticateToken, ArmyService.MoveArmy);
 
-    router.post('/military/recruit', authenticateToken, async (req, res) => {
-        try {
-            const player_id = req.user.player_id;
-            const { h3_index, unit_type_id, quantity, army_name } = req.body;
-
-            if (!h3_index || !unit_type_id || !quantity || !army_name) {
-                return res.status(400).json({ success: false, message: 'Faltan parámetros requeridos' });
-            }
-
-            if (quantity <= 0) {
-                return res.status(400).json({ success: false, message: 'La cantidad debe ser mayor a 0' });
-            }
-
-            const result = await military.recruitUnits(pool, req.body, player_id);
-
-            if (result.success) {
-                // Registrar acción del usuario
-                Logger.action(`Reclutó ${quantity} unidades (tipo ${unit_type_id}) en ${h3_index}`, player_id, {
-                    army_name,
-                    unit_type_id,
-                    quantity
-                });
-            }
-
-            res.json(result);
-        } catch (error) {
-            Logger.error(error, {
-                endpoint: '/api/military/recruit',
-                method: 'POST',
-                userId: req.user?.player_id,
-                payload: req.body
-            });
-            res.status(500).json({ success: false, message: 'Error al reclutar unidades', error: error.message });
-        }
-    });
-
-    router.get('/military/troops', authenticateToken, async (req, res) => {
-        try {
-            const player_id = req.user.player_id;
-            const troops = await military.getTroops(pool, player_id);
-
-            Logger.action('Consultó panel de tropas', player_id);
-
-            res.json({ success: true, troops: troops });
-        } catch (error) {
-            Logger.error(error, {
-                endpoint: '/api/military/troops',
-                method: 'GET',
-                userId: req.user?.player_id
-            });
-            res.status(500).json({ success: false, message: 'Error al obtener tropas' });
-        }
-    });
-
-    router.post('/military/move-army', authenticateToken, async (req, res) => {
-        try {
-            const player_id = req.user.player_id;
-            const { army_id, target_h3 } = req.body;
-
-            if (!army_id || !target_h3) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Faltan parámetros requeridos (army_id, target_h3)'
-                });
-            }
-
-            // 1. Validate army exists and belongs to player
-            const armyCheck = await pool.query(
-                'SELECT army_id, name, h3_index, player_id FROM armies WHERE army_id = $1',
-                [army_id]
-            );
-
-            if (armyCheck.rows.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Ejército no encontrado'
-                });
-            }
-
-            const army = armyCheck.rows[0];
-
-            if (army.player_id !== player_id) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'No tienes permiso para mover este ejército'
-                });
-            }
-
-            // 2. Validate distance (upper bound check before running A*)
-            const distance = h3.gridDistance(army.h3_index, target_h3);
-            const MAX_DISTANCE = 100;
-            if (distance > MAX_DISTANCE) {
-                Logger.army(army_id, 'MOVE_ERROR',
-                    `Distancia excedida: ${distance} hexágonos (Máx: ${MAX_DISTANCE})`,
-                    { army_id, from: army.h3_index, to: target_h3, distance, max_distance: MAX_DISTANCE }
-                );
-                return res.status(400).json({
-                    success: false,
-                    message: `Destino demasiado lejano (${distance} hexágonos, máximo ${MAX_DISTANCE})`
-                });
-            }
-
-            // 3. Calculate A* route and save it (overwrites any existing route)
-            const routeResult = await ArmySimulationService.calculateAndSaveRoute(army_id, target_h3);
-            if (!routeResult.success) {
-                return res.status(400).json({
-                    success: false,
-                    message: routeResult.message || 'No se pudo calcular la ruta hacia ese destino'
-                });
-            }
-
-            // 4. Log action
-            Logger.action(
-                `Destino fijado para "${army.name}": ${army.h3_index} → ${target_h3} (ruta: ${routeResult.steps} pasos)`,
-                player_id,
-                { army_id, from: army.h3_index, to: target_h3, distance, steps: routeResult.steps }
-            );
-
-            res.json({
-                success: true,
-                message: `${army.name} en marcha hacia ${target_h3} (${routeResult.steps} pasos en ruta)`,
-                data: {
-                    army_name: army.name,
-                    from: army.h3_index,
-                    to: target_h3,
-                    distance,
-                    steps: routeResult.steps,
-                    path: routeResult.path   // Array de H3 para dibujar la ruta en el frontend
-                }
-            });
-
-        } catch (error) {
-            console.error('Error al mover ejército:', error);
-            Logger.error(error, {
-                endpoint: '/api/military/move-army',
-                method: 'POST',
-                userId: req.user?.player_id,
-                payload: req.body
-            });
-            res.status(500).json({
-                success: false,
-                message: 'Error al mover ejército',
-                error: error.message
-            });
-        }
-    });
-
-    // Devuelve las rutas activas de todos los ejércitos del jugador autenticado
-    router.get('/military/my-routes', authenticateToken, async (req, res) => {
-        try {
-            const player_id = req.user.player_id;
-            const result = await pool.query(
-                `SELECT a.army_id, a.name, a.h3_index, a.destination, ar.path
-                 FROM armies a
-                 JOIN army_routes ar ON ar.army_id = a.army_id
-                 WHERE a.player_id = $1`,
-                [player_id]
-            );
-            res.json({ success: true, routes: result.rows });
-        } catch (error) {
-            Logger.error(error, {
-                endpoint: '/military/my-routes',
-                method: 'GET',
-                userId: req.user?.player_id
-            });
-            res.status(500).json({ success: false, message: 'Error al obtener rutas' });
-        }
-    });
+    router.get('/military/my-routes', authenticateToken, ArmyService.GetMyRoutes);
 
     // ============================================
     // ADMIN AND MESSAGES
