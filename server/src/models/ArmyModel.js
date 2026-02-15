@@ -192,7 +192,7 @@ class ArmyModel {
                 COALESCE(SUM(t.quantity), 0)::int AS total_troops,
                 COALESCE(SUM(t.quantity * ut.attack), 0)::int AS total_combat_power,
                 COALESCE(ROUND(AVG(t.morale)), 0)::int AS average_moral,
-                COALESCE(ROUND(AVG(t.experience)), 0)::int AS average_experience
+                COALESCE(MIN(t.stamina), 0)::int AS min_estamina
             FROM armies a
             LEFT JOIN h3_map m ON a.h3_index = m.h3_index
             LEFT JOIN territory_details td ON a.h3_index = td.h3_index

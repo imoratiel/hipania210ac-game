@@ -3461,10 +3461,7 @@ const recruitUnits = async () => {
     recruitmentMessage.value = { type: 'error', text: 'La cantidad debe ser mayor a 0' };
     return;
   }
-  if (!recruitmentArmyName.value.trim()) {
-    recruitmentMessage.value = { type: 'error', text: 'Ingresa un nombre para el ejército' };
-    return;
-  }
+  // army_name is optional — backend generates one if empty
 
   try {
     isRecruiting.value = true;
@@ -3550,7 +3547,7 @@ const openMilitaryTab = async () => {
   selectedRecruitmentFief.value = null;
   selectedUnitType.value = null;
   recruitmentQuantity.value = 1;
-  recruitmentArmyName.value = 'Guarnición Local';
+  recruitmentArmyName.value = '';
   recruitmentMessage.value = { type: '', text: '' };
 };
 

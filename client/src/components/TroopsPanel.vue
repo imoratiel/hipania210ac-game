@@ -39,10 +39,10 @@
           </div>
         </div>
         <div class="summary-card">
-          <div class="card-icon">🎖️</div>
+          <div class="card-icon">⚡</div>
           <div class="card-content">
-            <span class="card-label">Experiencia Promedio</span>
-            <span class="card-value">{{ averageExperience }}%</span>
+            <span class="card-label">Estamina Promedio Global</span>
+            <span class="card-value">{{ averageMinStamina }}%</span>
           </div>
         </div>
       </div>
@@ -85,13 +85,14 @@
                     </div>
                   </div>
                   <div class="status-item">
-                    <span class="status-label">Exp</span>
+                    <span class="status-label">Estamina</span>
                     <div class="progress-bar">
                       <div
-                        class="progress-fill experience"
-                        :style="{ width: army.average_experience + '%' }"
+                        class="progress-fill stamina"
+                        :style="{ width: army.min_estamina + '%' }"
+                        :class="getStaminaClass(army.min_estamina)"
                       ></div>
-                      <span class="progress-text">{{ army.average_experience }}%</span>
+                      <span class="progress-text">{{ army.min_estamina }}%</span>
                     </div>
                   </div>
                 </div>
@@ -150,15 +151,21 @@ const averageMorale = computed(() => {
   return Math.round(total / props.armies.length);
 });
 
-const averageExperience = computed(() => {
+const averageMinStamina = computed(() => {
   if (props.armies.length === 0) return 0;
-  const total = props.armies.reduce((sum, a) => sum + (a.average_experience || 0), 0);
+  const total = props.armies.reduce((sum, a) => sum + (a.min_estamina || 0), 0);
   return Math.round(total / props.armies.length);
 });
 
 const getMoraleClass = (morale) => {
   if (morale >= 70) return 'high';
   if (morale >= 40) return 'medium';
+  return 'low';
+};
+
+const getStaminaClass = (stamina) => {
+  if (stamina > 60) return 'high';
+  if (stamina >= 25) return 'medium';
   return 'low';
 };
 
@@ -397,7 +404,7 @@ const handleLocate = (army) => {
 .status-label {
   font-size: 0.85rem;
   color: #a89875;
-  min-width: 45px;
+  min-width: 62px;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -436,8 +443,20 @@ const handleLocate = (army) => {
   background: linear-gradient(90deg, #4caf50, #8bc34a);
 }
 
-.progress-fill.experience {
-  background: linear-gradient(90deg, #2196f3, #03a9f4);
+.progress-fill.stamina {
+  background: linear-gradient(90deg, #4caf50, #8bc34a);
+}
+
+.progress-fill.stamina.low {
+  background: linear-gradient(90deg, #f44336, #ff5722);
+}
+
+.progress-fill.stamina.medium {
+  background: linear-gradient(90deg, #ff9800, #ffc107);
+}
+
+.progress-fill.stamina.high {
+  background: linear-gradient(90deg, #4caf50, #8bc34a);
 }
 
 .progress-text {

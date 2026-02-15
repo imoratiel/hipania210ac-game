@@ -94,7 +94,7 @@
             <input
               v-model="armyName"
               type="text"
-              placeholder="Ej: Guardia Real"
+              placeholder="Dejar vacío para nombre automático"
               maxlength="100"
               class="recruitment-input"
             />
@@ -162,7 +162,6 @@ const armyName = ref('');
 
 const selectUnit = (unit) => {
   selectedUnit.value = unit;
-  if (!armyName.value) armyName.value = 'Guarnición Local';
 };
 
 const enforcePositiveQuantity = () => {
@@ -212,7 +211,7 @@ const canAffordAtLeastOne = (unit) => {
 };
 
 const isValid = computed(() => {
-  if (!selectedUnit.value || quantity.value <= 0 || !armyName.value.trim()) return false;
+  if (!selectedUnit.value || quantity.value <= 0) return false;
   return selectedUnit.value.requirements.every(req => !isInsufficientTotal(req));
 });
 
