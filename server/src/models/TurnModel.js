@@ -1,6 +1,6 @@
 const db = require('../../db.js'); // Tu conexión a DB
 
-class WorldStateModel {
+class TurnModel {
     async GetCurrentTurn() {
         const worldState = await pool.query('SELECT current_turn, is_paused, last_updated FROM world_state WHERE id = 1');
         
@@ -18,4 +18,4 @@ class WorldStateModel {
     }
 }
 
-module.exports = new WorldStateModel();
+module.exports = new TurnModel();

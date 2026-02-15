@@ -25,3 +25,11 @@
 ## 5. Ejecución y Bugs
 - **EJECUCIÓN:** NO ejecutes scripts de servidor ni comandos SQL complejos automáticamente (especialmente mutaciones). Genera el código completo para revisión y ejecución manual por el usuario.
 - **BUGS:** Céntrate en la lógica (PHP/JS/HTML/Python). Ignora CSS e imágenes a menos que sea un problema específicamente visual del mapa.
+
+## 6. Estructura de carpetas del server 
+El proyecto ha sido refactorizado para separar responsabilidades y mejorar la mantenibilidad. A partir de ahora, todas las contribuciones deben seguir este esquema:
+📂 Organización de Carpetas
+/src/Services/: El núcleo del juego. Contiene la lógica de negocio (A*, cálculos de stamina, reglas de combate). Son clases agnósticas a la base de datos y a HTTP.
+/src/Model/: Capa de persistencia. Contiene exclusivamente las consultas SQL (usando pool.query). Devuelve objetos limpios o arrays (result.rows).
+/src/config/: Constantes globales y parámetros de balanceo (costes de terreno, límites de movimiento).
+/src/logic/: Lógica de negocio por temáticas, funciones avanzadas que implican múltiples entidades y cálculos automatizados

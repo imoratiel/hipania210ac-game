@@ -4,8 +4,8 @@ const h3 = require('h3-js');
 const { authenticateToken, requireAdmin, generateToken } = require('../src/middleware/auth');
 
 
-// Controllers/Services
-const TurnController = require('../src/controllers/TurnController.js');
+// Services
+const TurnService = require('../src/services/TurnService.js');
 const MessageService = require('../src/services/MessageService.js');
 
 
@@ -972,13 +972,7 @@ module.exports = function (pool, config, logic) {
 
     router.get('/messages', authenticateToken,  MessageService.GetMessagesByUserId );
 
-    router.post('/messages', authenticateToken, async (req, res) => {
-        const { recipient_username, subject, body } = req.body;
-        const receiver = await pool.query('SELECT player_id FROM players WHERE username = $1', [recipient_username]);
-        if (receiver.rows.length === 0) return res.status(404).json({ success: false, message: 'Destinatario no encontrado' });
-        await pool.query('INSERT INTO messages (sender_id, receiver_id, subject, body) VALUES ($1, $2, $3, $4)', [req.user.player_id, receiver.rows[0].player_id, subject, body]);
-        res.json({ success: true, message: 'Mensaje enviado' });
-    });
+    router.post('/messages', authenticateToken, MessageService.SendMessage );
 
     // Mark message as read
     router.put('/messages/:id/read', authenticateToken, async (req, res) => {
@@ -1069,17 +1063,17 @@ module.exports = function (pool, config, logic) {
     // GAME ENGINE CONTROL (ADMIN ONLY)
     // ============================================
 
-    router.get('/admin/engine/status', authenticateToken, requireAdmin, TurnController.GetEngineStatus);
+    router.get('/admin/engine/status', authenticateToken, requireAdmin, TurnService.GetGlobalStatus);
 
-    router.post('/admin/engine/pause', authenticateToken, requireAdmin, TurnController.SetGamePaused);
+    router.post('/admin/engine/pause', authenticateToken, requireAdmin, TurnService.SetGamePaused);
 
-    router.post('/admin/engine/resume', authenticateToken, requireAdmin, TurnController.SetGameResumed);
+    router.post('/admin/engine/resume', authenticateToken, requireAdmin, TurnService.SetGameResumed);
 
-    router.post('/admin/engine/force-turn', authenticateToken, requireAdmin, TurnController.ForceGameTurn);
+    router.post('/admin/engine/force-turn', authenticateToken, requireAdmin, TurnService.ForceGameTurn);
 
-    router.post('/admin/engine/force-harvest', authenticateToken, requireAdmin, TurnController.ForceGameHarvest);
+    router.post('/admin/engine/force-harvest', authenticateToken, requireAdmin, TurnService.ForceGameHarvest);
 
-    router.post('/admin/engine/force-exploration', authenticateToken, requireAdmin, TurnController.ForceGameExploration);
+    router.post('/admin/engine/force-exploration', authenticateToken, requireAdmin, TurnService.ForceGameExploration);
 
     return router;
 };
