@@ -1,0 +1,53 @@
+const { Logger } = require('../utils/logger');
+const NotificationModel = require('../models/NotificationModel.js');
+const TurnModel = require('../models/TurnModel.js');
+
+class NotificationService {
+    async getNotifications(req, res) {
+        try {
+            const player_id = req.user.player_id;
+            const notifications = await NotificationModel.fetchByPlayer(player_id);
+            res.json({ success: true, notifications });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/notifications', method: 'GET', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al obtener notificaciones' });
+        }
+    }
+
+    async markAsRead(req, res) {
+        try {
+            const player_id = req.user.player_id;
+            const { id } = req.params;
+            const updated = await NotificationModel.updateReadStatus(id, player_id);
+            if (!updated) {
+                return res.status(404).json({ success: false, message: 'Notificación no encontrada' });
+            }
+            res.json({ success: true });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/notifications/:id/read', method: 'PUT', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al actualizar notificación' });
+        }
+    }
+
+    /**
+     * Creates a system notification for a player.
+     * @param {number} player_id
+     * @param {string} type - 'HARVEST' | 'PRODUCTION' | 'EXPLORATION' | 'COMBAT' | 'MOVEMENT'
+     * @param {string} content
+     * @param {number} [turn_number] - If provided, skips the DB query for current turn
+     */
+    async createSystemNotification(player_id, type, content, turn_number) {
+        try {
+            let turn = turn_number;
+            if (turn === undefined || turn === null) {
+                const world = await TurnModel.GetCurrentTurn();
+                turn = world ? world.current_turn : 0;
+            }
+            return await NotificationModel.insert(player_id, turn, type, content);
+        } catch (error) {
+            Logger.error(error, { context: 'NotificationService.createSystemNotification', player_id, type });
+        }
+    }
+}
+
+module.exports = new NotificationService();

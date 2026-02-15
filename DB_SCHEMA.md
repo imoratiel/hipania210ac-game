@@ -94,3 +94,11 @@
 - KEY (VARCHAR 50)
 - value (VARCHAR 255)
 
+## Tabla: notifications 
+- id (SERIAL PK)
+- player_id (INT FK -> players.player_id)
+- turn_number (INT)
+- type (VARCHAR 50)
+- content (TEXT)
+- is_read (BOOLEAN)
+- created_at (TIMESTAMP)

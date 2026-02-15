@@ -9,6 +9,7 @@ const { authenticateToken, requireAdmin, generateToken } = require('../src/middl
 module.exports = function () {
     const TurnService = require('../src/services/TurnService.js');
     const MessageService = require('../src/services/MessageService.js');
+    const NotificationService = require('../src/services/NotificationService.js');
     const LoginService = require('../src/services/LoginService.js');
     const TerrainService = require('../src/services/TerrainService.js');
     const ArmyService = require('../src/services/ArmyService.js');
@@ -89,6 +90,12 @@ module.exports = function () {
     router.get('/messages/thread/:thread_id', authenticateToken, async (req, res) => {
         
     });
+
+    // ============================================
+    // NOTIFICATIONS
+    // ============================================
+    router.get('/notifications', authenticateToken, (req, res) => NotificationService.getNotifications(req, res));
+    router.put('/notifications/:id/read', authenticateToken, (req, res) => NotificationService.markAsRead(req, res));
 
     // ============================================
     // GAME ENGINE CONTROL (ADMIN ONLY)

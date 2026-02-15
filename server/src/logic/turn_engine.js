@@ -2,6 +2,7 @@ const { logEconomyEvent } = require('./economy');
 const { determineDiscoveredResource } = require('./discovery');
 const { Logger } = require('../utils/logger');
 const ArmySimulationService = require('../services/ArmySimulationService');
+const NotificationService = require('../services/NotificationService');
 const h3 = require('h3-js');
 
 /**
@@ -107,8 +108,7 @@ async function processHarvest(client, turn, config) {
                     WHERE player_id = $2
                 `, [netGold, player.player_id]);
 
-                // Generate harvest message
-                const messageSubject = `📊 Resumen de Cosecha - Turno ${turn}`;
+                // Generate harvest notification
                 const messageBody = `
 🌾 **Producción Total:**
 • Comida: +${totalFoodProduced}
@@ -128,11 +128,7 @@ async function processHarvest(client, turn, config) {
 ${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.length}` : '⚠️ No tienes territorios productivos este turno'}
                 `.trim();
 
-                // Insert message (sender_id = NULL for system messages)
-                await client.query(`
-                    INSERT INTO messages (sender_id, receiver_id, subject, body, is_read, sent_at)
-                    VALUES (NULL, $1, $2, $3, false, CURRENT_TIMESTAMP)
-                `, [player.player_id, messageSubject, messageBody]);
+                await NotificationService.createSystemNotification(player.player_id, 'HARVEST', messageBody, turn);
 
                 Logger.engine(`[TURN ${turn}] Harvest processed for player ${player.player_id} (${player.username}): Food ${netFood}, Gold ${netGold}, Wood ${totalWoodProduced}`);
             } catch (playerError) {
@@ -355,8 +351,7 @@ async function processMonthlyProduction(client, turn, config) {
                     totalFishingProduced += fishingProduction;
                 }
 
-                // Generate monthly production message
-                const messageSubject = `📊 Producción Mensual - Turno ${turn}`;
+                // Generate monthly production notification
                 const messageBody = `
 🏭 **Producción Industrial:**
 • Madera: +${totalWoodProduced}
@@ -369,11 +364,7 @@ async function processMonthlyProduction(client, turn, config) {
 ${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.length}` : '⚠️ No tienes territorios productivos este turno'}
                 `.trim();
 
-                // Insert message (sender_id = NULL for system messages)
-                await client.query(`
-                    INSERT INTO messages (sender_id, receiver_id, subject, body, is_read, sent_at)
-                    VALUES (NULL, $1, $2, $3, false, CURRENT_TIMESTAMP)
-                `, [player.player_id, messageSubject, messageBody]);
+                await NotificationService.createSystemNotification(player.player_id, 'PRODUCTION', messageBody, turn);
 
                 Logger.engine(`[TURN ${turn}] Monthly production for player ${player.player_id} (${player.username}): Wood ${totalWoodProduced}, Stone ${totalStoneProduced}, Iron ${totalIronProduced}, Fishing ${totalFishingProduced}`);
             } catch (playerError) {
@@ -440,19 +431,12 @@ async function processExplorations(client, turn, config) {
                     WHERE h3_index = $2
                 `, [discoveredResource, exploration.h3_index]);
 
-                // Generate message for player
-                const messageSubject = discoveredResource === 'none'
-                    ? `🔍 Exploración Completada - ${exploration.h3_index}`
-                    : `💎 Recurso Descubierto - ${exploration.h3_index}`;
-
+                // Generate notification for player
                 const messageBody = discoveredResource === 'none'
                     ? `La exploración del territorio ${exploration.h3_index} ha finalizado.\n\n❌ No se encontraron recursos especiales en este territorio.`
                     : `¡La exploración del territorio ${exploration.h3_index} ha finalizado con éxito!\n\n✨ **Recurso descubierto**: ${discoveredResource.toUpperCase()}\n\nEste recurso estará disponible para su explotación.`;
 
-                await client.query(`
-                    INSERT INTO messages (sender_id, receiver_id, subject, body, is_read, sent_at)
-                    VALUES (NULL, $1, $2, $3, false, CURRENT_TIMESTAMP)
-                `, [exploration.player_id, messageSubject, messageBody]);
+                await NotificationService.createSystemNotification(exploration.player_id, 'EXPLORATION', messageBody, turn);
 
                 Logger.engine(`[TURN ${turn}] Exploration completed for player ${exploration.player_id} (${exploration.username}) at ${exploration.h3_index}: discovered ${discoveredResource}`);
                 successCount++;

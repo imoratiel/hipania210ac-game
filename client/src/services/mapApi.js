@@ -228,6 +228,16 @@ export async function getArmies() {
   return response.data;
 }
 
+export async function getNotifications() {
+  const response = await axios.get(`${API_URL}/api/notifications`);
+  return response.data;
+}
+
+export async function markNotificationRead(id) {
+  const response = await axios.put(`${API_URL}/api/notifications/${id}/read`);
+  return response.data;
+}
+
 /**
  * Recruit troops
  * @param {Object} payload - { h3_index, unit_type_id, quantity, army_name?, army_id? }

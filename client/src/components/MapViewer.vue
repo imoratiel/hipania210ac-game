@@ -389,7 +389,11 @@
 
         <!-- Notifications Panel -->
         <div v-if="activePanel === 'notifications'" class="panel-section notifications-panel">
-          <p class="panel-placeholder">Contenido de Notificaciones (próximamente)</p>
+          <NotificationsPanel
+            :notifications="notifications"
+            :loading="loadingNotifications"
+            @read="handleNotificationRead"
+          />
         </div>
       </div>
     </aside>
@@ -728,6 +732,7 @@ import * as mapApi from '@/services/mapApi.js';
 import KingdomPanel from './KingdomPanel.vue';
 import MilitaryPanel from './MilitaryPanel.vue';
 import TroopsPanel from './TroopsPanel.vue';
+import NotificationsPanel from './NotificationsPanel.vue';
 
 const mapContainer = ref(null);
 const loading = ref(false);
@@ -847,6 +852,10 @@ const isColonizing = ref(false); // Track colonization state to prevent multiple
 // Troops panel state
 const armies = ref([]);
 const loadingTroops = ref(false);
+
+// Notifications panel state
+const notifications = ref([]);
+const loadingNotifications = ref(false);
 
 // Legend toggle state
 const legendCollapsed = ref(true); // Collapsed by default
@@ -2581,6 +2590,9 @@ const togglePanel = (panelName) => {
     if (panelName === 'kingdom') {
       displayedFiefsCount.value = FIEFS_PER_PAGE;
     }
+    if (panelName === 'notifications') {
+      fetchNotifications();
+    }
   }
 };
 
@@ -3359,6 +3371,31 @@ const handleLocateTroop = ({ h3_index, army_name, army_id }) => {
   } catch (err) {
     console.error('❌ Error locating troop:', err);
     showToast('Error al localizar tropas en el mapa', 'error');
+  }
+};
+
+const fetchNotifications = async () => {
+  try {
+    loadingNotifications.value = true;
+    const data = await mapApi.getNotifications();
+    if (data.success) {
+      notifications.value = data.notifications;
+    }
+  } catch (err) {
+    console.error('❌ Error fetching notifications:', err);
+  } finally {
+    loadingNotifications.value = false;
+  }
+};
+
+const handleNotificationRead = async (notif) => {
+  if (notif.is_read) return;
+  try {
+    await mapApi.markNotificationRead(notif.id);
+    const target = notifications.value.find(n => n.id === notif.id);
+    if (target) target.is_read = true;
+  } catch (err) {
+    console.error('❌ Error marking notification as read:', err);
   }
 };
 
