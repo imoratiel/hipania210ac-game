@@ -735,11 +735,13 @@ async function processGameTurn(pool, config) {
         // Military food consumption (every turn)
         await processMilitaryConsumption(client, newTurn, config);
 
-        // Army passive stamina recovery (every turn, before movements)
-        await processArmyRecovery(client, newTurn, config);
-
-        // Army automatic movements (every turn)
+        // Army automatic movements (every turn, before recovery)
         await processArmyMovements(client, newTurn, config);
+
+        // Army passive stamina recovery (every turn, after movements)
+        // Ejecutar DESPUÉS del movimiento para que el esfuerzo extra de este turno
+        // no sea inmediatamente cancelado por la recuperación del mismo turno.
+        await processArmyRecovery(client, newTurn, config);
 
         // Monthly production (day 1 of each month)
         const gameDate = new Date(newDate);

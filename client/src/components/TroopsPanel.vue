@@ -104,6 +104,15 @@
                 >
                   🔍 Localizar
                 </button>
+                <button
+                  v-if="army.destination"
+                  class="btn-stop"
+                  @click="handleStop(army)"
+                  :disabled="stoppingArmies.has(army.army_id)"
+                  title="Cancelar movimiento"
+                >
+                  {{ stoppingArmies.has(army.army_id) ? '...' : '⏹ Detener' }}
+                </button>
               </td>
             </tr>
           </tbody>
@@ -114,7 +123,8 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
+import { stopArmy } from '../services/mapApi.js';
 
 const props = defineProps({
   armies: {
@@ -127,7 +137,9 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['locate']);
+const emit = defineEmits(['locate', 'armyStopped', 'armyStopFailed']);
+
+const stoppingArmies = ref(new Set());
 
 const totalUnits = computed(() => {
   return props.armies.reduce((sum, a) => sum + (a.total_troops || 0), 0);
@@ -167,6 +179,23 @@ const handleLocate = (army) => {
     army_name: army.name,
     army_id: army.army_id
   });
+};
+
+const handleStop = async (army) => {
+  if (stoppingArmies.value.has(army.army_id)) return;
+  stoppingArmies.value = new Set([...stoppingArmies.value, army.army_id]);
+  try {
+    await stopArmy(army.army_id);
+    emit('armyStopped', army.army_id);
+  } catch (err) {
+    console.error('Error al detener ejército:', err);
+    const msg = err?.response?.data?.message || 'Error al procesar la orden de detención';
+    emit('armyStopFailed', msg);
+  } finally {
+    const next = new Set(stoppingArmies.value);
+    next.delete(army.army_id);
+    stoppingArmies.value = next;
+  }
 };
 </script>
 
@@ -541,5 +570,29 @@ const handleLocate = (army) => {
 .btn-locate:active {
   transform: translateY(0);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.btn-stop {
+  background: transparent;
+  border: 1px solid #e53935;
+  color: #e53935;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-top: 6px;
+  width: 100%;
+  transition: all 0.2s;
+}
+
+.btn-stop:hover:not(:disabled) {
+  background: #e53935;
+  color: #fff;
+}
+
+.btn-stop:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 </style>

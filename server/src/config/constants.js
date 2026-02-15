@@ -13,9 +13,10 @@ const GAME_CONFIG = {
     // ⚔️ Atributos de Ejércitos y Unidades
     MILITARY: {
         STAMINA_RECOVERY_PER_TURN: 4,   // Recuperación de stamina si la tropa no se mueve
-        STAMINA_MAX: 100,               // Valor máximo de fatiga
+        STAMINA_MAX: 100,               // Valor máximo de stamina (techo)
         FORCE_REST_THRESHOLD: 25,       // % de stamina necesario para salir de 'force_rest'
         STAMINA_MIN_FOR_MOVE: 0.1,      // Stamina mínima para intentar el "Último Esfuerzo"
+        STAMINA_COST_PER_HEX: 10,       // Coste de stamina por hexágono recorrido
     },
 
     // ⏱️ Sistema de Turnos y Recuperación

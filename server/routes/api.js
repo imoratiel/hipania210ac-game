@@ -62,9 +62,11 @@ module.exports = function () {
     router.post('/military/recruit', authenticateToken, ArmyService.Recruit);
     router.get('/military/troops', authenticateToken, ArmyService.GetTroops);
     router.get('/military/armies', authenticateToken, (req, res) => ArmyService.GetArmies(req, res));
+    router.post('/military/bulk-recruit', authenticateToken, (req, res) => ArmyService.BulkRecruit(req, res));
     router.post('/military/move-army', authenticateToken, ArmyService.MoveArmy);
     router.get('/military/my-routes', authenticateToken, ArmyService.GetMyRoutes);
     router.patch('/military/rename', authenticateToken, (req, res) => ArmyService.renameArmy(req, res));
+    router.post('/military/stop', authenticateToken, (req, res) => ArmyService.StopArmy(req, res));
 
     // ============================================
     // ADMIN AND MESSAGES

@@ -1,6 +1,7 @@
 const { Logger } = require('../utils/logger');
 const ArmyModel = require('../models/ArmyModel.js');
 const ArmySimulationService = require('./ArmySimulationService.js');
+const NotificationService = require('./NotificationService.js');
 const h3 = require('h3-js');
 const pool = require('../../db.js');
 const GAME_CONFIG = require('../config/constants.js');
@@ -223,6 +224,128 @@ class ArmyService {
         } catch (error) {
             Logger.error(error, { endpoint: '/military/my-routes', method: 'GET', userId: req.user?.player_id });
             res.status(500).json({ success: false, message: 'Error al obtener rutas' });
+        }
+    }
+    async BulkRecruit(req, res) {
+        const client = await pool.connect();
+        try {
+            const player_id = req.user.player_id;
+            const { h3_index, army_name, units } = req.body;
+            // units: [{ unit_type_id, quantity }, ...]
+
+            if (!h3_index || !Array.isArray(units) || units.length === 0) {
+                return res.status(400).json({ success: false, message: 'Faltan parámetros requeridos' });
+            }
+            for (const u of units) {
+                if (!u.unit_type_id || !u.quantity || u.quantity <= 0) {
+                    return res.status(400).json({ success: false, message: 'Unidades inválidas en el lote' });
+                }
+            }
+
+            await client.query('BEGIN');
+
+            // Verify territory ownership
+            const territory = await ArmyModel.GetTerritoryForRecruitment(client, h3_index);
+            if (!territory.rows.length || territory.rows[0].player_id !== player_id) {
+                await client.query('ROLLBACK');
+                return res.status(403).json({ success: false, message: 'No eres propietario de este territorio' });
+            }
+
+            // Fetch all requirements in one query
+            const unitTypeIds = units.map(u => u.unit_type_id);
+            const reqResult = await ArmyModel.GetBulkUnitRequirements(client, unitTypeIds);
+            const requirementsByType = {};
+            for (const row of reqResult.rows) {
+                if (!requirementsByType[row.unit_type_id]) requirementsByType[row.unit_type_id] = [];
+                requirementsByType[row.unit_type_id].push(row);
+            }
+
+            // Compute total cost
+            const totalCost = { gold: 0, wood_stored: 0, stone_stored: 0, iron_stored: 0 };
+            for (const u of units) {
+                const reqs = requirementsByType[u.unit_type_id] || [];
+                for (const req of reqs) {
+                    totalCost[req.resource_type] = (totalCost[req.resource_type] || 0) + req.amount * u.quantity;
+                }
+            }
+
+            // Validate resources (anti-exploit double-check)
+            const goldResult = await ArmyModel.GetPlayerGold(client, player_id);
+            const playerGold = parseFloat(goldResult.rows[0]?.gold) || 0;
+            if (playerGold < totalCost.gold) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'Oro insuficiente' });
+            }
+
+            const td = territory.rows[0];
+            if ((td.wood_stored || 0) < totalCost.wood_stored) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'Madera insuficiente' });
+            }
+            if ((td.stone_stored || 0) < totalCost.stone_stored) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'Piedra insuficiente' });
+            }
+            if ((td.iron_stored || 0) < totalCost.iron_stored) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'Hierro insuficiente' });
+            }
+
+            // Deduct resources
+            if (totalCost.gold > 0) await ArmyModel.DeductPlayerGold(client, player_id, totalCost.gold);
+            if (totalCost.wood_stored > 0) await ArmyModel.DeductTerritoryResource(client, h3_index, 'wood_stored', totalCost.wood_stored);
+            if (totalCost.stone_stored > 0) await ArmyModel.DeductTerritoryResource(client, h3_index, 'stone_stored', totalCost.stone_stored);
+            if (totalCost.iron_stored > 0) await ArmyModel.DeductTerritoryResource(client, h3_index, 'iron_stored', totalCost.iron_stored);
+
+            // Create army
+            const resolvedName = (army_name || '').trim() || NameGenerator.generate();
+            const armyResult = await ArmyModel.CreateArmy(client, resolvedName, player_id, h3_index);
+            const army_id = armyResult.rows[0].army_id;
+
+            // Add troops
+            for (const u of units) {
+                await ArmyModel.AddTroops(client, army_id, u.unit_type_id, u.quantity);
+            }
+
+            await client.query('COMMIT');
+
+            const totalTroops = units.reduce((s, u) => s + u.quantity, 0);
+            Logger.action(`Reclutó lote: ${totalTroops} tropas en ${h3_index}`, player_id);
+            res.json({ success: true, army_id, army_name: resolvedName, total_troops: totalTroops });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            Logger.error(error, { endpoint: '/military/bulk-recruit', method: 'POST', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al reclutar lote' });
+        } finally {
+            client.release();
+        }
+    }
+    async StopArmy(req, res) {
+        try {
+            const player_id = req.user.player_id;
+            const { army_id } = req.body;
+
+            if (!army_id) {
+                return res.status(400).json({ success: false, message: 'Falta army_id' });
+            }
+
+            const army = await ArmyModel.stopArmy(army_id, player_id);
+            if (!army) {
+                return res.status(404).json({ success: false, message: 'Ejército no encontrado o no te pertenece' });
+            }
+
+            Logger.action(`Detuvo ejército "${army.name}" (id: ${army_id})`, player_id);
+            await NotificationService.createSystemNotification(
+                player_id,
+                'army_stop',
+                `El ejército "${army.name}" se ha detenido y su ruta ha sido cancelada.`,
+                null
+            );
+
+            res.json({ success: true, message: `Ejército "${army.name}" detenido correctamente` });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/military/stop', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            res.status(500).json({ success: false, message: 'Error al detener el ejército' });
         }
     }
     async renameArmy(req, res) {

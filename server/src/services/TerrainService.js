@@ -1,6 +1,7 @@
 const { Logger } = require('../utils/logger');
 const TerrainModel = require('../models/TerrainModel.js');
 const h3 = require('h3-js');
+const { getTerrainColor } = require('../logic/territory.js');
 
 class TerrainService {
     async GetRegion(req,res){

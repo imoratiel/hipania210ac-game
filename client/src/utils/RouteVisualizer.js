@@ -108,6 +108,16 @@ class RouteVisualizer {
   }
 
   /**
+   * Elimina la línea de ruta de un ejército específico (API pública).
+   * Se usa cuando el ejército cancela su movimiento.
+   *
+   * @param {number|string} armyId - ID del ejército
+   */
+  clearArmy(armyId) {
+    this._clearArmy(armyId);
+  }
+
+  /**
    * Elimina TODAS las líneas de ruta del mapa.
    * Útil antes de un re-fetch completo de rutas.
    */

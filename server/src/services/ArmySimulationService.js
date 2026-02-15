@@ -205,9 +205,9 @@ class ArmySimulationService {
       }
 
       let releasedCount = 0;
-      const RECOVERY_RATE = 4;
-      const RELEASE_THRESHOLD = 25;
-      const MAX_STAMINA = 100;
+      const RECOVERY_RATE = config.MILITARY.STAMINA_RECOVERY_PER_TURN;
+      const RELEASE_THRESHOLD = config.MILITARY.FORCE_REST_THRESHOLD;
+      const MAX_STAMINA = config.MILITARY.STAMINA_MAX;
 
       // Calcular stamina mínima antes de la recuperación
       const minStaminaBefore = Math.min(...troopsResult.rows.map(t => t.stamina));
@@ -869,7 +869,7 @@ class ArmySimulationService {
       }
 
       // 5. Calcular coste de movimiento (por ahora fijo, TODO: obtener del terreno)
-      const MOVEMENT_COST_PER_HEX = 10; // Coste base de stamina
+      const MOVEMENT_COST_PER_HEX = config.MILITARY.STAMINA_COST_PER_HEX; // Coste base de stamina
       const MOVEMENT_COST_PM = 1; // Coste en puntos de movimiento
 
       // 6. Verificar si tiene puntos de movimiento

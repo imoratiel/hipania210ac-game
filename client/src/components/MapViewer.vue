@@ -671,7 +671,7 @@
               :loading="loadingUnitTypes"
               :playerGold="playerGold"
               :isRecruiting="isRecruiting"
-              @recruit="handleRecruitmentEmit"
+              @bulkRecruit="handleRecruitmentEmit"
               @back="activeKingdomTab = 'fiefs'"
             />
           </div>
@@ -694,6 +694,8 @@
             :armies="armies"
             :loading="loadingTroops"
             @locate="handleLocateTroop"
+            @armyStopped="handleArmyStopped"
+            @armyStopFailed="(msg) => showToast(msg, 'error')"
           />
         </div>
       </div>
@@ -3374,6 +3376,35 @@ const handleLocateTroop = ({ h3_index, army_name, army_id }) => {
   }
 };
 
+const handleArmyStopped = async (armyId) => {
+  // Remove route line from map immediately
+  RouteVisualizer.clearArmy(armyId);
+  // Refresh armies list to clear destination field
+  await fetchTroops();
+  showToast('⏹ Ejército detenido y ruta cancelada', 'info');
+};
+
+/**
+ * Detiene un ejército desde el popup del mapa.
+ * Llamado por el listener del botón army-stop-{id} en showArmyDetailsPopup.
+ */
+const handleArmyStop = async (army) => {
+  try {
+    await mapApi.stopArmy(army.army_id);
+    // Cerrar popup
+    map.closePopup();
+    // Limpiar línea de ruta del mapa
+    RouteVisualizer.clearArmy(army.army_id);
+    // Refrescar lista de ejércitos (TroopsPanel) y marcadores del mapa
+    await Promise.all([fetchTroops(), fetchArmyData()]);
+    showToast(`⏹ ${army.name} detenido. Ruta cancelada.`, 'info');
+  } catch (err) {
+    console.error('[MapViewer] Error al detener ejército:', err);
+    const msg = err?.response?.data?.message || 'Error al detener el ejército';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
 const fetchNotifications = async () => {
   try {
     loadingNotifications.value = true;
@@ -3414,31 +3445,27 @@ const openRecruitmentForFief = async (fief) => {
 /**
  * Handle recruitment event from MilitaryPanel
  */
-const handleRecruitmentEmit = async ({ fief, unit, quantity, armyName, unit_type_id }) => {
+const handleRecruitmentEmit = async ({ fief, army_name, units }) => {
   try {
     isRecruiting.value = true;
-    const response = await mapApi.recruitTroops({
+    const response = await mapApi.bulkRecruit({
       h3_index: fief.h3_index,
-      unit_type_id: unit_type_id || unit.unit_type_id,
-      quantity: quantity,
-      army_name: armyName
+      army_name,
+      units,
     });
 
     if (response.success) {
-      showToast(`✅ ${quantity} ${unit.name} reclutados en ${fief.name}`, 'success');
-
-      // Refresh data to reflect resource changes
+      const totalTroops = units.reduce((s, u) => s + u.quantity, 0);
+      showToast(`✅ Batallón "${response.army_name}" reclutado con ${totalTroops} tropas en ${fief.name}`, 'success');
       await fetchPlayerData();
       await updateFiefsUI();
-
-      // Return to fiefs list after successful recruitment
       activeKingdomTab.value = 'fiefs';
       selectedRecruitmentFief.value = null;
     } else {
       showToast(response.message, 'error');
     }
   } catch (err) {
-    console.error('❌ Error recruiting units:', err);
+    console.error('❌ Error en reclutamiento masivo:', err);
     showToast(err.response?.data?.message || 'Error al reclutar', 'error');
   } finally {
     isRecruiting.value = false;

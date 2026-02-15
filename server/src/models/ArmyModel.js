@@ -156,6 +156,15 @@ class ArmyModel {
             [amount, h3_index]
         );
     }
+    async GetBulkUnitRequirements(client, unitTypeIds) {
+        const result = await client.query(
+            `SELECT unit_type_id, resource_type, amount
+             FROM unit_requirements
+             WHERE unit_type_id = ANY($1::int[])`,
+            [unitTypeIds]
+        );
+        return result;
+    }
     async GetTroops(player_id) {
         const query = `
             SELECT
@@ -228,6 +237,21 @@ class ArmyModel {
             'UPDATE armies SET name = $1 WHERE army_id = $2 AND player_id = $3 RETURNING *',
             [newName, armyId, playerId]
         );
+        return result.rows[0];
+    }
+
+    async stopArmy(armyId, playerId) {
+        // Verify ownership and clear movement state atomically
+        const result = await db.query(
+            `UPDATE armies
+             SET destination = NULL
+             WHERE army_id = $1 AND player_id = $2
+             RETURNING army_id, name`,
+            [armyId, playerId]
+        );
+        if (result.rows.length === 0) return null; // Not found or not owner
+        // Remove pre-calculated route
+        await db.query('DELETE FROM army_routes WHERE army_id = $1', [armyId]);
         return result.rows[0];
     }
 }
