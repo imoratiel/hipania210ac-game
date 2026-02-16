@@ -901,3 +901,16 @@ button {
   background: rgba(200, 200, 200, 0.3);
   border-color: #999;
 }
+
+.army-action-icon.army-action-conquer {
+  background: linear-gradient(135deg, #8B0000, #cc3333);
+  border-color: #ff4444;
+  color: #fff;
+}
+
+.army-action-icon.army-action-conquer:hover:not(:disabled) {
+  background: linear-gradient(135deg, #cc0000, #ff4444);
+  border-color: #ff6666;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(200, 0, 0, 0.5);
+}

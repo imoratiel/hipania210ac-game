@@ -697,6 +697,8 @@
             @locate="handleLocateTroop"
             @armyStopped="handleArmyStopped"
             @armyStopFailed="(msg) => showToast(msg, 'error')"
+            @armyAttacked="handleArmyAttacked"
+            @armyAttackFailed="(msg) => showToast(msg, 'error')"
           />
         </div>
       </div>
@@ -713,6 +715,13 @@
         <span class="toast-message">{{ toast.message }}</span>
       </div>
     </div>
+
+    <!-- Battle Summary Modal -->
+    <BattleSummaryModal
+      :show="battleSummaryVisible"
+      :battle="battleSummaryData"
+      @close="battleSummaryVisible = false"
+    />
   </div>
 </template>
 
@@ -736,6 +745,7 @@ import KingdomPanel from './KingdomPanel.vue';
 import MilitaryPanel from './MilitaryPanel.vue';
 import TroopsPanel from './TroopsPanel.vue';
 import NotificationsPanel from './NotificationsPanel.vue';
+import BattleSummaryModal from './BattleSummaryModal.vue';
 
 const mapContainer = ref(null);
 const loading = ref(false);
@@ -860,6 +870,10 @@ const loadingTroops = ref(false);
 // Notifications panel state
 const notifications = ref([]);
 const loadingNotifications = ref(false);
+
+// Battle summary modal state
+const battleSummaryVisible = ref(false);
+const battleSummaryData = ref({});
 
 // Legend toggle state
 const legendCollapsed = ref(true); // Collapsed by default
@@ -3056,8 +3070,9 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
     // Get cell coordinates if available
     let coord_x = null;
     let coord_y = null;
+    let cellData = null;
     try {
-      const cellData = await mapApi.getCellDetails(h3_index);
+      cellData = await mapApi.getCellDetails(h3_index);
       coord_x = cellData.coord_x;
       coord_y = cellData.coord_y;
     } catch (err) {
@@ -3069,7 +3084,8 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
       currentPlayerId: playerId.value,
       h3_index,
       coord_x,
-      coord_y
+      coord_y,
+      hexOwnerId: cellData?.player_id ?? null
     });
 
     // Create and show popup
@@ -3102,7 +3118,7 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
             // Conquer button
             const conquerBtn = document.getElementById(`army-conquer-${army.army_id}`);
             if (conquerBtn) {
-              conquerBtn.addEventListener('click', () => handleArmyConquer(army));
+              conquerBtn.addEventListener('click', () => handleArmyConquer(army, h3_index));
             }
 
             // Split button
@@ -3384,6 +3400,53 @@ const handleArmyStopped = async (armyId) => {
   // Refresh armies list to clear destination field
   await fetchTroops();
   showToast('⏹ Ejército detenido y ruta cancelada', 'info');
+};
+
+/**
+ * Maneja el resultado de un ataque manual lanzado desde TroopsPanel.
+ * Refresca ejércitos y marcadores del mapa, muestra resultado al jugador.
+ */
+const handleArmyAttacked = async (battle) => {
+  // Refrescar inmediatamente tropas y marcadores
+  await Promise.all([fetchTroops(), fetchArmyData()]);
+
+  if (!battle) {
+    showToast('⚔️ Combate resuelto', 'info');
+    return;
+  }
+
+  if (battle.isDraw) {
+    showToast(`⚔️ EMPATE en ${battle.h3Index} — ambos ejércitos permanecen`, 'info');
+  } else {
+    const myArmy  = battle.winner?.playerId === battle.armyA?.playerId ? battle.armyA : battle.armyB;
+    const isWin   = battle.winner && myArmy && battle.winner.id === myArmy.id;
+    if (isWin) {
+      const retreated = battle.armyB?.destroyed ? 'aniquilado' : `retirado a ${battle.armyB?.retreat?.newHex ?? '?'}`;
+      showToast(`⚔️ ¡VICTORIA! Bajas propias: ${myArmy.dead} | Enemigo ${retreated}`, 'success');
+    } else {
+      showToast(`⚔️ DERROTA — tu ejército se retira`, 'error');
+    }
+  }
+};
+
+/**
+ * Conquista un territorio enemigo desde el popup del mapa.
+ * Llamado por el listener del botón army-conquer-{id} en showArmyDetailsPopup.
+ */
+const handleArmyConquer = async (army, h3_index) => {
+  try {
+    const result = await mapApi.conquerFief(army.army_id, h3_index);
+    map.closePopup();
+    // Mostrar modal de resultado de batalla
+    battleSummaryData.value = result;
+    battleSummaryVisible.value = true;
+    // Refrescar mapa y tropas
+    await Promise.all([fetchHexagonData(), fetchTroops(), fetchArmyData()]);
+  } catch (err) {
+    console.error('[MapViewer] Error al conquistar feudo:', err);
+    const msg = err?.response?.data?.message || 'Error al conquistar el feudo';
+    showToast(`❌ ${msg}`, 'error');
+  }
 };
 
 /**

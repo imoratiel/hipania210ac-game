@@ -274,6 +274,21 @@ export async function stopArmy(armyId) {
   return response.data;
 }
 
+export async function attackArmy(armyId) {
+  const response = await axios.post(`${API_URL}/api/military/attack`, { armyId });
+  return response.data;
+}
+
+export async function conquerTerritory(armyId, h3_index) {
+  const response = await axios.post(`${API_URL}/api/military/conquer`, { armyId, h3_index });
+  return response.data;
+}
+
+export async function conquerFief(armyId, h3_index) {
+  const response = await axios.post(`${API_URL}/api/military/conquer-fief`, { armyId, h3_index });
+  return response.data;
+}
+
 /**
  * Get active routes for all own armies (for route visualization)
  * Returns: { success, routes: [{army_id, name, h3_index, destination, path}] }

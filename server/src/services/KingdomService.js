@@ -176,6 +176,269 @@ class KingdomService {
             res.status(500).json({ success: false, message: 'Error al obtener información de capital' });
         }
     }
+
+    /**
+     * Conquista un hexágono enemigo.
+     * Requiere que el jugador tenga un ejército propio en ese hexágono
+     * y que no haya ejércitos enemigos en él (hay que atacar primero).
+     *
+     * POST /api/military/conquer
+     * Body: { armyId, h3_index }
+     */
+    async conquestTerritory(req, res) {
+        const client = await pool.connect();
+        try {
+            const player_id = req.user.player_id;
+            const { armyId, h3_index } = req.body;
+
+            if (!armyId || !h3_index) {
+                return res.status(400).json({ success: false, message: 'Faltan parámetros: armyId y h3_index' });
+            }
+
+            await client.query('BEGIN');
+
+            // 1. Verificar que el ejército pertenece al jugador y está en el hex indicado
+            const armyResult = await client.query(
+                'SELECT army_id, name FROM armies WHERE army_id = $1 AND player_id = $2 AND h3_index = $3',
+                [armyId, player_id, h3_index]
+            );
+            if (armyResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({
+                    success: false,
+                    message: 'No tienes ningún ejército en ese hexágono'
+                });
+            }
+
+            // 2. Verificar que el hex pertenece a un enemigo (no propio, no neutral)
+            const hexResult = await client.query(
+                'SELECT player_id FROM h3_map WHERE h3_index = $1',
+                [h3_index]
+            );
+            if (hexResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Hexágono no encontrado en el mapa' });
+            }
+
+            const currentOwner = hexResult.rows[0].player_id;
+            if (currentOwner === player_id) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'Este territorio ya es tuyo' });
+            }
+
+            // 3. Verificar que no hay ejércitos enemigos en el hex (deben ser derrotados primero)
+            const enemyArmiesResult = await client.query(
+                'SELECT COUNT(*)::int AS count FROM armies WHERE h3_index = $1 AND player_id != $2',
+                [h3_index, player_id]
+            );
+            if (enemyArmiesResult.rows[0].count > 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: '⚔️ Hay ejércitos enemigos en este hexágono. ¡Atácalos primero!'
+                });
+            }
+
+            // 4. Transferir propiedad del hex al conquistador
+            await client.query(
+                'UPDATE h3_map SET player_id = $1 WHERE h3_index = $2',
+                [player_id, h3_index]
+            );
+
+            // 5. Notificar al antiguo propietario (solo si había dueño)
+            const worldResult = await client.query('SELECT current_turn FROM world_state LIMIT 1');
+            const turn = worldResult.rows[0]?.current_turn ?? 0;
+            if (currentOwner !== null) {
+                const NotificationService = require('./NotificationService.js');
+                await NotificationService.createSystemNotification(
+                    currentOwner,
+                    'COMBAT',
+                    `🏴 TERRITORIO PERDIDO\nEl hexágono ${h3_index} ha sido conquistado por un enemigo (Turno ${turn})`,
+                    turn
+                );
+            }
+
+            await client.query('COMMIT');
+
+            Logger.action(
+                `Player ${player_id} conquered ${h3_index} (prev owner: ${currentOwner})`,
+                { player_id, h3_index, previous_owner: currentOwner }
+            );
+            logGameEvent(`[CONQUISTA] Jugador ${player_id} conquistó ${h3_index} (anterior dueño: ${currentOwner})`);
+
+            return res.json({
+                success: true,
+                message: '🏴 ¡Territorio conquistado!',
+                h3_index,
+                previous_owner: currentOwner
+            });
+
+        } catch (error) {
+            if (client) await client.query('ROLLBACK');
+            Logger.error(error, { endpoint: '/military/conquer', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            return res.status(500).json({ success: false, message: 'Error al procesar la conquista' });
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * Conquista un feudo mediante combate contra su milicia local.
+     * POST /api/military/conquer-fief
+     * Body: { armyId, h3_index }
+     */
+    async conquerFief(req, res) {
+        const client = await pool.connect();
+        try {
+            const player_id = req.user.player_id;
+            const { armyId, h3_index } = req.body;
+
+            if (!armyId || !h3_index) {
+                return res.status(400).json({ success: false, message: 'Faltan parámetros: armyId y h3_index' });
+            }
+
+            await client.query('BEGIN');
+
+            // 1. Verificar que el ejército pertenece al jugador y está en el hex
+            const armyResult = await client.query(
+                `SELECT a.army_id, a.name, a.h3_index
+                 FROM armies a WHERE a.army_id = $1 AND a.player_id = $2 AND a.h3_index = $3`,
+                [armyId, player_id, h3_index]
+            );
+            if (armyResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'No tienes ningún ejército en ese hexágono' });
+            }
+
+            // 2. Verificar que el hex no es propio
+            const hexResult = await client.query(
+                'SELECT m.player_id, COALESCE(td.custom_name, m.h3_index) AS fief_name, td.population, td.defense_level FROM h3_map m LEFT JOIN territory_details td ON td.h3_index = m.h3_index WHERE m.h3_index = $1',
+                [h3_index]
+            );
+            if (hexResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Hexágono no encontrado' });
+            }
+            const hex = hexResult.rows[0];
+            if (hex.player_id === player_id) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'Este territorio ya es tuyo' });
+            }
+
+            // 3. Verificar que no hay ejércitos enemigos (deben ser derrotados primero)
+            const enemyCheck = await client.query(
+                'SELECT COUNT(*)::int AS count FROM armies WHERE h3_index = $1 AND player_id != $2',
+                [h3_index, player_id]
+            );
+            if (enemyCheck.rows[0].count > 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: '⚔️ Hay ejércitos enemigos en este hexágono. ¡Atácalos primero!' });
+            }
+
+            // 4. Calcular poder atacante (tropas reales)
+            const troopsResult = await client.query(
+                `SELECT t.quantity, t.morale, t.stamina, t.force_rest, ut.attack
+                 FROM troops t JOIN unit_types ut ON ut.unit_type_id = t.unit_type_id
+                 WHERE t.army_id = $1`,
+                [armyId]
+            );
+            const troops = troopsResult.rows;
+            if (troops.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'El ejército no tiene tropas' });
+            }
+
+            let attackerPower = 0;
+            let attackerTotal = 0;
+            for (const t of troops) {
+                const moraleFactor = Math.max(0.5, parseFloat(t.morale) / 100);
+                const staminaFactor = t.force_rest ? 0.5 : Math.max(0.1, parseFloat(t.stamina) / 100);
+                attackerPower += t.quantity * t.attack * moraleFactor * staminaFactor;
+                attackerTotal += t.quantity;
+            }
+            attackerPower *= (0.85 + Math.random() * 0.30); // ±15% azar
+
+            // 5. Calcular poder defensor (milicia local)
+            const population = parseInt(hex.population) || 200;
+            const defenseLevel = parseInt(hex.defense_level) || 0;
+            const militiaCount = Math.floor(population * 0.1) + defenseLevel * 10;
+            const MILITIA_ATTACK = 3;
+            let defenderPower = militiaCount * MILITIA_ATTACK;
+            defenderPower *= (0.85 + Math.random() * 0.30);
+
+            // 6. Determinar resultado
+            const ratio = attackerPower / (defenderPower || 1);
+            let result;
+            if (ratio >= 1.1) result = 'victory';
+            else if (ratio <= 0.9) result = 'defeat';
+            else result = 'draw';
+
+            // 7. Calcular bajas
+            const attackerLossFraction = result === 'victory' ? 0.05 + (1 / ratio) * 0.10 : 0.20 + Math.random() * 0.15;
+            const defenderLossFraction = result === 'defeat' ? 0.30 + Math.random() * 0.20 : 0.70 + Math.random() * 0.30;
+            const attacker_losses = Math.min(attackerTotal, Math.floor(attackerTotal * attackerLossFraction));
+            const defender_losses = Math.min(militiaCount, Math.floor(militiaCount * defenderLossFraction));
+
+            // 8. Aplicar bajas al atacante proporcionalmente
+            if (attacker_losses > 0) {
+                let remaining = attacker_losses;
+                for (const t of troops) {
+                    if (remaining <= 0) break;
+                    const deduct = Math.min(t.quantity, Math.floor(attacker_losses * (t.quantity / attackerTotal)));
+                    if (deduct > 0) {
+                        await client.query(
+                            'UPDATE troops SET quantity = GREATEST(0, quantity - $1) WHERE army_id = $2 AND unit_type_id = (SELECT unit_type_id FROM unit_types WHERE unit_type_id = (SELECT unit_type_id FROM troops WHERE army_id = $2 AND quantity = $3 LIMIT 1))',
+                            [deduct, armyId, t.quantity]
+                        );
+                        remaining -= deduct;
+                    }
+                }
+                // Limpiar tropas vacías
+                await client.query('DELETE FROM troops WHERE army_id = $1 AND quantity <= 0', [armyId]);
+            }
+
+            // 9. Aplicar resultado
+            const previousOwner = hex.player_id;
+            if (result === 'victory' || result === 'draw') {
+                await client.query('UPDATE h3_map SET player_id = $1 WHERE h3_index = $2', [player_id, h3_index]);
+                if (previousOwner !== null) {
+                    const worldResult = await client.query('SELECT current_turn FROM world_state LIMIT 1');
+                    const turn = worldResult.rows[0]?.current_turn ?? 0;
+                    const NotificationService = require('./NotificationService.js');
+                    await NotificationService.createSystemNotification(
+                        previousOwner, 'COMBAT',
+                        `🏴 TERRITORIO PERDIDO\nEl feudo ${hex.fief_name} ha sido conquistado (Turno ${turn})`,
+                        turn
+                    );
+                }
+            }
+
+            await client.query('COMMIT');
+
+            Logger.action(`Player ${player_id} conquerFief ${h3_index} → ${result}`, { player_id, h3_index, result, attacker_losses, defender_losses });
+            logGameEvent(`[CONQUISTA-FEUDO] Jugador ${player_id} atacó ${h3_index}: ${result}`);
+
+            return res.json({
+                success: true,
+                result,
+                fief_name: hex.fief_name,
+                attacker_losses,
+                defender_losses,
+                militia_count: militiaCount,
+                territory_claimed: result === 'victory' || result === 'draw',
+                message: result === 'victory' ? '🏴 ¡Victoria! El feudo es tuyo.'
+                        : result === 'draw'    ? '⚔️ Empate — el feudo cambia de manos por desgaste.'
+                                               : '💀 Derrota — tus tropas se retiran.'
+            });
+
+        } catch (error) {
+            if (client) await client.query('ROLLBACK');
+            Logger.error(error, { endpoint: '/military/conquer-fief', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            return res.status(500).json({ success: false, message: 'Error al procesar la conquista del feudo' });
+        } finally {
+            client.release();
+        }
+    }
 }
 
 module.exports = new KingdomService();

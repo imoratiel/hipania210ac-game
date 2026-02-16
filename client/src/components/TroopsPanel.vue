@@ -113,6 +113,15 @@
                 >
                   {{ stoppingArmies.has(army.army_id) ? '...' : '⏹ Detener' }}
                 </button>
+                <button
+                  v-if="army.enemy_count > 0"
+                  class="btn-attack"
+                  @click="handleAttack(army)"
+                  :disabled="attackingArmies.has(army.army_id)"
+                  :title="`Atacar (${army.enemy_count} ejército(s) enemigo(s) en este hexágono)`"
+                >
+                  {{ attackingArmies.has(army.army_id) ? '⏳ Atacando...' : `⚔️ Atacar (${army.enemy_count})` }}
+                </button>
               </td>
             </tr>
           </tbody>
@@ -124,7 +133,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { stopArmy } from '../services/mapApi.js';
+import { stopArmy, attackArmy } from '../services/mapApi.js';
 
 const props = defineProps({
   armies: {
@@ -137,9 +146,10 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['locate', 'armyStopped', 'armyStopFailed']);
+const emit = defineEmits(['locate', 'armyStopped', 'armyStopFailed', 'armyAttacked', 'armyAttackFailed']);
 
 const stoppingArmies = ref(new Set());
+const attackingArmies = ref(new Set());
 
 const totalUnits = computed(() => {
   return props.armies.reduce((sum, a) => sum + (a.total_troops || 0), 0);
@@ -195,6 +205,23 @@ const handleStop = async (army) => {
     const next = new Set(stoppingArmies.value);
     next.delete(army.army_id);
     stoppingArmies.value = next;
+  }
+};
+
+const handleAttack = async (army) => {
+  if (attackingArmies.value.has(army.army_id)) return;
+  attackingArmies.value = new Set([...attackingArmies.value, army.army_id]);
+  try {
+    const result = await attackArmy(army.army_id);
+    emit('armyAttacked', result.battle);
+  } catch (err) {
+    console.error('Error al atacar:', err);
+    const msg = err?.response?.data?.message || 'Error al procesar el ataque';
+    emit('armyAttackFailed', msg);
+  } finally {
+    const next = new Set(attackingArmies.value);
+    next.delete(army.army_id);
+    attackingArmies.value = next;
   }
 };
 </script>
@@ -594,5 +621,37 @@ const handleStop = async (army) => {
 .btn-stop:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.btn-attack {
+  background: transparent;
+  border: 1px solid #e53935;
+  color: #e53935;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-top: 6px;
+  width: 100%;
+  transition: all 0.2s;
+  animation: pulse-border 1.5s infinite;
+}
+
+.btn-attack:hover:not(:disabled) {
+  background: #e53935;
+  color: #fff;
+  animation: none;
+}
+
+.btn-attack:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  animation: none;
+}
+
+@keyframes pulse-border {
+  0%, 100% { border-color: #e53935; box-shadow: none; }
+  50%       { border-color: #ff6b6b; box-shadow: 0 0 6px rgba(229, 57, 53, 0.5); }
 }
 </style>

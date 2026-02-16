@@ -13,6 +13,7 @@ module.exports = function () {
     const LoginService = require('../src/services/LoginService.js');
     const TerrainService = require('../src/services/TerrainService.js');
     const ArmyService = require('../src/services/ArmyService.js');
+    const CombatService = require('../src/services/CombatService.js');
     const KingdomService = require('../src/services/KingdomService.js');
     const AdminService = require('../src/services/AdminService.js');
     const PlayerService = require('../src/services/PlayerService.js');
@@ -67,6 +68,9 @@ module.exports = function () {
     router.get('/military/my-routes', authenticateToken, ArmyService.GetMyRoutes);
     router.patch('/military/rename', authenticateToken, (req, res) => ArmyService.renameArmy(req, res));
     router.post('/military/stop', authenticateToken, (req, res) => ArmyService.StopArmy(req, res));
+    router.post('/military/attack', authenticateToken, (req, res) => CombatService.manualAttack(req, res));
+    router.post('/military/conquer', authenticateToken, (req, res) => KingdomService.conquestTerritory(req, res));
+    router.post('/military/conquer-fief', authenticateToken, (req, res) => KingdomService.conquerFief(req, res));
 
     // ============================================
     // ADMIN AND MESSAGES

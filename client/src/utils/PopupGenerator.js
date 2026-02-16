@@ -194,7 +194,8 @@ export function generateArmyPopup(armyData, config) {
     currentPlayerId,
     h3_index,
     coord_x,
-    coord_y
+    coord_y,
+    hexOwnerId = null      // player_id del dueño del hex (null = neutral)
   } = config;
 
   let popupContent = '<div class="army-inspector">';
@@ -330,8 +331,8 @@ export function generateArmyPopup(armyData, config) {
         const stopClass = canStop ? 'army-action-icon' : 'army-action-icon army-action-disabled';
         popupContent += `<button id="army-stop-${army.army_id}" class="${stopClass}" ${!canStop ? 'disabled' : ''} title="Detener">🛑</button>`;
 
-        // Conquer button
-        popupContent += `<button id="army-conquer-${army.army_id}" class="army-action-icon" title="Conquistar">⚔️</button>`;
+        // Conquer button — siempre activo, el backend valida si la conquista es posible
+        popupContent += `<button id="army-conquer-${army.army_id}" class="army-action-icon army-action-conquer" title="Conquistar territorio">⚔️</button>`;
 
         // Split button
         popupContent += `<button id="army-split-${army.army_id}" class="army-action-icon" title="Separar">👥</button>`;
