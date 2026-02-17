@@ -189,173 +189,157 @@ export function generateCellPopupContent(cell, config) {
  * @param {Object} config - Configuración del popup
  * @returns {String} HTML content para el popup
  */
+// Inyectar animación de fade una sola vez (sin tocar CSS global)
+function _ensureFadeAnimation() {
+  if (!document.getElementById('army-popup-fade-style')) {
+    const s = document.createElement('style');
+    s.id = 'army-popup-fade-style';
+    s.textContent = '@keyframes _armyFadeIn{from{opacity:0;transform:translateX(6px)}to{opacity:1;transform:none}}';
+    document.head.appendChild(s);
+  }
+}
+
 export function generateArmyPopup(armyData, config) {
   const {
     currentPlayerId,
     h3_index,
     coord_x,
     coord_y,
-    hexOwnerId = null      // player_id del dueño del hex (null = neutral)
+    hexOwnerId = null,
+    currentIndex = 0      // índice del ejército actualmente visible
   } = config;
+
+  _ensureFadeAnimation();
+  const total = armyData.armies?.length ?? 0;
 
   let popupContent = '<div class="army-inspector">';
 
-  // Si hay múltiples ejércitos en el mismo hex, mostrarlos todos
-  if (armyData.armies && armyData.armies.length > 0) {
+  // ── Barra de navegación (solo si hay varios ejércitos) ──────────────────
+  if (total > 1) {
+    const btnStyle = 'background:#1e1e38;border:1px solid #3a3a5c;color:#e2e8f0;border-radius:4px;padding:3px 11px;font-size:1rem;line-height:1;cursor:pointer;transition:background 0.15s;';
+    const btnDisStyle = btnStyle + 'opacity:0.3;cursor:not-allowed;';
+    const prevDis = currentIndex === 0;
+    const nextDis = currentIndex === total - 1;
+    popupContent += `<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 10px;background:rgba(0,0,0,0.45);border-bottom:1px solid #2d2d4a;margin-bottom:4px;">`;
+    popupContent += `<button onclick="event.stopPropagation();window.armyPopupNavigate(-1)" ${prevDis ? 'disabled' : ''} style="${prevDis ? btnDisStyle : btnStyle}">◀</button>`;
+    popupContent += `<span style="font-family:sans-serif;font-size:0.72rem;color:#6b7280;letter-spacing:1.5px;text-transform:uppercase;">Ejército ${currentIndex + 1} de ${total}</span>`;
+    popupContent += `<button onclick="event.stopPropagation();window.armyPopupNavigate(1)" ${nextDis ? 'disabled' : ''} style="${nextDis ? btnDisStyle : btnStyle}">▶</button>`;
+    popupContent += `</div>`;
+  }
 
-    armyData.armies.forEach((army, index) => {
-      const isOwnArmy = army.player_id === currentPlayerId;
-      const armyClass = isOwnArmy ? 'army-own' : 'army-enemy';
+  // ── Contenido del ejército actual ───────────────────────────────────────
+  if (total > 0) {
+    const army = armyData.armies[currentIndex];
+    const isOwnArmy = army.player_id === currentPlayerId;
+    const armyClass = isOwnArmy ? 'army-own' : 'army-enemy';
 
-      // HEADER - Army name and owner
-      popupContent += `<div class="army-header ${armyClass}">`;
-      popupContent += `<h3 class="army-title">`;
-      popupContent += isOwnArmy ? '🛡️ ' : '⚔️ ';
-      popupContent += `${army.name || 'Ejército sin nombre'}`;
-      popupContent += `</h3>`;
-      popupContent += `<p class="army-owner" style="border-bottom: 2px solid ${army.player_color}">`;
-      popupContent += `👤 ${army.player_name}`;
-      popupContent += `</p>`;
-      popupContent += `</div>`;
+    // Wrapper con animación fade-slide
+    popupContent += `<div style="animation:_armyFadeIn 0.18s ease;">`;
 
-      // LOCATION INFO with coordinates
-      popupContent += '<div class="army-info-box">';
-      let locationInfo = `📍 ${h3_index}`;
-      if (coord_x !== null && coord_x !== undefined && coord_y !== null && coord_y !== undefined) {
-        locationInfo += ` (${coord_x}, ${coord_y})`;
-      }
-      popupContent += `<p class="army-location">${locationInfo}</p>`;
-      popupContent += '</div>';
+    // HEADER
+    popupContent += `<div class="army-header ${armyClass}">`;
+    popupContent += `<h3 class="army-title">${isOwnArmy ? '🛡️ ' : '⚔️ '}${army.name || 'Ejército sin nombre'}</h3>`;
+    popupContent += `<p class="army-owner" style="border-bottom:2px solid ${army.player_color}">👤 ${army.player_name}</p>`;
+    popupContent += `</div>`;
 
-      // TROOPS SECTION
-      if (army.units && army.units.length > 0) {
-        popupContent += '<div class="army-troops-section">';
-        popupContent += '<p class="army-section-title">⚔️ Composición de Tropas</p>';
-        popupContent += '<div class="army-troops-list">';
+    // LOCATION
+    popupContent += '<div class="army-info-box">';
+    let locationInfo = `📍 ${h3_index}`;
+    if (coord_x != null && coord_y != null) locationInfo += ` (${coord_x}, ${coord_y})`;
+    popupContent += `<p class="army-location">${locationInfo}</p>`;
+    popupContent += '</div>';
 
-        army.units.forEach(unit => {
-          const unitIcon = getUnitIcon(unit.unit_name);
-          popupContent += `<div class="army-troop-item">`;
-          popupContent += `<span class="troop-icon">${unitIcon}</span>`;
-          popupContent += `<span class="troop-name">${unit.unit_name}:</span>`;
-          popupContent += `<span class="troop-quantity">${unit.quantity}</span>`;
-          popupContent += `</div>`;
-        });
-
-        // Total troops
-        const totalTroops = army.total_count || army.units.reduce((sum, u) => sum + u.quantity, 0);
-        popupContent += `<div class="army-troop-total">`;
-        popupContent += `<strong>Total:</strong> <span class="total-count">${totalTroops} soldados</span>`;
+    // TROOPS
+    if (army.units && army.units.length > 0) {
+      popupContent += '<div class="army-troops-section">';
+      popupContent += '<p class="army-section-title">⚔️ Composición de Tropas</p>';
+      popupContent += '<div class="army-troops-list">';
+      army.units.forEach(unit => {
+        const unitIcon = getUnitIcon(unit.unit_name);
+        popupContent += `<div class="army-troop-item">`;
+        popupContent += `<span class="troop-icon">${unitIcon}</span>`;
+        popupContent += `<span class="troop-name">${unit.unit_name}:</span>`;
+        popupContent += `<span class="troop-quantity">${unit.quantity}</span>`;
         popupContent += `</div>`;
+      });
+      const totalTroops = army.total_count || army.units.reduce((sum, u) => sum + u.quantity, 0);
+      popupContent += `<div class="army-troop-total"><strong>Total:</strong> <span class="total-count">${totalTroops} soldados</span></div>`;
+      popupContent += '</div></div>';
+    }
 
-        popupContent += '</div>';
-        popupContent += '</div>';
-      }
+    // LOGISTICS
+    const food = Math.round(Number(army.food_provisions) || 0);
+    const gold = Number(army.gold_provisions || 0).toFixed(2);
+    const woodValue = Number(army.wood_provisions) || 0;
+    popupContent += '<div class="army-logistics-compact">';
+    popupContent += `<span class="resource-compact">🌾 ${food}</span>`;
+    popupContent += `<span class="resource-compact">💰 ${gold}</span>`;
+    if (woodValue > 0) popupContent += `<span class="resource-compact">🌲 ${Math.round(woodValue)}</span>`;
+    popupContent += '</div>';
 
-      // LOGISTICS SECTION (COMPACT - inline resources)
-      const food = Math.round(Number(army.food_provisions) || 0);
-      const gold = Number(army.gold_provisions || 0).toFixed(2);
-      const woodValue = Number(army.wood_provisions) || 0;
+    // STATUS
+    const minStamina = army.min_stamina !== undefined ? army.min_stamina : (army.rest_level || 100);
+    const staminaPercentage = Math.max(0, Math.min(100, minStamina));
+    const staminaColor = staminaPercentage < 30 ? '#ff6b6b' : (staminaPercentage < 60 ? '#ffd93d' : '#4caf50');
+    const staminaLabel = staminaPercentage < 30 ? 'Agotado' : (staminaPercentage < 60 ? 'Cansado' : 'Descansado');
+    const hasForceRest = army.has_force_rest || false;
+    const isRecovering = army.recovering && Number(army.recovering) > 0;
+    const isMoving = army.destination && army.destination !== null;
 
-      popupContent += '<div class="army-logistics-compact">';
-      popupContent += `<span class="resource-compact">🌾 ${food}</span>`;
-      popupContent += `<span class="resource-compact">💰 ${gold}</span>`;
-      if (woodValue > 0) {
-        popupContent += `<span class="resource-compact">🌲 ${Math.round(woodValue)}</span>`;
-      }
+    popupContent += '<div class="army-status-compact">';
+    popupContent += '<div class="stamina-inline">';
+    popupContent += `<span class="stamina-label">💪 ${staminaLabel}</span>`;
+    popupContent += '<div class="rest-bar-thin">';
+    popupContent += `<div class="rest-bar-fill-thin" style="width:${staminaPercentage}%;background-color:${staminaColor}"></div>`;
+    popupContent += '</div>';
+    popupContent += `<span class="stamina-value">${Math.round(staminaPercentage)}%</span>`;
+    popupContent += '</div>';
+    if (hasForceRest) {
+      const exhaustedCount = army.exhausted_units || 0;
+      popupContent += `<p class="force-rest-warning">⛔ DESCANSO FORZADO (${exhaustedCount} unidad${exhaustedCount !== 1 ? 'es' : ''})</p>`;
+    }
+    if (isRecovering) popupContent += `<p class="status-text">🛌 Recuperando (${Number(army.recovering)}t)</p>`;
+    else if (isMoving) popupContent += `<p class="status-text">🏃 → ${army.destination}</p>`;
+    else popupContent += `<p class="status-text">📍 Estacionado</p>`;
+    popupContent += '</div>';
+
+    // ACTIONS (solo ejércitos propios)
+    if (isOwnArmy) {
+      popupContent += '<div class="army-actions-compact">';
+
+      // Mover — usa addEventListener en MapViewer (cierra popup antes de mover)
+      const canMove = !isRecovering && !hasForceRest;
+      const moveClass = canMove ? 'army-action-icon' : 'army-action-icon army-action-disabled';
+      let moveTitle = 'Mover';
+      if (hasForceRest) moveTitle = '⛔ Unidades agotadas - Descanso forzado';
+      else if (isRecovering) moveTitle = `Recuperándose: ${army.recovering} turno${Number(army.recovering) !== 1 ? 's' : ''}`;
+      popupContent += `<button id="army-move-${army.army_id}" class="${moveClass}" ${!canMove ? 'disabled' : ''} title="${moveTitle}">📍</button>`;
+
+      // Detener
+      const canStop = isMoving;
+      const stopClass = canStop ? 'army-action-icon' : 'army-action-icon army-action-disabled';
+      popupContent += `<button id="army-stop-${army.army_id}" class="${stopClass}" ${!canStop ? 'disabled' : ''} title="Detener">🛑</button>`;
+
+      // Conquistar
+      popupContent += `<button id="army-conquer-${army.army_id}" class="army-action-icon army-action-conquer" title="Conquistar territorio">⚔️</button>`;
+
+      // Separar
+      popupContent += `<button id="army-split-${army.army_id}" class="army-action-icon" title="Separar">👥</button>`;
+
+      // Unir — activo si hay más de un ejército en el hex
+      const canMerge = total > 1;
+      const mergeClass = canMerge ? 'army-action-icon' : 'army-action-icon army-action-disabled';
+      popupContent += `<button id="army-merge-${army.army_id}" class="${mergeClass}" ${!canMerge ? 'disabled' : ''} title="Unir">🔗</button>`;
+
+      // Abastecer
+      popupContent += `<button id="army-supply-${army.army_id}" class="army-action-icon" title="Abastecer">🌾</button>`;
+
       popupContent += '</div>';
+    }
 
-      // COMBINED STATUS SECTION (COMPACT - stamina + movement)
-      // Use minimum stamina (weakest link) from fatigue system
-      const minStamina = army.min_stamina !== undefined ? army.min_stamina : (army.rest_level || 100);
-      const staminaPercentage = Math.max(0, Math.min(100, minStamina));
-      const staminaColor = staminaPercentage < 30 ? '#ff6b6b' : (staminaPercentage < 60 ? '#ffd93d' : '#4caf50');
-      const staminaLabel = staminaPercentage < 30 ? 'Agotado' : (staminaPercentage < 60 ? 'Cansado' : 'Descansado');
-
-      const hasForceRest = army.has_force_rest || false;
-      const isRecovering = army.recovering && Number(army.recovering) > 0;
-      const isMoving = army.destination && army.destination !== null;
-
-      popupContent += '<div class="army-status-compact">';
-
-      // Stamina bar (thin, inline with label) - Shows weakest unit's stamina
-      popupContent += '<div class="stamina-inline">';
-      popupContent += `<span class="stamina-label">💪 ${staminaLabel}</span>`;
-      popupContent += '<div class="rest-bar-thin">';
-      popupContent += `<div class="rest-bar-fill-thin" style="width: ${staminaPercentage}%; background-color: ${staminaColor}"></div>`;
-      popupContent += '</div>';
-      popupContent += `<span class="stamina-value">${Math.round(staminaPercentage)}%</span>`;
-      popupContent += '</div>';
-
-      // Force rest warning (if any unit is exhausted)
-      if (hasForceRest) {
-        const exhaustedCount = army.exhausted_units || 0;
-        popupContent += `<p class="force-rest-warning">⛔ DESCANSO FORZADO (${exhaustedCount} unidad${exhaustedCount !== 1 ? 'es' : ''})</p>`;
-      }
-
-      // Movement status (compact)
-      if (isRecovering) {
-        const turnsLeft = Number(army.recovering);
-        popupContent += `<p class="status-text">🛌 Recuperando (${turnsLeft}t)</p>`;
-      } else if (isMoving) {
-        popupContent += `<p class="status-text">🏃 → ${army.destination}</p>`;
-      } else {
-        popupContent += `<p class="status-text">📍 Estacionado</p>`;
-      }
-
-      popupContent += '</div>';
-
-      // ACTIONS SECTION (COMPACT - only icons, single row)
-      if (isOwnArmy) {
-        popupContent += '<div class="army-actions-compact">';
-
-        // Move button - Blocked if recovering OR has force_rest
-        const canMove = !isRecovering && !hasForceRest;
-        const moveClass = canMove ? 'army-action-icon' : 'army-action-icon army-action-disabled';
-        let moveTitle = 'Mover';
-        if (hasForceRest) {
-          moveTitle = '⛔ Unidades agotadas - Descanso forzado';
-        } else if (isRecovering) {
-          moveTitle = `Recuperándose: ${army.recovering} turno${Number(army.recovering) !== 1 ? 's' : ''}`;
-        }
-
-        // Use onclick for immediate response (exposed global function from MapViewer)
-        const armyNameEscaped = (army.name || 'Ejército').replace(/'/g, "\\'");
-        const moveOnClick = canMove
-          ? `onclick="if(window.startArmyMovement) window.startArmyMovement(${army.army_id}, '${armyNameEscaped}', '${army.h3_index}')"`
-          : '';
-        popupContent += `<button id="army-move-${army.army_id}" class="${moveClass}" ${!canMove ? 'disabled' : ''} ${moveOnClick} title="${moveTitle}">📍</button>`;
-
-        // Stop button
-        const canStop = isMoving;
-        const stopClass = canStop ? 'army-action-icon' : 'army-action-icon army-action-disabled';
-        popupContent += `<button id="army-stop-${army.army_id}" class="${stopClass}" ${!canStop ? 'disabled' : ''} title="Detener">🛑</button>`;
-
-        // Conquer button — siempre activo, el backend valida si la conquista es posible
-        popupContent += `<button id="army-conquer-${army.army_id}" class="army-action-icon army-action-conquer" title="Conquistar territorio">⚔️</button>`;
-
-        // Split button
-        popupContent += `<button id="army-split-${army.army_id}" class="army-action-icon" title="Separar">👥</button>`;
-
-        // Merge button
-        const canMerge = armyData.armies.length > 1;
-        const mergeClass = canMerge ? 'army-action-icon' : 'army-action-icon army-action-disabled';
-        popupContent += `<button id="army-merge-${army.army_id}" class="${mergeClass}" ${!canMerge ? 'disabled' : ''} title="Unir">🔗</button>`;
-
-        // Supply button
-        popupContent += `<button id="army-supply-${army.army_id}" class="army-action-icon" title="Abastecer">🌾</button>`;
-
-        popupContent += '</div>';
-      }
-
-      // Separator between armies (if multiple)
-      if (index < armyData.armies.length - 1) {
-        popupContent += '<hr class="army-separator">';
-      }
-    });
+    popupContent += '</div>'; // cierre wrapper fade
 
   } else {
-    // No armies found
     popupContent += '<p class="army-empty">⚠️ No se encontraron ejércitos en esta ubicación</p>';
   }
 

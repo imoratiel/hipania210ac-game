@@ -832,6 +832,13 @@ const SYNC_INTERVAL = 30000; // Poll server every 30 seconds
 let syncIntervalId = null;
 let lastSyncTime = null;
 
+// Army popup pagination state
+let _pp_armies = [];
+let _pp_index = 0;
+let _pp_ref = null;
+let _pp_h3 = '';
+let _pp_coords = { x: null, y: null, ownerId: null };
+
 // Action panel state
 const showActionPanel = ref(false);
 const selectedHexData = ref(null);
@@ -3066,6 +3073,49 @@ const handleArmyMerge  = (_army, _armies) => showToast('⚙️ Función "Unir" p
 const handleArmySupply = (_army) => showToast('⚙️ Función "Abastecer" próximamente', 'info');
 
 /**
+ * Attaches click listeners to action buttons of the currently visible army in the popup.
+ * Called after popup renders (setTimeout) and after each navigation step.
+ */
+const attachArmyListeners = (army, h3_index) => {
+  if (army.player_id !== playerId.value) return;
+
+  const moveBtn = document.getElementById(`army-move-${army.army_id}`);
+  if (moveBtn && !moveBtn.disabled) moveBtn.addEventListener('click', () => handleArmyMove(army));
+
+  const stopBtn = document.getElementById(`army-stop-${army.army_id}`);
+  if (stopBtn && !stopBtn.disabled) stopBtn.addEventListener('click', () => handleArmyStop(army));
+
+  const conquerBtn = document.getElementById(`army-conquer-${army.army_id}`);
+  if (conquerBtn) conquerBtn.addEventListener('click', () => handleArmyConquer(army, h3_index));
+
+  const splitBtn = document.getElementById(`army-split-${army.army_id}`);
+  if (splitBtn) splitBtn.addEventListener('click', () => handleArmySplit(army));
+
+  const mergeBtn = document.getElementById(`army-merge-${army.army_id}`);
+  if (mergeBtn && !mergeBtn.disabled) mergeBtn.addEventListener('click', () => handleArmyMerge(army, _pp_armies));
+
+  const supplyBtn = document.getElementById(`army-supply-${army.army_id}`);
+  if (supplyBtn) supplyBtn.addEventListener('click', () => handleArmySupply(army));
+};
+
+// Global bridge: called by ◀/▶ buttons inside the Leaflet popup HTML
+window.armyPopupNavigate = (delta) => {
+  const newIndex = _pp_index + delta;
+  if (newIndex < 0 || newIndex >= _pp_armies.length || !_pp_ref) return;
+  _pp_index = newIndex;
+  const newContent = generateArmyPopup({ armies: _pp_armies }, {
+    currentPlayerId: playerId.value,
+    h3_index: _pp_h3,
+    coord_x: _pp_coords.x,
+    coord_y: _pp_coords.y,
+    hexOwnerId: _pp_coords.ownerId,
+    currentIndex: _pp_index
+  });
+  _pp_ref.setContent(newContent);
+  setTimeout(() => attachArmyListeners(_pp_armies[_pp_index], _pp_h3), 50);
+};
+
+/**
  * Show detailed army information popup
  * Fetches full army details from API and displays in Leaflet popup
  */
@@ -3095,16 +3145,23 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
       console.warn('[Army Popup] Could not fetch coordinates:', err);
     }
 
+    // Reset pagination state for this new popup
+    _pp_armies = data.armies ?? [];
+    _pp_index = 0;
+    _pp_h3 = h3_index;
+    _pp_coords = { x: coord_x, y: coord_y, ownerId: cellData?.player_id ?? null };
+
     // Build popup HTML content using external generator
     const popupContent = generateArmyPopup(data, {
       currentPlayerId: playerId.value,
       h3_index,
       coord_x,
       coord_y,
-      hexOwnerId: cellData?.player_id ?? null
+      hexOwnerId: _pp_coords.ownerId,
+      currentIndex: 0
     });
 
-    // Create and show popup
+    // Create and show popup — store reference for navigation
     const popup = L.popup({
       maxWidth: 350,
       className: 'army-details-popup'
@@ -3113,50 +3170,11 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
       .setContent(popupContent)
       .openOn(map);
 
-    // Add event listeners to action buttons (after popup is rendered)
+    _pp_ref = popup;
+
+    // Attach listeners for the first army after DOM renders
     setTimeout(() => {
-      if (data.armies && data.armies.length > 0) {
-        data.armies.forEach(army => {
-          // Only add listeners for own armies
-          if (army.player_id === playerId.value) {
-            // Move button
-            const moveBtn = document.getElementById(`army-move-${army.army_id}`);
-            if (moveBtn && !moveBtn.disabled) {
-              moveBtn.addEventListener('click', () => handleArmyMove(army));
-            }
-
-            // Stop button
-            const stopBtn = document.getElementById(`army-stop-${army.army_id}`);
-            if (stopBtn && !stopBtn.disabled) {
-              stopBtn.addEventListener('click', () => handleArmyStop(army));
-            }
-
-            // Conquer button
-            const conquerBtn = document.getElementById(`army-conquer-${army.army_id}`);
-            if (conquerBtn) {
-              conquerBtn.addEventListener('click', () => handleArmyConquer(army, h3_index));
-            }
-
-            // Split button
-            const splitBtn = document.getElementById(`army-split-${army.army_id}`);
-            if (splitBtn) {
-              splitBtn.addEventListener('click', () => handleArmySplit(army));
-            }
-
-            // Merge button
-            const mergeBtn = document.getElementById(`army-merge-${army.army_id}`);
-            if (mergeBtn && !mergeBtn.disabled) {
-              mergeBtn.addEventListener('click', () => handleArmyMerge(army, data.armies));
-            }
-
-            // Supply button
-            const supplyBtn = document.getElementById(`army-supply-${army.army_id}`);
-            if (supplyBtn) {
-              supplyBtn.addEventListener('click', () => handleArmySupply(army));
-            }
-          }
-        });
-      }
+      if (_pp_armies.length > 0) attachArmyListeners(_pp_armies[0], h3_index);
     }, 100);
 
   } catch (error) {
