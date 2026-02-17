@@ -393,6 +393,128 @@ class ArmyService {
             res.status(500).json({ success: false, message: 'Error al renombrar ejército' });
         }
     }
+    async MergeArmies(req, res) {
+        const client = await pool.connect();
+        try {
+            const player_id = req.user.player_id;
+            const { army_id, h3_index } = req.body;
+
+            if (!army_id || !h3_index) {
+                return res.status(400).json({ success: false, message: 'Faltan parámetros: army_id, h3_index' });
+            }
+
+            await client.query('BEGIN');
+
+            // 1. Verificar que el ejército anfitrión pertenece al jugador y está en h3_index
+            const hostResult = await client.query(
+                `SELECT army_id, name, gold_provisions, food_provisions, wood_provisions
+                 FROM armies WHERE army_id = $1 AND player_id = $2 AND h3_index = $3`,
+                [army_id, player_id, h3_index]
+            );
+            if (hostResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Ejército anfitrión no encontrado o posición incorrecta' });
+            }
+            const host = hostResult.rows[0];
+
+            // 2. Buscar el resto de ejércitos propios en la misma casilla
+            const othersResult = await ArmyModel.GetArmiesAtHexForMerge(client, h3_index, player_id, army_id);
+            const others = othersResult.rows;
+
+            if (others.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'No hay otros ejércitos propios en esta casilla para fusionar' });
+            }
+
+            const dissolveIds = others.map(a => a.army_id);
+
+            // 3. Fusionar provisiones
+            const goldSum = others.reduce((s, a) => s + parseFloat(a.gold_provisions || 0), 0);
+            const foodSum = others.reduce((s, a) => s + parseFloat(a.food_provisions || 0), 0);
+            const woodSum = others.reduce((s, a) => s + parseFloat(a.wood_provisions || 0), 0);
+
+            await client.query(
+                `UPDATE armies
+                 SET gold_provisions = gold_provisions + $1,
+                     food_provisions = food_provisions + $2,
+                     wood_provisions = wood_provisions + $3
+                 WHERE army_id = $4`,
+                [goldSum, foodSum, woodSum, army_id]
+            );
+
+            // 4. Fusionar tropas con media ponderada por unit_type_id
+            const allArmyIds = [army_id, ...dissolveIds];
+            const troopsResult = await ArmyModel.GetTroopsByArmies(client, allArmyIds);
+            const allTroops = troopsResult.rows;
+
+            // Agrupar por unit_type_id
+            const byType = {};
+            for (const t of allTroops) {
+                const key = t.unit_type_id;
+                if (!byType[key]) byType[key] = [];
+                byType[key].push(t);
+            }
+
+            for (const [unit_type_id, rows] of Object.entries(byType)) {
+                const totalQty = rows.reduce((s, r) => s + parseInt(r.quantity), 0);
+                const wExp     = Math.round(rows.reduce((s, r) => s + parseFloat(r.experience) * parseInt(r.quantity), 0) / totalQty * 100) / 100;
+                const wMorale  = Math.round(rows.reduce((s, r) => s + parseFloat(r.morale)     * parseInt(r.quantity), 0) / totalQty * 100) / 100;
+                const wStamina = Math.round(rows.reduce((s, r) => s + parseFloat(r.stamina)    * parseInt(r.quantity), 0) / totalQty * 100) / 100;
+                // Si alguna unidad estaba en force_rest, el grupo fusionado también lo hereda
+                const hasForceRest = rows.some(r => r.force_rest);
+
+                const hostTroop = rows.find(r => parseInt(r.army_id) === army_id);
+
+                if (hostTroop) {
+                    // El anfitrión ya tiene este tipo: actualizar su fila
+                    await client.query(
+                        `UPDATE troops
+                         SET quantity = $1, experience = $2, morale = $3, stamina = $4, force_rest = $5
+                         WHERE army_id = $6 AND unit_type_id = $7`,
+                        [totalQty, wExp, wMorale, wStamina, hasForceRest, army_id, parseInt(unit_type_id)]
+                    );
+                } else {
+                    // El anfitrión no tiene este tipo: transferir una fila de un ejército disuelto
+                    const donorTroop = rows[0];
+                    await client.query(
+                        `UPDATE troops
+                         SET army_id = $1, quantity = $2, experience = $3, morale = $4, stamina = $5, force_rest = $6
+                         WHERE troop_id = $7`,
+                        [army_id, totalQty, wExp, wMorale, wStamina, hasForceRest, donorTroop.troop_id]
+                    );
+                }
+            }
+
+            // 5. Eliminar las tropas restantes de los ejércitos disueltos
+            //    (las transferidas ya tienen army_id = host, así que no se borran)
+            await client.query('DELETE FROM troops WHERE army_id = ANY($1::int[])', [dissolveIds]);
+
+            // 6. Eliminar rutas y ejércitos disueltos
+            await client.query('DELETE FROM army_routes WHERE army_id = ANY($1::int[])', [dissolveIds]);
+            await client.query('DELETE FROM armies WHERE army_id = ANY($1::int[])', [dissolveIds]);
+
+            await client.query('COMMIT');
+
+            Logger.action(
+                `Fusionó ${others.length} ejércitos en "${host.name}" (${h3_index})`,
+                player_id,
+                { host_army_id: army_id, dissolved: dissolveIds }
+            );
+            res.json({
+                success: true,
+                message: `${others.length} ejército${others.length !== 1 ? 's' : ''} fusionado${others.length !== 1 ? 's' : ''} en "${host.name}"`,
+                army_id,
+                dissolved_count: others.length
+            });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            Logger.error(error, { endpoint: '/military/merge', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            res.status(500).json({ success: false, message: 'Error al fusionar ejércitos' });
+        } finally {
+            client.release();
+        }
+    }
+
     async GetArmiesInRegion(req, res) {
         try {
             const { minLat, maxLat, minLng, maxLng } = req.query;

@@ -72,6 +72,7 @@ module.exports = function () {
     router.post('/military/attack', authenticateToken, (req, res) => CombatService.manualAttack(req, res));
     router.post('/military/conquer', authenticateToken, (req, res) => KingdomService.conquestTerritory(req, res));
     router.post('/military/conquer-fief', authenticateToken, (req, res) => KingdomService.conquerFief(req, res));
+    router.post('/military/merge', authenticateToken, (req, res) => ArmyService.MergeArmies(req, res));
 
     // ============================================
     // ADMIN AND MESSAGES

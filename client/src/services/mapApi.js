@@ -289,6 +289,11 @@ export async function conquerFief(armyId, h3_index) {
   return response.data;
 }
 
+export async function mergeArmies(armyId, h3_index) {
+  const response = await axios.post(`${API_URL}/api/military/merge`, { army_id: armyId, h3_index });
+  return response.data;
+}
+
 /**
  * Get active routes for all own armies (for route visualization)
  * Returns: { success, routes: [{army_id, name, h3_index, destination, path}] }

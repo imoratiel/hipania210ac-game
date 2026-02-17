@@ -3069,7 +3069,17 @@ const handleArmyMove = (army) => {
 
 // Stubs para acciones de ejército aún no implementadas
 const handleArmySplit  = (_army) => showToast('⚙️ Función "Separar" próximamente', 'info');
-const handleArmyMerge  = (_army, _armies) => showToast('⚙️ Función "Unir" próximamente', 'info');
+const handleArmyMerge = async (army) => {
+  try {
+    const result = await mapApi.mergeArmies(army.army_id, _pp_h3);
+    map.closePopup();
+    showToast(`⚔️ ${result.message}`, 'success');
+    await Promise.all([fetchTroops(), fetchArmyData()]);
+  } catch (err) {
+    const msg = err?.response?.data?.message || 'Error al fusionar ejércitos';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
 const handleArmySupply = (_army) => showToast('⚙️ Función "Abastecer" próximamente', 'info');
 
 /**

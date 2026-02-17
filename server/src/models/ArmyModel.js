@@ -269,6 +269,27 @@ class ArmyModel {
         return { army: armyResult.rows[0], troops: troopsResult.rows };
     }
 
+    async GetArmiesAtHexForMerge(client, h3_index, player_id, host_army_id) {
+        const result = await client.query(
+            `SELECT army_id, name, gold_provisions, food_provisions, wood_provisions
+             FROM armies
+             WHERE h3_index = $1 AND player_id = $2 AND army_id != $3`,
+            [h3_index, player_id, host_army_id]
+        );
+        return result;
+    }
+
+    async GetTroopsByArmies(client, army_ids) {
+        const result = await client.query(
+            `SELECT troop_id, army_id, unit_type_id, quantity,
+                    experience, morale, stamina, force_rest
+             FROM troops
+             WHERE army_id = ANY($1::int[])`,
+            [army_ids]
+        );
+        return result;
+    }
+
     async stopArmy(armyId, playerId) {
         // Verify ownership and clear movement state atomically
         const result = await db.query(
