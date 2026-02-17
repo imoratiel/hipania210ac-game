@@ -4,6 +4,7 @@ const { CONFIG } = require('../config.js');
 const infrastructure = require('../logic/infrastructure.js');
 const conquest = require('../logic/conquest.js');
 const pool = require('../../db.js');
+const h3 = require('h3-js');
 
 class KingdomService {
     async StartExploration(req, res) {
@@ -120,43 +121,50 @@ class KingdomService {
 
             await client.query('BEGIN');
 
+            // Colonization is only allowed if the player has NO territory yet (founding the capital)
             const territoryCount = await KingdomModel.GetTerritoryCount(client, player_id);
-            const isFirstTerritory = territoryCount === 0;
+            if (territoryCount > 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: '👑 Ya tienes una capital. Usa la conquista para expandirte.' });
+            }
 
+            // Validate selected hex
             const hex = await KingdomModel.GetHexForClaim(client, h3_index);
             if (!hex) { await client.query('ROLLBACK'); return res.status(404).json({ success: false, message: 'Hexágono no encontrado' }); }
-            if (hex.terrain_type_id === 1 || hex.terrain_type_id === 3) { await client.query('ROLLBACK'); return res.status(400).json({ success: false, message: '🌊 No puedes construir en el agua' }); }
+            if (!hex.is_colonizable) { await client.query('ROLLBACK'); return res.status(400).json({ success: false, message: '🌊 Este terreno no puede ser colonizado' }); }
             if (hex.player_id !== null) { await client.query('ROLLBACK'); return res.status(400).json({ success: false, message: '🛡️ Este territorio ya está ocupado' }); }
 
             const player = await KingdomModel.GetPlayerGoldForUpdate(client, player_id);
             const CLAIM_COST = 100;
             if (player.gold < CLAIM_COST) { await client.query('ROLLBACK'); return res.status(400).json({ success: false, message: '💰 Oro insuficiente' }); }
 
-            if (!isFirstTerritory && !(await conquest.checkContiguity(h3_index, player_id, pool))) {
-                await client.query('ROLLBACK'); return res.status(400).json({ success: false, message: '📍 Debes colonizar territorios contiguos' });
-            }
-
+            // --- Claim the capital hex ---
             const eco = conquest.generateInitialEconomy();
             await KingdomModel.ClaimHex(client, h3_index, player_id);
             await KingdomModel.InsertTerritoryDetails(client, h3_index, eco);
+            await KingdomModel.SetCapital(client, h3_index, player_id);
             await KingdomModel.DeductGold(client, player_id, CLAIM_COST);
 
-            if (isFirstTerritory) {
-                await KingdomModel.SetCapital(client, h3_index, player_id);
-                Logger.action(`Primera capital fundada en ${h3_index}`, player_id);
+            // --- Radial expansion: claim colonizable, unclaimed ring-1 neighbors ---
+            const ring1 = h3.gridDisk(h3_index, 1).filter(n => n !== h3_index);
+            const colonizableNeighbors = await KingdomModel.GetColonizableNeighbors(client, ring1);
+
+            for (const neighbor of colonizableNeighbors) {
+                const neighborEco = conquest.generateInitialEconomy();
+                await KingdomModel.ClaimHex(client, neighbor.h3_index, player_id);
+                await KingdomModel.InsertTerritoryDetails(client, neighbor.h3_index, neighborEco);
             }
 
             await client.query('COMMIT');
-            logGameEvent(`[Claim] Jugador ${player_id} reclamó ${h3_index}${isFirstTerritory ? ' (CAPITAL)' : ''}`);
 
-            const hasIron = hex.iron_output && hex.iron_output > 0;
-            const message = isFirstTerritory ? '👑 ¡Capital fundada!' : '🏰 ¡Territorio colonizado!';
+            Logger.action(`Capital fundada en ${h3_index} con ${colonizableNeighbors.length} territorios adyacentes`, player_id);
+            logGameEvent(`[Claim] Jugador ${player_id} fundó capital en ${h3_index} (${colonizableNeighbors.length + 1} hexes reclamados)`);
+
             res.json({
                 success: true,
-                is_capital: isFirstTerritory,
-                iron_vein_found: hasIron,
-                iron_message: hasIron ? `⛏️ ¡Filón de hierro descubierto! (+${hex.iron_output} hierro/mes)` : null,
-                message
+                is_capital: true,
+                claimed_count: colonizableNeighbors.length + 1,
+                message: `👑 ¡Capital fundada! Se han reclamado ${colonizableNeighbors.length} territorios adyacentes.`
             });
         } catch (error) {
             if (client) await client.query('ROLLBACK');

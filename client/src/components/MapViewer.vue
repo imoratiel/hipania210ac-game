@@ -1250,9 +1250,9 @@ const initMap = () => {
   map.createPane('starPane');
   map.getPane('starPane').style.zIndex = 650;
 
-  // Army Pane (Troop Icons) - Above Stars
+  // Army Pane (Troop Icons) - Below popupPane (700) so popups always render on top
   map.createPane('armyPane');
-  map.getPane('armyPane').style.zIndex = 700;
+  map.getPane('armyPane').style.zIndex = 680;
 
   // Inicializar visualizador de rutas (crea su propio pane routePane z-600)
   RouteVisualizer.init(map);
@@ -1523,74 +1523,80 @@ const fetchArmyData = async () => {
 };
 
 /**
- * Render army markers on the map
+ * Render army markers on the map.
+ * Groups entries by h3_index so each hex gets exactly one marker.
+ * Icon logic:
+ *   - 1 army in hex  → 🗡️ (single sword)
+ *   - 2+ armies      → ⚔️ (crossed swords)
+ *   - Mixed players  → ⚔️ with red conflict glow
  * @param {Array} armies - Array of {h3_index, player_id, army_count, total_troops}
  * @param {Number} currentPlayerId - The current player's ID
  */
 const renderArmyMarkers = (armies, currentPlayerId) => {
-  // Clear existing army markers
   clearArmyMarkers();
 
-  if (!armies || armies.length === 0) {
-    return;
+  if (!armies || armies.length === 0) return;
+
+  // Group rows by h3_index (backend returns one row per (h3_index, player_id))
+  const hexGroups = new Map();
+  for (const entry of armies) {
+    if (!hexGroups.has(entry.h3_index)) hexGroups.set(entry.h3_index, []);
+    hexGroups.get(entry.h3_index).push(entry);
   }
 
-  console.log(`Rendering ${armies.length} army markers...`);
-
-  armies.forEach(army => {
+  for (const [h3_index, group] of hexGroups) {
     try {
-      // Get center of H3 cell for marker placement
-      const [lat, lng] = cellToLatLng(army.h3_index);
+      const [lat, lng] = cellToLatLng(h3_index);
 
-      // Determine icon color: blue for own troops, red for enemies
-      const isOwnTroops = army.player_id === currentPlayerId;
-      const iconColor = isOwnTroops ? '#2196F3' : '#f44336'; // Blue vs Red
+      // Total army count across all players in this hex
+      const totalArmies = group.reduce((sum, e) => sum + (Number(e.army_count) || 1), 0);
+      const playerIds = new Set(group.map(e => e.player_id));
+      const hasOwn    = playerIds.has(currentPlayerId);
+      const isMultiple = totalArmies > 1;
+      // Conflict: armies from different players share the hex
+      const isConflict = playerIds.size > 1;
 
-      // Create HTML for the icon with troop count
-      const iconHtml = `
-        <div style="
-          background-color: ${iconColor};
-          border: 2px solid ${isOwnTroops ? '#1565C0' : '#c62828'};
-          border-radius: 50%;
-          width: 24px;
-          height: 24px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-weight: bold;
-          font-size: 11px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.4);
-          cursor: pointer;
-        ">
-          ⚔️
-        </div>
-      `;
+      // Icon glyph: single dagger for lone army, crossed swords for many
+      const glyph = isMultiple ? '⚔️' : '🗡️';
 
-      // Create custom divIcon
+      // Colors
+      // Color rule: any enemy present → red. Own troops only → blue.
+      const hasEnemy = [...playerIds].some(id => id !== currentPlayerId);
+      let bg, border, shadow;
+      if (hasEnemy) {
+        // Conflict glow when own troops are also present; plain red otherwise
+        bg     = '#b71c1c';
+        border = '#ef5350';
+        shadow = isConflict
+          ? '0 0 8px 2px rgba(255,23,68,0.8)'
+          : '0 2px 5px rgba(0,0,0,0.5)';
+      } else {
+        bg     = '#1565C0';
+        border = '#42a5f5';
+        shadow = '0 2px 5px rgba(0,0,0,0.5)';
+      }
+
+      const iconHtml = `<div style="
+        background:${bg};border:2px solid ${border};border-radius:50%;
+        width:26px;height:26px;
+        display:flex;align-items:center;justify-content:center;
+        font-size:13px;box-shadow:${shadow};cursor:pointer;
+        user-select:none;">${glyph}</div>`;
+
       const customIcon = L.divIcon({
         html: iconHtml,
         className: 'army-marker-icon',
-        iconSize: [24, 24],
-        iconAnchor: [12, 12]
+        iconSize: [26, 26],
+        iconAnchor: [13, 13]
       });
 
-      // Create marker with click event to show detailed popup
-      const marker = L.marker([lat, lng], {
-        icon: customIcon,
-        pane: 'armyPane'
-      });
-
-      // Add click event to show detailed army popup
-      marker.on('click', () => {
-        showArmyDetailsPopup(army.h3_index, [lat, lng]);
-      });
-
+      const marker = L.marker([lat, lng], { icon: customIcon, pane: 'armyPane' });
+      marker.on('click', () => showArmyDetailsPopup(h3_index, [lat, lng]));
       marker.addTo(armyMarkersLayer);
     } catch (err) {
-      console.error(`Error rendering army marker for ${army.h3_index}:`, err);
+      console.error(`Error rendering army marker for ${h3_index}:`, err);
     }
-  });
+  }
 };
 
 /**
@@ -3038,17 +3044,6 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
       }, 100);
     }
 
-    // Add event listener to explore button (if exists)
-    if (cell.player_id === playerId.value) {
-      setTimeout(() => {
-        const exploreBtn = document.getElementById(`explore-btn-${h3_index}`);
-        if (exploreBtn) {
-          exploreBtn.addEventListener('click', () => {
-            exploreFromPopup(h3_index);
-          });
-        }
-      }, 100);
-    }
 
   } catch (error) {
     console.error('Error fetching cell details:', error);
@@ -3256,45 +3251,6 @@ const colonizeFromPopup = async (h3_index) => {
 };
 
 /**
- * Start exploration from popup
- */
-const exploreFromPopup = async (h3_index) => {
-  try {
-    console.log(`[Explore] Starting exploration for ${h3_index}`);
-
-    // Call API
-    const data = await mapApi.exploreTerritory(h3_index);
-
-    if (data.success) {
-      // Update player gold
-      playerGold.value = data.new_gold_balance;
-
-      const endTurn = data.exploration_end_turn;
-      console.log(`✓ Exploration started! Gold spent: ${data.gold_spent}, Ends at turn: ${endTurn}`);
-
-      // Close popup
-      map.closePopup();
-
-      // Show success toast with clear info
-      const msg = endTurn
-        ? `⛏️ ¡Exploración iniciada! Los prospectores finalizarán en el turno ${endTurn}.`
-        : '⛏️ ¡Exploración iniciada! Los prospectores se han puesto en marcha.';
-      showToast(msg, 'success');
-
-      // Refresh data silently
-      await fetchHexagonData();
-      await updateFiefsUI();
-    } else {
-      showToast(data.message, 'error');
-    }
-  } catch (err) {
-    console.error('❌ Error starting exploration:', err);
-    const errorMsg = err.response?.data?.message || err.message || 'Error desconocido';
-    showToast(errorMsg, 'error');
-  }
-};
-
-/**
  * Start exploration from kingdom table
  */
 const exploreFiefFromTable = async (h3_index) => {
@@ -3488,8 +3444,8 @@ const handleArmyConquer = async (army, h3_index) => {
     await Promise.all([fetchHexagonData(), fetchTroops(), fetchArmyData()]);
   } catch (err) {
     console.error('[MapViewer] Error al conquistar feudo:', err);
-    const msg = err?.response?.data?.message || 'Error al conquistar el feudo';
-    showToast(`❌ ${msg}`, 'error');
+    const msg = err?.response?.data?.message || '❌ Error al conquistar el feudo';
+    showToast(msg, 'error');
   }
 };
 

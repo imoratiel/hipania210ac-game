@@ -18,6 +18,7 @@ const GAME_CONFIG = {
         STAMINA_MIN_FOR_MOVE: 0.1,      // Stamina mínima para intentar el "Último Esfuerzo"
         STAMINA_COST_PER_HEX: 10,       // Coste de stamina por hexágono recorrido
         MAX_CELLS_PER_TURN: 4,          // Máximo de hexágonos que puede recorrer un ejército por turno
+        FIEF_DETECTION_RANGE: 2,        // Hexágonos visibles desde cada feudo propio (niebla de guerra)
     },
 
     // ⏱️ Sistema de Turnos y Recuperación

@@ -3,7 +3,6 @@
  * Genera el contenido HTML para los popups del mapa
  */
 
-import { gridDisk } from 'h3-js';
 
 /**
  * Genera el contenido HTML del popup de detalles de celda
@@ -134,47 +133,20 @@ export function generateCellPopupContent(cell, config) {
   // ACTIONS
   popupContent += '<div class="popup-actions">';
 
-  if (!cell.player_id) {
+  // "Fundar Capital" button: only shown to players who have no territory yet
+  if (!cell.player_id && playerHexes.size === 0) {
     const hasEnoughGold = playerGold >= 100;
     const isCurrentlyColonizing = isColonizing;
-    let isAdjacent = false;
     let disabledReason = '';
 
-    if (playerHexes.size === 0) {
-      isAdjacent = true;
-    } else {
-      const neighbors = gridDisk(h3_index, 1);
-      isAdjacent = neighbors.some(neighborHex =>
-        neighborHex !== h3_index && playerHexes.has(neighborHex)
-      );
-    }
-
-    // Button is disabled if: not enough gold, not adjacent, OR currently colonizing
-    const canColonize = hasEnoughGold && isAdjacent && !isCurrentlyColonizing;
-    if (isCurrentlyColonizing) disabledReason = 'Colonización en progreso...';
-    else if (!hasEnoughGold) disabledReason = 'Oro insuficiente';
-    else if (!isAdjacent) disabledReason = 'Debe ser contiguo a tu territorio';
+    const canColonize = hasEnoughGold && !isCurrentlyColonizing;
+    if (isCurrentlyColonizing) disabledReason = 'Fundación en progreso...';
+    else if (!hasEnoughGold) disabledReason = 'Oro insuficiente (necesitas 100 💰)';
 
     const activeClass = canColonize ? 'btn-colonize' : 'btn-disabled';
     popupContent += `<button id="colonize-btn-${h3_index}" class="btn-popup ${activeClass}" ${!canColonize ? 'disabled' : ''} title="${disabledReason}">
-      🏰 Colonizar (100 💰)
+      👑 Fundar Capital (100 💰)
     </button>`;
-  } else if (cell.player_id === playerId) {
-    const isExplored = cell.territory?.discovered_resource !== null;
-    const isExploring = cell.territory?.exploration_end_turn !== null && currentTurn < cell.territory?.exploration_end_turn;
-    const explorationCost = explorationConfig.gold_cost;
-
-    if (!isExplored && !isExploring) {
-      const hasEnoughGold = playerGold >= explorationCost;
-      popupContent += `<button id="explore-btn-${h3_index}" class="btn-popup ${hasEnoughGold ? 'btn-explore' : 'btn-disabled'}" ${!hasEnoughGold ? 'disabled' : ''} title="${!hasEnoughGold ? 'Oro insuficiente' : 'Iniciar exploración minera'}">
-        ⛏️ Explorar Terreno (${explorationCost} 💰)
-      </button>`;
-    } else if (isExploring) {
-      const turnsRemaining = cell.territory.exploration_end_turn - currentTurn;
-      popupContent += `<button class="btn-popup btn-exploring" disabled>
-        ⏳ Explorando... (${turnsRemaining} turno${turnsRemaining !== 1 ? 's' : ''})
-      </button>`;
-    }
   }
 
   popupContent += '</div>';
@@ -231,6 +203,8 @@ export function generateArmyPopup(armyData, config) {
   if (total > 0) {
     const army = armyData.armies[currentIndex];
     const isOwnArmy = army.player_id === currentPlayerId;
+    // Conquer is blocked if ANY enemy army shares the hex
+    const hasEnemiesInHex = armyData.armies.some(a => a.player_id !== currentPlayerId);
     const armyClass = isOwnArmy ? 'army-own' : 'army-enemy';
 
     // Wrapper con animación fade-slide
@@ -249,65 +223,64 @@ export function generateArmyPopup(armyData, config) {
     popupContent += `<p class="army-location">${locationInfo}</p>`;
     popupContent += '</div>';
 
-    // TROOPS
-    if (army.units && army.units.length > 0) {
-      popupContent += '<div class="army-troops-section">';
-      popupContent += '<p class="army-section-title">⚔️ Composición de Tropas</p>';
-      popupContent += '<div class="army-troops-list">';
-      army.units.forEach(unit => {
-        const unitIcon = getUnitIcon(unit.unit_name);
-        popupContent += `<div class="army-troop-item">`;
-        popupContent += `<span class="troop-icon">${unitIcon}</span>`;
-        popupContent += `<span class="troop-name">${unit.unit_name}:</span>`;
-        popupContent += `<span class="troop-quantity">${unit.quantity}</span>`;
-        popupContent += `</div>`;
-      });
-      const totalTroops = army.total_count || army.units.reduce((sum, u) => sum + u.quantity, 0);
-      popupContent += `<div class="army-troop-total"><strong>Total:</strong> <span class="total-count">${totalTroops} soldados</span></div>`;
-      popupContent += '</div></div>';
-    }
-
-    // LOGISTICS
-    const food = Math.round(Number(army.food_provisions) || 0);
-    const gold = Number(army.gold_provisions || 0).toFixed(2);
-    const woodValue = Number(army.wood_provisions) || 0;
-    popupContent += '<div class="army-logistics-compact">';
-    popupContent += `<span class="resource-compact">🌾 ${food}</span>`;
-    popupContent += `<span class="resource-compact">💰 ${gold}</span>`;
-    if (woodValue > 0) popupContent += `<span class="resource-compact">🌲 ${Math.round(woodValue)}</span>`;
-    popupContent += '</div>';
-
-    // STATUS
-    const minStamina = army.min_stamina !== undefined ? army.min_stamina : (army.rest_level || 100);
-    const staminaPercentage = Math.max(0, Math.min(100, minStamina));
-    const staminaColor = staminaPercentage < 30 ? '#ff6b6b' : (staminaPercentage < 60 ? '#ffd93d' : '#4caf50');
-    const staminaLabel = staminaPercentage < 30 ? 'Agotado' : (staminaPercentage < 60 ? 'Cansado' : 'Descansado');
-    const hasForceRest = army.has_force_rest || false;
-    const isRecovering = army.recovering && Number(army.recovering) > 0;
-    const isMoving = army.destination && army.destination !== null;
-
-    popupContent += '<div class="army-status-compact">';
-    popupContent += '<div class="stamina-inline">';
-    popupContent += `<span class="stamina-label">💪 ${staminaLabel}</span>`;
-    popupContent += '<div class="rest-bar-thin">';
-    popupContent += `<div class="rest-bar-fill-thin" style="width:${staminaPercentage}%;background-color:${staminaColor}"></div>`;
-    popupContent += '</div>';
-    popupContent += `<span class="stamina-value">${Math.round(staminaPercentage)}%</span>`;
-    popupContent += '</div>';
-    if (hasForceRest) {
-      const exhaustedCount = army.exhausted_units || 0;
-      popupContent += `<p class="force-rest-warning">⛔ DESCANSO FORZADO (${exhaustedCount} unidad${exhaustedCount !== 1 ? 'es' : ''})</p>`;
-    }
-    if (isRecovering) popupContent += `<p class="status-text">🛌 Recuperando (${Number(army.recovering)}t)</p>`;
-    else if (isMoving) popupContent += `<p class="status-text">🏃 → ${army.destination}</p>`;
-    else popupContent += `<p class="status-text">📍 Estacionado</p>`;
-    popupContent += '</div>';
-
-    // ACTIONS (solo ejércitos propios)
     if (isOwnArmy) {
+      // ── TROOPS ──────────────────────────────────────────────────────────
+      if (army.units && army.units.length > 0) {
+        popupContent += '<div class="army-troops-section">';
+        popupContent += '<p class="army-section-title">⚔️ Composición de Tropas</p>';
+        popupContent += '<div class="army-troops-list">';
+        army.units.forEach(unit => {
+          const unitIcon = getUnitIcon(unit.unit_name);
+          popupContent += `<div class="army-troop-item">`;
+          popupContent += `<span class="troop-icon">${unitIcon}</span>`;
+          popupContent += `<span class="troop-name">${unit.unit_name}:</span>`;
+          popupContent += `<span class="troop-quantity">${unit.quantity}</span>`;
+          popupContent += `</div>`;
+        });
+        const totalTroops = army.total_count || army.units.reduce((sum, u) => sum + u.quantity, 0);
+        popupContent += `<div class="army-troop-total"><strong>Total:</strong> <span class="total-count">${totalTroops} soldados</span></div>`;
+        popupContent += '</div></div>';
+      }
+
+      // ── LOGISTICS ───────────────────────────────────────────────────────
+      const food = Math.round(Number(army.food_provisions) || 0);
+      const gold = Number(army.gold_provisions || 0).toFixed(2);
+      const woodValue = Number(army.wood_provisions) || 0;
+      popupContent += '<div class="army-logistics-compact">';
+      popupContent += `<span class="resource-compact">🌾 ${food}</span>`;
+      popupContent += `<span class="resource-compact">💰 ${gold}</span>`;
+      if (woodValue > 0) popupContent += `<span class="resource-compact">🌲 ${Math.round(woodValue)}</span>`;
+      popupContent += '</div>';
+
+      // ── STATUS ───────────────────────────────────────────────────────────
+      const minStamina = army.min_stamina !== undefined ? army.min_stamina : (army.rest_level || 100);
+      const staminaPercentage = Math.max(0, Math.min(100, minStamina));
+      const staminaColor = staminaPercentage < 30 ? '#ff6b6b' : (staminaPercentage < 60 ? '#ffd93d' : '#4caf50');
+      const staminaLabel = staminaPercentage < 30 ? 'Agotado' : (staminaPercentage < 60 ? 'Cansado' : 'Descansado');
+      const hasForceRest = army.has_force_rest || false;
+      const isRecovering = army.recovering && Number(army.recovering) > 0;
+      const isMoving = army.destination && army.destination !== null;
+
+      popupContent += '<div class="army-status-compact">';
+      popupContent += '<div class="stamina-inline">';
+      popupContent += `<span class="stamina-label">💪 ${staminaLabel}</span>`;
+      popupContent += '<div class="rest-bar-thin">';
+      popupContent += `<div class="rest-bar-fill-thin" style="width:${staminaPercentage}%;background-color:${staminaColor}"></div>`;
+      popupContent += '</div>';
+      popupContent += `<span class="stamina-value">${Math.round(staminaPercentage)}%</span>`;
+      popupContent += '</div>';
+      if (hasForceRest) {
+        const exhaustedCount = army.exhausted_units || 0;
+        popupContent += `<p class="force-rest-warning">⛔ DESCANSO FORZADO (${exhaustedCount} unidad${exhaustedCount !== 1 ? 'es' : ''})</p>`;
+      }
+      if (isRecovering) popupContent += `<p class="status-text">🛌 Recuperando (${Number(army.recovering)}t)</p>`;
+      else if (isMoving) popupContent += `<p class="status-text">🏃 → ${army.destination}</p>`;
+      else popupContent += `<p class="status-text">📍 Estacionado</p>`;
+      popupContent += '</div>';
+
+      // ── ACTIONS (own army only) ──────────────────────────────────────────
       popupContent += '<div class="army-actions-compact">';
 
-      // Mover — usa addEventListener en MapViewer (cierra popup antes de mover)
       const canMove = !isRecovering && !hasForceRest;
       const moveClass = canMove ? 'army-action-icon' : 'army-action-icon army-action-disabled';
       let moveTitle = 'Mover';
@@ -315,26 +288,35 @@ export function generateArmyPopup(armyData, config) {
       else if (isRecovering) moveTitle = `Recuperándose: ${army.recovering} turno${Number(army.recovering) !== 1 ? 's' : ''}`;
       popupContent += `<button id="army-move-${army.army_id}" class="${moveClass}" ${!canMove ? 'disabled' : ''} title="${moveTitle}">📍</button>`;
 
-      // Detener
       const canStop = isMoving;
       const stopClass = canStop ? 'army-action-icon' : 'army-action-icon army-action-disabled';
       popupContent += `<button id="army-stop-${army.army_id}" class="${stopClass}" ${!canStop ? 'disabled' : ''} title="Detener">🛑</button>`;
 
-      // Conquistar
-      popupContent += `<button id="army-conquer-${army.army_id}" class="army-action-icon army-action-conquer" title="Conquistar territorio">⚔️</button>`;
-
-      // Separar
+      const conquerBlocked = hasEnemiesInHex;
+      const conquerClass = conquerBlocked ? 'army-action-icon army-action-disabled' : 'army-action-icon army-action-conquer';
+      const conquerTitle = conquerBlocked ? 'Hay ejércitos enemigos en el hex — derrotalos primero' : 'Conquistar territorio';
+      popupContent += `<button id="army-conquer-${army.army_id}" class="${conquerClass}" ${conquerBlocked ? 'disabled' : ''} title="${conquerTitle}">⚔️</button>`;
       popupContent += `<button id="army-split-${army.army_id}" class="army-action-icon" title="Separar">👥</button>`;
 
-      // Unir — activo si hay más de un ejército en el hex
       const canMerge = total > 1;
       const mergeClass = canMerge ? 'army-action-icon' : 'army-action-icon army-action-disabled';
       popupContent += `<button id="army-merge-${army.army_id}" class="${mergeClass}" ${!canMerge ? 'disabled' : ''} title="Unir">🔗</button>`;
 
-      // Abastecer
       popupContent += `<button id="army-supply-${army.army_id}" class="army-action-icon" title="Abastecer">🌾</button>`;
-
       popupContent += '</div>';
+    } else {
+      // ── ENEMY ARMY: classified intelligence ─────────────────────────────
+      const isMoving = army.destination && army.destination !== null;
+      popupContent += `<div style="margin:10px 0;padding:10px 12px;background:rgba(180,0,0,0.12);border:1px solid rgba(220,50,50,0.3);border-radius:6px;">`;
+      popupContent += `<p style="margin:0 0 7px;font-size:0.78rem;color:#e57373;font-weight:600;letter-spacing:0.5px;">🔒 INTELIGENCIA CLASIFICADA</p>`;
+      popupContent += `<div style="display:grid;gap:4px;font-size:0.8rem;color:#9ca3af;">`;
+      popupContent += `<div>⚔️ Composición: <span style="color:#6b7280;font-style:italic;">???</span></div>`;
+      popupContent += `<div>💪 Estado físico: <span style="color:#6b7280;font-style:italic;">???</span></div>`;
+      popupContent += `<div>🌾 Suministros: <span style="color:#6b7280;font-style:italic;">???</span></div>`;
+      popupContent += `</div>`;
+      if (isMoving) popupContent += `<p style="margin:7px 0 0;font-size:0.78rem;color:#f87171;">🏃 En movimiento</p>`;
+      popupContent += `<p style="margin:7px 0 0;font-size:0.72rem;color:#4b5563;font-style:italic;">Usa el espionaje para obtener más información.</p>`;
+      popupContent += `</div>`;
     }
 
     popupContent += '</div>'; // cierre wrapper fade

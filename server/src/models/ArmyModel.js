@@ -70,6 +70,32 @@ class ArmyModel {
         const result = await db.query(query, [h3CellsArray]);
         return result;
     }
+    /**
+     * Returns each own army's h3_index and max detection_range among its troops.
+     * Used for fog-of-war visibility calculations.
+     */
+    async GetPlayerArmiesWithDetection(playerId) {
+        const result = await db.query(`
+            SELECT a.h3_index, MAX(ut.detection_range) AS detection_range
+            FROM armies a
+            JOIN troops t ON t.army_id = a.army_id
+            JOIN unit_types ut ON ut.unit_type_id = t.unit_type_id
+            WHERE a.player_id = $1
+            GROUP BY a.army_id, a.h3_index
+        `, [playerId]);
+        return result.rows;
+    }
+    /**
+     * Returns all h3_index values owned by a player (their fiefs).
+     * Used as vision origins for fog-of-war.
+     */
+    async GetPlayerFiefPositions(playerId) {
+        const result = await db.query(
+            'SELECT h3_index FROM h3_map WHERE player_id = $1',
+            [playerId]
+        );
+        return result.rows.map(r => r.h3_index);
+    }
     async GetUnitTypes() {
         const query = `
             SELECT

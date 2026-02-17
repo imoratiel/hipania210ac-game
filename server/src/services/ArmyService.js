@@ -10,28 +10,45 @@ class ArmyService {
     async GetArmyDetails(req, res) {
         try {
             const { h3_index } = req.params;
+            const requestingPlayerId = req.user.player_id;
 
             const armiesResult = await ArmyModel.GetArmyDetailsByHex(h3_index);
             const armies = armiesResult.rows;
 
             for (const army of armies) {
-                const unitsResult = await ArmyModel.GetArmyUnits(army.army_id);
-                army.units = unitsResult.rows;
-                army.total_count = army.units.reduce((sum, u) => sum + u.quantity, 0);
+                const isOwn = army.player_id === requestingPlayerId;
 
-                const fatigueStatus = await ArmySimulationService.getArmyFatigueStatus(army.army_id);
-                if (fatigueStatus.success) {
-                    army.min_stamina = fatigueStatus.minStamina;
-                    army.has_force_rest = fatigueStatus.hasForceRest;
-                    army.exhausted_units = fatigueStatus.exhaustedUnits;
+                if (isOwn) {
+                    // Full intelligence for own army
+                    const unitsResult = await ArmyModel.GetArmyUnits(army.army_id);
+                    army.units = unitsResult.rows;
+                    army.total_count = army.units.reduce((sum, u) => sum + u.quantity, 0);
+
+                    const fatigueStatus = await ArmySimulationService.getArmyFatigueStatus(army.army_id);
+                    if (fatigueStatus.success) {
+                        army.min_stamina = fatigueStatus.minStamina;
+                        army.has_force_rest = fatigueStatus.hasForceRest;
+                        army.exhausted_units = fatigueStatus.exhaustedUnits;
+                    } else {
+                        army.min_stamina = 100;
+                        army.has_force_rest = false;
+                        army.exhausted_units = 0;
+                    }
                 } else {
-                    army.min_stamina = 100;
-                    army.has_force_rest = false;
-                    army.exhausted_units = 0;
+                    // Enemy army: redact all sensitive military intelligence
+                    army.units = null;
+                    army.total_count = null;
+                    army.min_stamina = null;
+                    army.has_force_rest = null;
+                    army.exhausted_units = null;
+                    army.food_provisions = null;
+                    army.gold_provisions = null;
+                    army.wood_provisions = null;
+                    army.is_enemy = true;
                 }
             }
 
-            res.json({ success: true, armies, current_player_id: req.user.player_id });
+            res.json({ success: true, armies, current_player_id: requestingPlayerId });
         } catch (error) {
             Logger.error(error, { endpoint: '/map/army-details', method: 'GET', userId: req.user?.player_id, payload: req.params });
             res.status(500).json({ success: false, message: 'Error al obtener detalles del ejército' });
@@ -534,6 +551,7 @@ class ArmyService {
                 return res.status(400).json({ success: false, message: 'Invalid bounding box parameters' });
             }
 
+            const playerId = req.user.player_id;
             const H3_RESOLUTION = 8;
             const polygon = [
                 [bounds.minLat, bounds.minLng],
@@ -544,16 +562,35 @@ class ArmyService {
             const h3CellsArray = Array.from(h3.polygonToCells(polygon, H3_RESOLUTION)).slice(0, 50000);
 
             if (h3CellsArray.length === 0) {
-                return res.json({ success: true, armies: [], current_player_id: req.user.player_id });
+                return res.json({ success: true, armies: [], current_player_id: playerId });
             }
 
-            const result = await ArmyModel.GetArmiesInBounds(h3CellsArray);
+            // Fetch armies in viewport + player's vision sources in parallel
+            const [armiesResult, ownArmyVision, ownFiefPositions] = await Promise.all([
+                ArmyModel.GetArmiesInBounds(h3CellsArray),
+                ArmyModel.GetPlayerArmiesWithDetection(playerId),
+                ArmyModel.GetPlayerFiefPositions(playerId)
+            ]);
 
-            res.json({
-                success: true,
-                armies: result.rows,
-                current_player_id: req.user.player_id
-            });
+            // ── Build fog-of-war visible hex set using gridDisk ──────────────
+            // Each own army reveals a disk of hexes equal to its max detection_range.
+            // Each owned fief reveals a disk of FIEF_DETECTION_RANGE hexes.
+            const fiefRange = GAME_CONFIG.MILITARY.FIEF_DETECTION_RANGE;
+            const visibleHexes = new Set();
+
+            for (const army of ownArmyVision) {
+                h3.gridDisk(army.h3_index, army.detection_range).forEach(hex => visibleHexes.add(hex));
+            }
+            for (const fiefH3 of ownFiefPositions) {
+                h3.gridDisk(fiefH3, fiefRange).forEach(hex => visibleHexes.add(hex));
+            }
+
+            // Own armies always visible; enemy armies only if in the visible zone
+            const visibleArmies = armiesResult.rows.filter(army =>
+                army.player_id === playerId || visibleHexes.has(army.h3_index)
+            );
+
+            res.json({ success: true, armies: visibleArmies, current_player_id: playerId });
         } catch (error) {
             Logger.error(error, { endpoint: '/map/armies', method: 'GET', userId: req.user?.player_id, payload: req.query });
             res.status(500).json({ success: false, message: 'Error al obtener ejércitos' });

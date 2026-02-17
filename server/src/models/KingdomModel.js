@@ -42,13 +42,27 @@ class KingdomModel {
     }
     async GetHexForClaim(client, h3_index) {
         const result = await client.query(
-            `SELECT m.h3_index, m.player_id, m.terrain_type_id, t.iron_output, t.name as terrain_name
+            `SELECT m.h3_index, m.player_id, m.terrain_type_id, t.iron_output, t.name as terrain_name,
+                    COALESCE(t.is_colonizable, TRUE) as is_colonizable
              FROM h3_map m
              LEFT JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
              WHERE m.h3_index = $1 FOR UPDATE OF m`,
             [h3_index]
         );
         return result.rows[0];
+    }
+    async GetColonizableNeighbors(client, h3_indices) {
+        const result = await client.query(
+            `SELECT m.h3_index, t.iron_output
+             FROM h3_map m
+             JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
+             WHERE m.h3_index = ANY($1)
+               AND m.player_id IS NULL
+               AND t.is_colonizable = TRUE
+             FOR UPDATE OF m`,
+            [h3_indices]
+        );
+        return result.rows;
     }
     async GetPlayerGoldForUpdate(client, player_id) {
         const result = await client.query('SELECT gold FROM players WHERE player_id = $1 FOR UPDATE', [player_id]);
