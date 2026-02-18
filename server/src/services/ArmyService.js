@@ -136,6 +136,7 @@ class ArmyService {
             }
 
             await ArmyModel.AddTroops(client, army_id, unit_type_id, quantity);
+            await ArmyModel.refreshDetectionRange(client, army_id);
             await client.query('COMMIT');
 
             Logger.action(`Reclutó ${quantity} unidades (tipo ${unit_type_id}) en ${h3_index}`, player_id, { army_name, unit_type_id, quantity });
@@ -350,6 +351,7 @@ class ArmyService {
             for (const u of units) {
                 await ArmyModel.AddTroops(client, army_id, u.unit_type_id, u.quantity);
             }
+            await ArmyModel.refreshDetectionRange(client, army_id);
 
             await client.query('COMMIT');
 
@@ -509,6 +511,9 @@ class ArmyService {
             // 6. Eliminar rutas y ejércitos disueltos
             await client.query('DELETE FROM army_routes WHERE army_id = ANY($1::int[])', [dissolveIds]);
             await client.query('DELETE FROM armies WHERE army_id = ANY($1::int[])', [dissolveIds]);
+
+            // 7. Actualizar caché de detection_range del ejército anfitrión
+            await ArmyModel.refreshDetectionRange(client, army_id);
 
             await client.query('COMMIT');
 

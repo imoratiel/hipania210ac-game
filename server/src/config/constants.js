@@ -19,6 +19,10 @@ const GAME_CONFIG = {
         STAMINA_COST_PER_HEX: 10,       // Coste de stamina por hexágono recorrido
         MAX_CELLS_PER_TURN: 4,          // Máximo de hexágonos que puede recorrer un ejército por turno
         FIEF_DETECTION_RANGE: 2,        // Hexágonos visibles desde cada feudo propio (niebla de guerra)
+        // 🔭 Espionaje
+        EXPLORE_COST: 100,              // Coste en provisiones del ejército para espionaje
+        EXPLORE_COST_PLAYER: 1000,      // Coste en oro del jugador si el ejército no tiene provisiones
+        UNIT_TYPE_EXPLORER: 'Explorador', // Nombre del tipo de unidad exploradora
     },
 
     // ⏱️ Sistema de Turnos y Recuperación

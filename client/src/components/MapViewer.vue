@@ -3103,21 +3103,47 @@ const attachArmyListeners = (army, h3_index) => {
   if (supplyBtn) supplyBtn.addEventListener('click', () => handleArmySupply(army));
 };
 
+/** Retorna si hay un ejército propio con Exploradores en el hex y su army_id. */
+const _getScoutingInfo = (armies) => {
+  const EXPLORER = 'Explorador';
+  const scout = armies.find(a =>
+    a.player_id === playerId.value &&
+    a.units?.some(u => u.unit_name === EXPLORER)
+  );
+  return { hasExplorersAtHex: !!scout, scoutingArmyId: scout?.army_id ?? null };
+};
+
+/** Adjunta listeners a los botones de un ejército ENEMIGO en el popup. */
+const attachEnemyListeners = (army) => {
+  if (army.player_id === playerId.value) return;
+  const scoutBtn = document.getElementById(`army-scout-${army.army_id}`);
+  if (scoutBtn && !scoutBtn.disabled) {
+    scoutBtn.addEventListener('click', () => handleArmyScout(army));
+  }
+};
+
 // Global bridge: called by ◀/▶ buttons inside the Leaflet popup HTML
 window.armyPopupNavigate = (delta) => {
   const newIndex = _pp_index + delta;
   if (newIndex < 0 || newIndex >= _pp_armies.length || !_pp_ref) return;
   _pp_index = newIndex;
+  const { hasExplorersAtHex, scoutingArmyId } = _getScoutingInfo(_pp_armies);
   const newContent = generateArmyPopup({ armies: _pp_armies }, {
     currentPlayerId: playerId.value,
     h3_index: _pp_h3,
     coord_x: _pp_coords.x,
     coord_y: _pp_coords.y,
     hexOwnerId: _pp_coords.ownerId,
-    currentIndex: _pp_index
+    currentIndex: _pp_index,
+    hasExplorersAtHex,
+    scoutingArmyId
   });
   _pp_ref.setContent(newContent);
-  setTimeout(() => attachArmyListeners(_pp_armies[_pp_index], _pp_h3), 50);
+  setTimeout(() => {
+    const army = _pp_armies[_pp_index];
+    if (army.player_id === playerId.value) attachArmyListeners(army, _pp_h3);
+    else attachEnemyListeners(army);
+  }, 50);
 };
 
 /**
@@ -3156,6 +3182,9 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
     _pp_h3 = h3_index;
     _pp_coords = { x: coord_x, y: coord_y, ownerId: cellData?.player_id ?? null };
 
+    // Compute scouting info for the enemy popup button
+    const { hasExplorersAtHex, scoutingArmyId } = _getScoutingInfo(_pp_armies);
+
     // Build popup HTML content using external generator
     const popupContent = generateArmyPopup(data, {
       currentPlayerId: playerId.value,
@@ -3163,7 +3192,9 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
       coord_x,
       coord_y,
       hexOwnerId: _pp_coords.ownerId,
-      currentIndex: 0
+      currentIndex: 0,
+      hasExplorersAtHex,
+      scoutingArmyId
     });
 
     // Create and show popup — store reference for navigation
@@ -3179,7 +3210,10 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
 
     // Attach listeners for the first army after DOM renders
     setTimeout(() => {
-      if (_pp_armies.length > 0) attachArmyListeners(_pp_armies[0], h3_index);
+      if (_pp_armies.length === 0) return;
+      const first = _pp_armies[0];
+      if (first.player_id === playerId.value) attachArmyListeners(first, h3_index);
+      else attachEnemyListeners(first);
     }, 100);
 
   } catch (error) {
@@ -3446,6 +3480,45 @@ const handleArmyConquer = async (army, h3_index) => {
     console.error('[MapViewer] Error al conquistar feudo:', err);
     const msg = err?.response?.data?.message || '❌ Error al conquistar el feudo';
     showToast(msg, 'error');
+  }
+};
+
+/**
+ * Envía una misión de espionaje contra un ejército enemigo desde el popup.
+ * Llamado por el listener del botón army-scout-{id} en attachEnemyListeners.
+ */
+const handleArmyScout = async (enemyArmy) => {
+  // Obtener el army_id del explorador desde el atributo del botón
+  const btn = document.getElementById(`army-scout-${enemyArmy.army_id}`);
+  const rawId = btn ? parseInt(btn.dataset.scoutingArmy, 10) : NaN;
+  const scoutingArmyId = Number.isFinite(rawId) ? rawId : null;
+  if (!scoutingArmyId) {
+    showToast('No se encontró un ejército explorador válido', 'error');
+    return;
+  }
+  try {
+    if (btn) btn.disabled = true;
+    const result = await mapApi.scoutArmy(scoutingArmyId, enemyArmy.army_id);
+
+    // Mostrar resultado ANTES de cerrar el popup para evitar interferencia con los toasts
+    if (result.result === 'fail') {
+      showToast(`🔭 Misión fallida — tus exploradores regresaron sin información`, 'warning');
+    } else if (result.result === 'partial') {
+      const names = (result.data || []).map(u => u.unit_name).join(', ') || '?';
+      showToast(`🔭 Espionaje parcial: "${result.target_army_name}" · Tipos: ${names}`, 'info');
+    } else {
+      const lines = (result.data || []).map(u => `${u.unit_name}: ${u.quantity}`).join(' | ') || '?';
+      showToast(`🔭 Espionaje exitoso: "${result.target_army_name}" → ${lines}`, 'success');
+    }
+    if (result.detected) {
+      showToast('👁️ ¡Tus exploradores fueron detectados!', 'warning');
+    }
+
+    map.closePopup();
+  } catch (err) {
+    const msg = err?.response?.data?.error || err?.response?.data?.message || '❌ Error en la misión de espionaje';
+    showToast(msg, 'error');
+    if (btn) btn.disabled = false;
   }
 };
 

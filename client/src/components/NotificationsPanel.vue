@@ -1,14 +1,32 @@
 <template>
   <div class="notifications-panel">
+
+    <!-- Barra de filtro -->
+    <div class="notif-filter-bar">
+      <div class="notif-filter-toggle">
+        <button
+          class="filter-pill"
+          :class="{ active: !showOnlyUnread }"
+          @click="showOnlyUnread = false"
+        >Todas <span class="filter-count">{{ notifications.length }}</span></button>
+        <button
+          class="filter-pill"
+          :class="{ active: showOnlyUnread }"
+          @click="showOnlyUnread = true"
+        >No leídas <span class="filter-count unread-count">{{ unreadCount }}</span></button>
+      </div>
+    </div>
+
     <div v-if="loading" class="notif-loading">Cargando notificaciones...</div>
 
-    <div v-else-if="notifications.length === 0" class="notif-empty">
-      <p>No tienes notificaciones.</p>
+    <div v-else-if="filteredNotifications.length === 0" class="notif-empty">
+      <p v-if="showOnlyUnread && notifications.length > 0">✅ Todo al día — sin notificaciones sin leer.</p>
+      <p v-else>No tienes notificaciones.</p>
     </div>
 
     <div v-else class="notif-list">
       <div
-        v-for="notif in notifications"
+        v-for="notif in filteredNotifications"
         :key="notif.id"
         class="notif-card"
         :class="{ 'notif-unread': !notif.is_read, [`notif-type-${notif.type?.toLowerCase()}`]: true }"
@@ -26,12 +44,24 @@
 </template>
 
 <script setup>
+import { ref, computed } from 'vue';
+
 const props = defineProps({
   notifications: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['read']);
+
+const showOnlyUnread = ref(false);
+
+const unreadCount = computed(() => props.notifications.filter(n => !n.is_read).length);
+
+const filteredNotifications = computed(() =>
+  showOnlyUnread.value
+    ? props.notifications.filter(n => !n.is_read)
+    : props.notifications
+);
 
 const TYPE_LABELS = {
   HARVEST: '🌾 Cosecha',
@@ -59,6 +89,63 @@ const handleRead = (notif) => {
   color: #e8d5b5;
 }
 
+/* ── Barra de filtro ─────────────────────────── */
+.notif-filter-bar {
+  flex-shrink: 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(197, 160, 89, 0.18);
+}
+
+.notif-filter-toggle {
+  display: flex;
+  gap: 6px;
+}
+
+.filter-pill {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(197, 160, 89, 0.25);
+  background: rgba(0, 0, 0, 0.25);
+  color: #a89875;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.filter-pill:hover {
+  border-color: rgba(197, 160, 89, 0.5);
+  color: #d4c4a0;
+}
+
+.filter-pill.active {
+  background: rgba(197, 160, 89, 0.15);
+  border-color: rgba(197, 160, 89, 0.6);
+  color: #ffd700;
+}
+
+.filter-count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  min-width: 18px;
+  text-align: center;
+}
+
+.unread-count {
+  background: rgba(255, 215, 0, 0.18);
+  color: #ffd700;
+}
+
+/* ── Estados vacíos y carga ──────────────────── */
 .notif-loading,
 .notif-empty {
   text-align: center;
@@ -67,6 +154,7 @@ const handleRead = (notif) => {
   font-size: 1rem;
 }
 
+/* ── Lista ───────────────────────────────────── */
 .notif-list {
   display: flex;
   flex-direction: column;

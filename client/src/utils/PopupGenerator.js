@@ -178,7 +178,9 @@ export function generateArmyPopup(armyData, config) {
     coord_x,
     coord_y,
     hexOwnerId = null,
-    currentIndex = 0      // índice del ejército actualmente visible
+    currentIndex = 0,       // índice del ejército actualmente visible
+    hasExplorersAtHex = false, // el jugador tiene Exploradores en el mismo hex
+    scoutingArmyId = null      // army_id del ejército propio con exploradores
   } = config;
 
   _ensureFadeAnimation();
@@ -315,7 +317,19 @@ export function generateArmyPopup(armyData, config) {
       popupContent += `<div>🌾 Suministros: <span style="color:#6b7280;font-style:italic;">???</span></div>`;
       popupContent += `</div>`;
       if (isMoving) popupContent += `<p style="margin:7px 0 0;font-size:0.78rem;color:#f87171;">🏃 En movimiento</p>`;
-      popupContent += `<p style="margin:7px 0 0;font-size:0.72rem;color:#4b5563;font-style:italic;">Usa el espionaje para obtener más información.</p>`;
+      popupContent += `</div>`;
+
+      // ── SCOUT ACTION ──────────────────────────────────────────────────────
+      const scoutEnabled = hasExplorersAtHex && scoutingArmyId !== null;
+      const scoutTitle = scoutEnabled
+        ? 'Enviar exploradores (100💰 provisiones · 1000💰 si no hay provisiones)'
+        : 'Necesitas un Explorador en este hexágono';
+      const scoutClass = scoutEnabled
+        ? 'army-action-icon army-action-scout'
+        : 'army-action-icon army-action-disabled';
+      popupContent += `<div class="army-actions-compact" style="margin-top:8px;">`;
+      popupContent += `<button id="army-scout-${army.army_id}" class="${scoutClass}" ${!scoutEnabled ? 'disabled' : ''} data-scouting-army="${scoutingArmyId ?? ''}" title="${scoutTitle}">🔭</button>`;
+      popupContent += `<span style="font-size:0.72rem;color:#6b7280;margin-left:6px;">${scoutTitle}</span>`;
       popupContent += `</div>`;
     }
 

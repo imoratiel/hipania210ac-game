@@ -22,6 +22,7 @@ const pool = require('../../db.js');
 const h3   = require('h3-js');
 const { Logger }            = require('../utils/logger');
 const CombatModel           = require('../models/CombatModel.js');
+const ArmyModel             = require('../models/ArmyModel.js');
 const NotificationService   = require('./NotificationService.js');
 
 class CombatService {
@@ -206,6 +207,10 @@ class CombatService {
         // 10. Verificar ejércitos aniquilados
         const armyADestroyed = await CombatModel.deleteArmyIfEmpty(client, armyAId);
         const armyBDestroyed = await CombatModel.deleteArmyIfEmpty(client, armyBId);
+
+        // Actualizar caché de detection_range para ejércitos supervivientes
+        if (!armyADestroyed) await ArmyModel.refreshDetectionRange(client, armyAId);
+        if (!armyBDestroyed) await ArmyModel.refreshDetectionRange(client, armyBId);
 
         // 11. Huida del perdedor (si no está ya destruido)
         let retreatA = null;

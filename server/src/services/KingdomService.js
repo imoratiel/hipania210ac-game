@@ -1,5 +1,6 @@
 const { Logger, logGameEvent } = require('../utils/logger');
 const KingdomModel = require('../models/KingdomModel.js');
+const ArmyModel = require('../models/ArmyModel.js');
 const { CONFIG } = require('../config.js');
 const infrastructure = require('../logic/infrastructure.js');
 const conquest = require('../logic/conquest.js');
@@ -403,6 +404,7 @@ class KingdomService {
                     }
                 }
                 await client.query('DELETE FROM troops WHERE army_id = $1 AND quantity <= 0', [armyId]);
+                await ArmyModel.refreshDetectionRange(client, armyId);
             }
 
             // 10. SNAPSHOT DESPUÉS: leer cantidades reales post-combate

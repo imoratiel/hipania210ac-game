@@ -17,6 +17,7 @@ module.exports = function () {
     const KingdomService = require('../src/services/KingdomService.js');
     const AdminService = require('../src/services/AdminService.js');
     const PlayerService = require('../src/services/PlayerService.js');
+    const ScoutingService = require('../src/services/ScoutingService.js');
 
     // ============================================
     // AUTHENTICATION ENDPOINTS
@@ -73,6 +74,7 @@ module.exports = function () {
     router.post('/military/conquer', authenticateToken, (req, res) => KingdomService.conquestTerritory(req, res));
     router.post('/military/conquer-fief', authenticateToken, (req, res) => KingdomService.conquerFief(req, res));
     router.post('/military/merge', authenticateToken, (req, res) => ArmyService.MergeArmies(req, res));
+    router.post('/military/scout', authenticateToken, (req, res) => ScoutingService.scoutArmy(req, res));
 
     // ============================================
     // ADMIN AND MESSAGES

@@ -71,18 +71,31 @@ class ArmyModel {
         return result;
     }
     /**
-     * Returns each own army's h3_index and max detection_range among its troops.
-     * Used for fog-of-war visibility calculations.
+     * Recalculates and caches armies.detection_range for one army.
+     * Must be called within an active transaction whenever troops are added or removed.
+     * Falls back to 1 if the army has no troops (e.g. all just died).
+     */
+    async refreshDetectionRange(client, armyId) {
+        await client.query(`
+            UPDATE armies
+            SET detection_range = COALESCE((
+                SELECT MAX(ut.detection_range)
+                FROM troops t
+                JOIN unit_types ut ON ut.unit_type_id = t.unit_type_id
+                WHERE t.army_id = $1
+            ), 1)
+            WHERE army_id = $1
+        `, [armyId]);
+    }
+    /**
+     * Returns each own army's h3_index and cached detection_range.
+     * Reads from the pre-computed column — no troops/unit_types JOIN needed.
      */
     async GetPlayerArmiesWithDetection(playerId) {
-        const result = await db.query(`
-            SELECT a.h3_index, MAX(ut.detection_range) AS detection_range
-            FROM armies a
-            JOIN troops t ON t.army_id = a.army_id
-            JOIN unit_types ut ON ut.unit_type_id = t.unit_type_id
-            WHERE a.player_id = $1
-            GROUP BY a.army_id, a.h3_index
-        `, [playerId]);
+        const result = await db.query(
+            'SELECT h3_index, COALESCE(detection_range, 1) AS detection_range FROM armies WHERE player_id = $1',
+            [playerId]
+        );
         return result.rows;
     }
     /**
