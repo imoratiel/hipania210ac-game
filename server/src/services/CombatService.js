@@ -370,16 +370,21 @@ class CombatService {
             }
         }
 
-        // 12. Si el perdedor huyó o fue destruido, forzar stamina 0 en el ganador
-        //     (el combate agota a las tropas)
+        // 12. El combate agota al ganador: stamina -20 y force_rest = TRUE.
+        //     Además se cancela su ruta para que no continúe marchando tras la batalla.
         if (!isDraw && winner) {
             await client.query(
                 `UPDATE troops SET
                     stamina = GREATEST(0, stamina - 20),
-                    force_rest = CASE WHEN stamina - 20 <= 0 THEN TRUE ELSE force_rest END
+                    force_rest = TRUE
                  WHERE army_id = $1`,
                 [winner.army_id]
             );
+            await client.query(
+                'UPDATE armies SET destination = NULL WHERE army_id = $1',
+                [winner.army_id]
+            );
+            await client.query('DELETE FROM army_routes WHERE army_id = $1', [winner.army_id]);
         }
 
         // 13. Construir resumen

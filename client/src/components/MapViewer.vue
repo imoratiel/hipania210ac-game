@@ -1629,7 +1629,14 @@ const renderArmyMarkers = (armies, currentPlayerId) => {
       });
 
       const marker = L.marker([lat, lng], { icon: customIcon, pane: 'armyPane' });
-      marker.on('click', () => showArmyDetailsPopup(h3_index, [lat, lng]));
+      marker.on('click', () => {
+        MapInteractionController.handleMapClick(h3_index, {
+          onNormal: async () => showArmyDetailsPopup(h3_index, [lat, lng]),
+          onSelectDestination: async (armyId, targetH3, armyName) => {
+            await processArmyMovement(armyId, targetH3, armyName);
+          }
+        });
+      });
       marker.addTo(armyMarkersLayer);
     } catch (err) {
       console.error(`Error rendering army marker for ${h3_index}:`, err);
@@ -2120,6 +2127,9 @@ const renderHexagons = (hexagons) => {
       const { fillColor, fillOpacity, borderColor, borderWeight } = styles;
       const isCapital = hex.is_capital === true;
 
+      // Apply user's opacity slider on top of semantic opacity
+      const effectiveFillOpacity = fillOpacity * (hexagonOpacity.value / 100);
+
       // --- LAYER 1: FILL (territoryPane) ---
       // "A) El RELLENO: L.polygon con fill: true, fillColor: '#ff0000', fillOpacity: 0.3, stroke: false y pane: 'territoryPane'."
       const fillPolygon = L.polygon(boundary, {
@@ -2127,20 +2137,24 @@ const renderHexagons = (hexagons) => {
         stroke: false,
         fill: true,
         fillColor: fillColor,
-        fillOpacity: fillOpacity,
+        fillOpacity: effectiveFillOpacity,
         // Make this the interactive layer
-        interactive: true 
+        interactive: true
       });
 
-      // Hover effects on Fill
+      // Store semantic opacity so updateHexagonOpacity can recalculate correctly
+      fillPolygon._semanticFillOpacity = fillOpacity;
+
+      // Hover effects on Fill — use current rendered opacity, not stale closure
       fillPolygon.on('mouseover', function () {
         this.setStyle({
-          fillOpacity: Math.min(fillOpacity + 0.2, 1.0)
+          fillOpacity: Math.min(this.options.fillOpacity + 0.2, 1.0)
         });
       });
       fillPolygon.on('mouseout', function () {
+        // Restore to semantic × current slider (persistent after slider changes)
         this.setStyle({
-          fillOpacity: fillOpacity
+          fillOpacity: this._semanticFillOpacity * (hexagonOpacity.value / 100)
         });
       });
 
@@ -2461,10 +2475,12 @@ const clearBuildingMarkers = () => {
  * Update opacity of all hexagons
  */
 const updateHexagonOpacity = () => {
+  const sliderMultiplier = hexagonOpacity.value / 100;
   hexagonLayer.eachLayer((layer) => {
-    if (layer.setStyle) {
+    if (layer.setStyle && layer._semanticFillOpacity !== undefined) {
+      // Multiply semantic opacity (own=1.0, enemy=0.6…) by slider to preserve distinctions
       layer.setStyle({
-        fillOpacity: hexagonOpacity.value / 100,
+        fillOpacity: layer._semanticFillOpacity * sliderMultiplier,
       });
     }
   });
