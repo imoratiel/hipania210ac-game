@@ -66,6 +66,13 @@ export function generateCellPopupContent(cell, config) {
     popupContent += '<div class="popup-details-box">';
     popupContent += '<p class="popup-details-title">📊 Detalles del Territorio</p>';
 
+    // FAMINE WARNING — shown when food reserves are exhausted
+    if (cell.territory.food <= 0) {
+      popupContent += '<div style="background:#5c1010;border:1px solid #c0392b;border-radius:4px;padding:6px 8px;margin-bottom:6px;color:#ff6b6b;font-size:11px;font-weight:bold;">' +
+        '🚨 HAMBRUNA — Sin reservas de comida. La población disminuye un 5% cada censo.' +
+        '</div>';
+    }
+
     // Population & Happiness
     popupContent += `<p class="popup-detail-item">👥 Población: ${cell.territory.population} habitantes</p>`;
     popupContent += `<p class="popup-detail-item">😊 Felicidad: ${cell.territory.happiness || 0}%</p>`;
@@ -73,7 +80,7 @@ export function generateCellPopupContent(cell, config) {
     // Resources
     popupContent += '<p class="popup-resources-label">Recursos Almacenados:</p>';
     popupContent += '<div class="popup-resource-grid">';
-    popupContent += `<span class="resource-item">🌾 Comida: ${cell.territory.food}</span>`;
+    popupContent += `<span class="resource-item" ${cell.territory.food <= 0 ? 'style="color:#ff6b6b;font-weight:bold;"' : ''}>🌾 Comida: ${cell.territory.food}</span>`;
     popupContent += `<span class="resource-item">🌲 Madera: ${cell.territory.wood}</span>`;
 
     // Determine exploration state

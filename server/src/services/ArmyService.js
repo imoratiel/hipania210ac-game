@@ -94,6 +94,18 @@ class ArmyService {
                 return res.status(403).json({ success: false, message: 'No posees este territorio' });
             }
 
+            // Validate population: recruiting reduces local population; can't go below MIN_FIEF_POPULATION
+            const MIN_POP = GAME_CONFIG.ECONOMY.MIN_FIEF_POPULATION;
+            const currentPop = parseInt(territory.population) || 0;
+            if (currentPop - quantity < MIN_POP) {
+                await client.query('ROLLBACK');
+                const available = Math.max(0, currentPop - MIN_POP);
+                return res.status(400).json({
+                    success: false,
+                    message: `Población insuficiente. Puedes reclutar como máximo ${available} unidades (mínimo de ${MIN_POP} habitantes garantizados).`
+                });
+            }
+
             const playerResult = await ArmyModel.GetPlayerGold(client, player_id);
             const player = playerResult.rows[0];
 
@@ -124,6 +136,9 @@ class ArmyService {
                     await ArmyModel.DeductTerritoryResource(client, h3_index, req.resource_type, cost);
                 }
             }
+
+            // Deduct population: recruited soldiers leave the local population
+            await ArmyModel.DeductPopulation(client, h3_index, quantity);
 
             // Find or create army
             const existingArmy = await ArmyModel.FindArmy(client, h3_index, army_name, player_id);
@@ -599,6 +614,109 @@ class ArmyService {
         } catch (error) {
             Logger.error(error, { endpoint: '/map/armies', method: 'GET', userId: req.user?.player_id, payload: req.query });
             res.status(500).json({ success: false, message: 'Error al obtener ejércitos' });
+        }
+    }
+
+    async DismissTroops(req, res) {
+        const client = await pool.connect();
+        try {
+            const player_id = req.user.player_id;
+            const { army_id, unit_type_id, quantity } = req.body;
+
+            if (!army_id || !unit_type_id || !quantity || quantity <= 0) {
+                return res.status(400).json({ success: false, message: 'Parámetros inválidos' });
+            }
+            const qty = parseInt(quantity, 10);
+
+            await client.query('BEGIN');
+
+            // Ownership + location check (army must be in own fief)
+            const army = await ArmyModel.GetArmyForDismiss(client, army_id);
+            if (!army) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Ejército no encontrado' });
+            }
+            if (army.player_id !== player_id) {
+                await client.query('ROLLBACK');
+                return res.status(403).json({ success: false, message: 'No eres el propietario de este ejército' });
+            }
+            if (army.fief_owner !== player_id) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'Solo puedes licenciar tropas en un feudo propio' });
+            }
+
+            // Validate troop group
+            const troop = await ArmyModel.GetTroopGroup(client, army_id, unit_type_id);
+            if (!troop) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Tipo de tropa no encontrado en este ejército' });
+            }
+            if (troop.quantity < qty) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: `Solo tienes ${troop.quantity} unidades de este tipo` });
+            }
+
+            // Reduce or delete this troop group
+            const remaining = troop.quantity - qty;
+            if (remaining === 0) {
+                await client.query('DELETE FROM troops WHERE army_id = $1 AND unit_type_id = $2', [army_id, unit_type_id]);
+            } else {
+                await client.query('UPDATE troops SET quantity = $1 WHERE army_id = $2 AND unit_type_id = $3', [remaining, army_id, unit_type_id]);
+            }
+
+            // Soldiers return to local population
+            await client.query(
+                'UPDATE territory_details SET population = population + $1 WHERE h3_index = $2',
+                [qty, army.h3_index]
+            );
+
+            // Check if the army is now empty
+            const totResult = await client.query(
+                'SELECT COALESCE(SUM(quantity), 0)::int AS total FROM troops WHERE army_id = $1',
+                [army_id]
+            );
+            const totalLeft = totResult.rows[0].total;
+
+            if (totalLeft === 0) {
+                // Transfer provisions to fief storehouse
+                await client.query(
+                    `UPDATE territory_details
+                     SET food_stored  = food_stored  + $1,
+                         wood_stored  = wood_stored  + $2,
+                         stone_stored = stone_stored + $3,
+                         iron_stored  = iron_stored  + $4
+                     WHERE h3_index = $5`,
+                    [army.food_provisions, army.wood_provisions, army.stone_provisions, army.iron_provisions, army.h3_index]
+                );
+                // Gold returns to player
+                if (army.gold_provisions > 0) {
+                    await client.query(
+                        'UPDATE players SET gold = gold + $1 WHERE player_id = $2',
+                        [army.gold_provisions, player_id]
+                    );
+                }
+                await client.query('DELETE FROM army_routes WHERE army_id = $1', [army_id]);
+                await client.query('DELETE FROM armies WHERE army_id = $1', [army_id]);
+            } else {
+                await ArmyModel.refreshDetectionRange(client, army_id);
+            }
+
+            await client.query('COMMIT');
+
+            Logger.action(`Licenció ${qty} tropas (tipo ${unit_type_id}) del ejército ${army_id}`, player_id, { h3_index: army.h3_index });
+            res.json({
+                success: true,
+                army_dissolved: totalLeft === 0,
+                message: totalLeft === 0
+                    ? `${qty} soldados licenciados. El ejército se ha disuelto y los suministros han vuelto al feudo.`
+                    : `${qty} soldados licenciados y devueltos a la población civil.`
+            });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            Logger.error(error, { endpoint: '/military/dismiss', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            res.status(500).json({ success: false, message: 'Error al licenciar tropas' });
+        } finally {
+            client.release();
         }
     }
 }

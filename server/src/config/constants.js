@@ -29,6 +29,11 @@ const GAME_CONFIG = {
     TURNS: {
         RECOVERING_TURNS_PENALTY: 1,    // Cuántos turnos dura el estado 'recovering' tras esfuerzo extra
     },
+
+    // 🏘️ Economía y Población
+    ECONOMY: {
+        MIN_FIEF_POPULATION: 200,       // Población mínima garantizada por feudo (reclutamiento y hambruna no pueden reducirla más)
+    },
 };
 
 // Exportar para Node.js (CommonJS) o ESModules según tu setup

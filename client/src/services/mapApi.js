@@ -274,6 +274,11 @@ export async function stopArmy(armyId) {
   return response.data;
 }
 
+export async function dismissTroops(armyId, unitTypeId, quantity) {
+  const response = await axios.post(`${API_URL}/api/military/dismiss`, { army_id: armyId, unit_type_id: unitTypeId, quantity });
+  return response.data;
+}
+
 export async function attackArmy(armyId) {
   const response = await axios.post(`${API_URL}/api/military/attack`, { armyId });
   return response.data;
@@ -313,6 +318,27 @@ export async function scoutArmy(armyId, targetArmyId) {
  */
 export async function getMyRoutes() {
   const response = await axios.get(`${API_URL}/api/military/my-routes`);
+  return response.data;
+}
+
+// ============================================
+// ECONOMY ENDPOINTS
+// ============================================
+
+/**
+ * Get aggregated resource summary and economy settings for the player
+ */
+export async function getEconomySummary() {
+  const response = await axios.get(`${API_URL}/api/economy/summary`);
+  return response.data;
+}
+
+/**
+ * Update economy settings (tax_rate, tithe_active)
+ * @param {Object} payload - { tax_rate?: number, tithe_active?: boolean }
+ */
+export async function updateEconomySettings(payload) {
+  const response = await axios.patch(`${API_URL}/api/economy/settings`, payload);
   return response.data;
 }
 

@@ -18,6 +18,7 @@ module.exports = function () {
     const AdminService = require('../src/services/AdminService.js');
     const PlayerService = require('../src/services/PlayerService.js');
     const ScoutingService = require('../src/services/ScoutingService.js');
+    const EconomyService = require('../src/services/EconomyService.js');
 
     // ============================================
     // AUTHENTICATION ENDPOINTS
@@ -77,6 +78,13 @@ module.exports = function () {
     router.post('/military/conquer-fief', authenticateToken, (req, res) => KingdomService.conquerFief(req, res));
     router.post('/military/merge', authenticateToken, (req, res) => ArmyService.MergeArmies(req, res));
     router.post('/military/scout', authenticateToken, (req, res) => ScoutingService.scoutArmy(req, res));
+    router.post('/military/dismiss', authenticateToken, (req, res) => ArmyService.DismissTroops(req, res));
+
+    // ============================================
+    // ECONOMY
+    // ============================================
+    router.get('/economy/summary', authenticateToken, (req, res) => EconomyService.GetEconomySummary(req, res));
+    router.patch('/economy/settings', authenticateToken, (req, res) => EconomyService.UpdateEconomySettings(req, res));
 
     // ============================================
     // ADMIN AND MESSAGES

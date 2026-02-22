@@ -136,6 +136,7 @@
     :show="inspectModalVisible"
     :army="inspectArmy"
     @close="inspectModalVisible = false"
+    @dismissed="(payload) => emit('armyDismissed', payload)"
   />
 </template>
 
@@ -155,7 +156,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['locate', 'armyStopped', 'armyStopFailed', 'armyAttacked', 'armyAttackFailed']);
+const emit = defineEmits(['locate', 'armyStopped', 'armyStopFailed', 'armyAttacked', 'armyAttackFailed', 'armyDismissed']);
 
 const stoppingArmies = ref(new Set());
 const attackingArmies = ref(new Set());

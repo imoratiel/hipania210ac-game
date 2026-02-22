@@ -1,5 +1,8 @@
 const { logEconomyEvent } = require('./economy');
 const { determineDiscoveredResource } = require('./discovery');
+const { processTaxCollection } = require('./tax_collector');
+const { processTithe } = require('./tithe_system');
+const GAME_CONFIG = require('../config/constants');
 const { Logger } = require('../utils/logger');
 const ArmySimulationService = require('../services/ArmySimulationService');
 const NotificationService = require('../services/NotificationService');
@@ -697,14 +700,38 @@ async function processGameTurn(pool, config) {
 
                 let successCount = 0;
                 let errorCount = 0;
+                let starvationCount = 0;
 
                 for (const t of territories.rows) {
                     try {
-                        // 1% growth per census - calculate directly in SQL to avoid float parameter issues
-                        await client.query(
-                            'UPDATE territory_details SET population = FLOOR(population * 1.01) WHERE h3_index = $1',
-                            [t.h3_index]
-                        );
+                        if (t.food_stored <= 0) {
+                            // STARVATION: 5% population death, never below MIN_FIEF_POPULATION
+                            const minPop = GAME_CONFIG.ECONOMY.MIN_FIEF_POPULATION;
+                            await client.query(
+                                'UPDATE territory_details SET population = GREATEST($1, FLOOR(population * 0.95)) WHERE h3_index = $2',
+                                [minPop, t.h3_index]
+                            );
+                            starvationCount++;
+                            Logger.engine(`[TURN ${newTurn}] STARVATION at ${t.h3_index} (player ${t.player_id}): pop ${t.population} → ${Math.max(minPop, Math.floor(t.population * 0.95))}`);
+
+                            // Notify only if population actually dropped (it may already be at minimum)
+                            const deaths = t.population - Math.max(minPop, Math.floor(t.population * 0.95));
+                            if (deaths > 0) {
+                                const noun = deaths === 1 ? 'habitante' : 'habitantes';
+                                await NotificationService.createSystemNotification(
+                                    t.player_id,
+                                    'FAMINE',
+                                    `🚨 HAMBRUNA en ${t.h3_index}\n\nSin reservas de comida, la población ha descendido en ${deaths} ${noun} debido a la falta de suministros.\n\nAbastece el territorio urgentemente para detener la crisis.`,
+                                    newTurn
+                                );
+                            }
+                        } else {
+                            // Normal census: 1% population growth
+                            await client.query(
+                                'UPDATE territory_details SET population = FLOOR(population * 1.01) WHERE h3_index = $1',
+                                [t.h3_index]
+                            );
+                        }
                         successCount++;
                     } catch (terrError) {
                         errorCount++;
@@ -718,7 +745,7 @@ async function processGameTurn(pool, config) {
                     }
                 }
 
-                Logger.engine(`[TURN ${newTurn}] Census completed: ${successCount} territories updated, ${errorCount} errors`);
+                Logger.engine(`[TURN ${newTurn}] Census completed: ${successCount} territories updated (${starvationCount} in famine), ${errorCount} errors`);
             } catch (error) {
                 Logger.error(error, {
                     context: 'turn_engine.processGameTurn',
@@ -761,6 +788,13 @@ async function processGameTurn(pool, config) {
             Logger.engine(`[TURN ${newTurn}] Harvest day (day ${dayOfYear} of year)`);
             await processHarvest(client, newTurn, config);
         }
+
+        // Tax collection (day 10 of each game month only)
+        // processTaxCollection has its own guards: day-of-month check + DB idempotency key
+        await processTaxCollection(client, newTurn, config, gameDate);
+
+        // Tithe system (every turn if enabled: 10% of non-capital resources → capital)
+        await processTithe(client, newTurn, config);
 
         await client.query('COMMIT');
         Logger.engine(`[TURN ${newTurn}] Completed successfully - Next turn in ${config.gameplay?.turn_duration_seconds || 60}s`);

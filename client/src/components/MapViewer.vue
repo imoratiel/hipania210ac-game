@@ -154,9 +154,7 @@
 
       <div class="panel-content">
         <!-- Economy Panel -->
-        <div v-if="activePanel === 'economy'" class="panel-section economy-panel">
-          <p class="panel-placeholder">Contenido de Economía (próximamente)</p>
-        </div>
+        <EconomyPanel v-if="activePanel === 'economy'" />
 
         <!-- Layers Panel -->
         <div v-if="activeOverlay === 'layers'" class="panel-section layers-panel">
@@ -732,6 +730,7 @@
             @armyStopFailed="(msg) => showToast(msg, 'error')"
             @armyAttacked="handleArmyAttacked"
             @armyAttackFailed="(msg) => showToast(msg, 'error')"
+            @armyDismissed="handleArmyDismissed"
           />
         </div>
       </div>
@@ -779,6 +778,7 @@ import MilitaryPanel from './MilitaryPanel.vue';
 import TroopsPanel from './TroopsPanel.vue';
 import NotificationsPanel from './NotificationsPanel.vue';
 import BattleSummaryModal from './BattleSummaryModal.vue';
+import EconomyPanel from './EconomyPanel.vue';
 
 const mapContainer = ref(null);
 const loading = ref(false);
@@ -3505,6 +3505,12 @@ const handleArmyStopped = async (armyId) => {
   showToast('⏹ Ejército detenido y ruta cancelada', 'info');
 };
 
+const handleArmyDismissed = async ({ message, armyDissolved }) => {
+  await Promise.all([fetchTroops(), fetchArmyData(), fetchHexagonData()]);
+  showToast(message || '✅ Tropas licenciadas', 'success');
+  if (armyDissolved) RouteVisualizer.clearAll?.();
+};
+
 /**
  * Maneja el resultado de un ataque manual lanzado desde TroopsPanel.
  * Refresca ejércitos y marcadores del mapa, muestra resultado al jugador.
@@ -3616,6 +3622,7 @@ const handleArmyAttackFromPopup = async (enemyArmy) => {
     if (btn) btn.disabled = false;
   }
 };
+
 
 /**
  * Detiene un ejército desde el popup del mapa.

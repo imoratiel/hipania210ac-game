@@ -44,15 +44,35 @@ class ArmyModel {
     async GetArmyUnits(army_id) {
         const query = `
             SELECT
-                t.quantity, t.experience, t.morale,
+                t.unit_type_id, t.quantity, t.experience, t.morale,
                 ut.name AS unit_name, ut.attack, ut.health_points,
-                t.stamina, t.force_rest 
+                t.stamina, t.force_rest
             FROM troops t
             JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
             WHERE t.army_id = $1
         `;
         const result = await db.query(query, [army_id]);
         return result;
+    }
+    async GetArmyForDismiss(client, army_id) {
+        const result = await client.query(
+            `SELECT a.army_id, a.player_id, a.h3_index,
+                    a.food_provisions, a.gold_provisions,
+                    a.wood_provisions, a.stone_provisions, a.iron_provisions,
+                    m.player_id AS fief_owner
+             FROM armies a
+             JOIN h3_map m ON a.h3_index = m.h3_index
+             WHERE a.army_id = $1`,
+            [army_id]
+        );
+        return result.rows[0] ?? null;
+    }
+    async GetTroopGroup(client, army_id, unit_type_id) {
+        const result = await client.query(
+            'SELECT quantity FROM troops WHERE army_id = $1 AND unit_type_id = $2',
+            [army_id, unit_type_id]
+        );
+        return result.rows[0] ?? null;
     }
     async GetArmiesInBounds(h3CellsArray) {
         const query = `
@@ -152,13 +172,19 @@ class ArmyModel {
     }
     async GetTerritoryForRecruitment(client, h3_index) {
         const result = await client.query(
-            `SELECT td.h3_index, td.wood_stored, td.stone_stored, td.iron_stored, m.player_id
+            `SELECT td.h3_index, td.population, td.wood_stored, td.stone_stored, td.iron_stored, m.player_id
              FROM territory_details td
              JOIN h3_map m ON td.h3_index = m.h3_index
              WHERE td.h3_index = $1`,
             [h3_index]
         );
         return result;
+    }
+    async DeductPopulation(client, h3_index, amount) {
+        await client.query(
+            'UPDATE territory_details SET population = population - $1 WHERE h3_index = $2',
+            [amount, h3_index]
+        );
     }
     async FindArmy(client, h3_index, army_name, player_id) {
         const result = await client.query(

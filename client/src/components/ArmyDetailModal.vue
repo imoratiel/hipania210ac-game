@@ -33,6 +33,7 @@
                     <th class="adm-th-bar">Estamina</th>
                     <th class="adm-th-num">Atq.</th>
                     <th class="adm-th-num">Estado</th>
+                    <th class="adm-th-dismiss">Licenciar</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -56,6 +57,20 @@
                     <td class="adm-td-num">
                       <span v-if="t.force_rest" class="adm-badge adm-badge-rest">😴 Descanso</span>
                       <span v-else class="adm-badge adm-badge-ok">✅ Listo</span>
+                    </td>
+                    <td class="adm-td-dismiss">
+                      <div class="adm-dismiss-ctrl">
+                        <input
+                          v-model.number="dismissQty[t.unit_type_id]"
+                          type="number" min="1" :max="t.quantity"
+                          class="adm-dismiss-input"
+                        />
+                        <button
+                          class="adm-dismiss-btn"
+                          :disabled="dismissing.has(t.unit_type_id)"
+                          @click="handleDismiss(t)"
+                        >{{ dismissing.has(t.unit_type_id) ? '⏳' : 'Licenciar' }}</button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -100,6 +115,7 @@
 <script setup>
 import { ref, watch, onUnmounted } from 'vue';
 import axios from 'axios';
+import { dismissTroops } from '../services/mapApi.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -107,12 +123,40 @@ const props = defineProps({
   show:    { type: Boolean, default: false },
   army:    { type: Object,  default: null  },  // datos básicos del panel (name, army_id, …)
 });
-const emit = defineEmits(['close']);
+const emit = defineEmits(['close', 'dismissed']);
 
 const loading    = ref(false);
 const error      = ref('');
 const armyDetail = ref(null);  // army con provisiones
 const troops     = ref([]);
+const dismissQty  = ref({});   // { [unit_type_id]: quantity }
+const dismissing  = ref(new Set());
+
+const handleDismiss = async (troop) => {
+  const qty = dismissQty.value[troop.unit_type_id] ?? 1;
+  if (!qty || qty <= 0 || qty > troop.quantity) {
+    alert('Cantidad inválida');
+    return;
+  }
+  if (!confirm(`Esta acción no puede deshacerse. ${qty} ${troop.unit_name} volverán a ser población civil. ¿Confirmar?`)) return;
+
+  dismissing.value = new Set([...dismissing.value, troop.unit_type_id]);
+  try {
+    const result = await dismissTroops(props.army.army_id, troop.unit_type_id, qty);
+    emit('dismissed', { message: result.message, armyDissolved: result.army_dissolved });
+    if (result.army_dissolved) {
+      emit('close');
+    } else {
+      await fetchDetail(props.army.army_id); // refresca la tabla
+    }
+  } catch (err) {
+    alert(err?.response?.data?.message || 'Error al licenciar tropas');
+  } finally {
+    const next = new Set(dismissing.value);
+    next.delete(troop.unit_type_id);
+    dismissing.value = next;
+  }
+};
 
 const barColor = (val) => {
   const n = parseFloat(val);
@@ -129,6 +173,8 @@ const fetchDetail = async (armyId) => {
     if (data.success) {
       armyDetail.value = data.army;
       troops.value     = data.troops;
+      // Init dismiss inputs to 1 for each unit type
+      dismissQty.value = Object.fromEntries(data.troops.map(t => [t.unit_type_id, 1]));
     } else {
       error.value = data.message || 'Error al cargar datos';
     }
@@ -305,6 +351,23 @@ onUnmounted(() => document.removeEventListener('keydown', handleEsc));
 
 /* Sin tropas */
 .adm-empty { padding: 20px; text-align: center; color: #4b5563; font-style: italic; font-size: 0.85rem; }
+
+/* Columna licenciar */
+.adm-th-dismiss { text-align: center; white-space: nowrap; }
+.adm-td-dismiss { padding: 6px 10px; }
+.adm-dismiss-ctrl { display: flex; align-items: center; gap: 5px; justify-content: center; }
+.adm-dismiss-input {
+  width: 48px; padding: 3px 5px; text-align: center;
+  background: #1f2937; color: #e2e8f0; border: 1px solid #374151;
+  border-radius: 4px; font-size: 0.8rem;
+}
+.adm-dismiss-btn {
+  padding: 3px 8px; font-size: 0.75rem; white-space: nowrap; cursor: pointer;
+  background: #3d1515; color: #f87171; border: 1px solid #6b2a2a; border-radius: 4px;
+  transition: background 0.15s;
+}
+.adm-dismiss-btn:hover:not(:disabled) { background: #5c1c1c; }
+.adm-dismiss-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Provisiones */
 .adm-provisions {
