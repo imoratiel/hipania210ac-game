@@ -15,6 +15,7 @@ export function generateCellPopupContent(cell, config) {
     playerId,
     playerGold,
     playerHexes,
+    playerCapitalH3,
     currentTurn,
     isColonizing,
     explorationConfig,
@@ -133,8 +134,10 @@ export function generateCellPopupContent(cell, config) {
   // ACTIONS
   popupContent += '<div class="popup-actions">';
 
-  // "Fundar Capital" button: only shown to players who have no territory yet
-  if (!cell.player_id && playerHexes.size === 0) {
+  // "Fundar Capital" button: only shown when the hex is unclaimed AND the player has no capital.
+  // Double guard: playerCapitalH3 (fetched from API on mount) is authoritative once loaded;
+  // playerHexes.size === 0 covers the brief window before that request completes.
+  if (!cell.player_id && !playerCapitalH3 && playerHexes.size === 0) {
     const hasEnoughGold = playerGold >= 100;
     const isCurrentlyColonizing = isColonizing;
     let disabledReason = '';

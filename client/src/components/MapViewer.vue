@@ -784,7 +784,7 @@ const mapContainer = ref(null);
 const loading = ref(false);
 const error = ref(null);
 const hexagonCount = ref(0);
-const hexagonOpacity = ref(100); // 100% opacity by default to match rendered hexagons
+const hexagonOpacity = ref(parseInt(localStorage.getItem('feudos_transparency') ?? '100', 10));
 const currentZoom = ref(13);
 const currentResolution = ref(8); // H3 resolution (8 or 10)
 const terrainTypes = ref([]);
@@ -2475,6 +2475,7 @@ const clearBuildingMarkers = () => {
  * Update opacity of all hexagons
  */
 const updateHexagonOpacity = () => {
+  localStorage.setItem('feudos_transparency', hexagonOpacity.value);
   const sliderMultiplier = hexagonOpacity.value / 100;
   hexagonLayer.eachLayer((layer) => {
     if (layer.setStyle && layer._semanticFillOpacity !== undefined) {
@@ -3071,6 +3072,7 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
       playerId: playerId.value,
       playerGold: playerGold.value,
       playerHexes: playerHexes.value,
+      playerCapitalH3: capitalH3Index.value,
       currentTurn: currentTurn.value,
       isColonizing: isColonizing.value,
       explorationConfig: explorationConfig.value,
@@ -4129,6 +4131,8 @@ onMounted(() => {
   updateFiefsUI(); // Load initial fiefs list
   loadMessages(); // Load initial messages
   startSync(); // Start server synchronization (polls every 30 seconds)
+  // Pre-fetch capital so the "Fundar Capital" button condition is reliable from the first click
+  mapApi.getCapital().then(r => { if (r?.success) capitalH3Index.value = r.h3_index; }).catch(() => {});
 
   // Setup Map Interaction Controller
   setupMapInteractionController();
