@@ -46,6 +46,7 @@ async function processHarvest(client, turn, config) {
                 let totalStoneProduced = 0;
                 let totalIronProduced = 0;
                 let totalGoldProduced = 0;
+                const miracleHarvests = []; // Tracks miracle events for the notification
 
                 // Process each territory
                 for (const territory of territories.rows) {
@@ -60,15 +61,38 @@ async function processHarvest(client, turn, config) {
                     const lumberMultiplier = 1 + ((territory.lumber_level || 0) * (config.infrastructure?.prod_multiplier_per_level || 0.20));
                     const mineMultiplier = 1 + ((territory.mine_level || 0) * (config.infrastructure?.prod_multiplier_per_level || 0.20));
 
-                    foodProduction = Math.floor(foodProduction * farmMultiplier * 2); // x2 food bonus
+                    foodProduction = Math.floor(foodProduction * farmMultiplier * GAME_CONFIG.HARVEST.FOOD_PRODUCTION_MULTIPLIER);
                     woodProduction = Math.floor(woodProduction * lumberMultiplier);
                     stoneProduction = Math.floor(stoneProduction * mineMultiplier);
                     ironProduction = Math.floor(ironProduction * mineMultiplier);
 
-                    // Gold production (10% of population).
-                    // BALANCE TEST MULTIPLIER: set to 1 to restore normal behaviour.
-                    const GOLD_BALANCE_MULTIPLIER = 10;
-                    const goldProduction = Math.floor((territory.population || 0) * 0.1 * GOLD_BALANCE_MULTIPLIER);
+                    // ── EMERGENCY HARVEST ────────────────────────────────────────────────
+                    // If the fief cannot sustain even one more day of consumption after this
+                    // harvest, simulate a miraculous surge in food production (×2.0 to ×4.0).
+                    // Only applies to food and only when the fief is truly critical.
+                    const population = territory.population || 0;
+                    const nextTurnConsumption = Math.floor(population / 100.0) * 0.1;
+                    const foodAfterHarvest = (territory.food_stored || 0) + foodProduction;
+
+                    if (nextTurnConsumption > 0 && foodAfterHarvest < nextTurnConsumption) {
+                        const { EMERGENCY_HARVEST_MIN: ehMin, EMERGENCY_HARVEST_MAX: ehMax } = GAME_CONFIG.HARVEST;
+                        const miracleMultiplier = ehMin + Math.random() * (ehMax - ehMin);
+                        const normalProduction = foodProduction;
+                        foodProduction = Math.floor(foodProduction * miracleMultiplier);
+                        const bonus = foodProduction - normalProduction;
+
+                        miracleHarvests.push({
+                            h3_index: territory.h3_index,
+                            multiplier: miracleMultiplier,
+                            bonus,
+                        });
+
+                        Logger.engine(`[TURN ${turn}] ✨ COSECHA MILAGROSA en ${territory.h3_index} (player ${player.player_id}): ×${miracleMultiplier.toFixed(2)}, +${bonus} comida extra`);
+                    }
+                    // ────────────────────────────────────────────────────────────────────
+
+                    // Gold production (10% of population × balance multiplier).
+                    const goldProduction = Math.floor((territory.population || 0) * 0.1 * GAME_CONFIG.HARVEST.GOLD_PRODUCTION_MULTIPLIER);
 
                     // Update territory storage
                     await client.query(`
@@ -115,6 +139,14 @@ async function processHarvest(client, turn, config) {
                 `, [netGold, player.player_id]);
 
                 // Generate harvest notification
+                const miracleSection = miracleHarvests.length > 0
+                    ? `\n\n✨ **¡Cosecha Milagrosa!**\n` +
+                      `Los campesinos han redoblado esfuerzos ante la hambruna y la producción ha aumentado:\n` +
+                      miracleHarvests.map(m =>
+                          `• ${m.h3_index}: ×${m.multiplier.toFixed(2)} (+${m.bonus} comida extra)`
+                      ).join('\n')
+                    : '';
+
                 const messageBody = `
 🌾 **Producción Total:**
 • Comida: +${totalFoodProduced}
@@ -131,7 +163,7 @@ async function processHarvest(client, turn, config) {
 • Comida: ${netFood >= 0 ? '+' : ''}${netFood}
 • Oro: ${netGold >= 0 ? '+' : ''}${netGold}
 
-${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.length}` : '⚠️ No tienes territorios productivos este turno'}
+${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.length}` : '⚠️ No tienes territorios productivos este turno'}${miracleSection}
                 `.trim();
 
                 await NotificationService.createSystemNotification(player.player_id, 'HARVEST', messageBody, turn);
@@ -799,8 +831,9 @@ async function processGameTurn(pool, config) {
         // processTaxCollection has its own guards: day-of-month check + DB idempotency key
         await processTaxCollection(client, newTurn, config, gameDate);
 
-        // Tithe system (every turn if enabled: 10% of non-capital resources → capital)
-        await processTithe(client, newTurn, config);
+        // Tithe system (day 10 of each game month, same as tax collection)
+        // processTithe has its own guards: day-of-month check + DB idempotency key
+        await processTithe(client, newTurn, config, gameDate);
 
         await client.query('COMMIT');
         Logger.engine(`[TURN ${newTurn}] Completed successfully - Next turn in ${config.gameplay?.turn_duration_seconds || 60}s`);

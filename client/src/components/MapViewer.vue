@@ -53,7 +53,7 @@
         <button
           class="nav-button"
           :class="{ active: activeOverlay === 'layers' }"
-          @click="activeOverlay = 'layers'"
+          @click="openOverlay('layers')"
           title="Capas del Mapa"
         >
           <span class="nav-icon">🗺️</span>
@@ -80,7 +80,7 @@
         <button
           class="nav-button"
           :class="{ active: activeOverlay === 'reino' }"
-          @click="activeOverlay = 'reino'"
+          @click="openOverlay('reino')"
           title="Reino"
         >
           <span class="nav-icon">🏰</span>
@@ -2675,8 +2675,9 @@ const togglePanel = (panelName) => {
     activePanel.value = null;
     console.log(`✓ Panel cerrado: ${panelName}`);
   } else {
-    // Open the new panel (closes any other)
+    // Open the new panel (closes any other panel and any open overlay)
     activePanel.value = panelName;
+    activeOverlay.value = null;
     console.log(`✓ Panel abierto: ${panelName}`);
 
     // Reset infinite scroll when opening kingdom panel
@@ -4130,10 +4131,19 @@ const handleKeyDown = (event) => {
     }
   }
 
-  // PRIORIDAD 3: Cerrar paneles laterales/overlays (Reino, Mensajes, Tropas)
+  // PRIORIDAD 3: Cerrar paneles laterales/overlays (Reino, Mensajes, Tropas, Capas)
   if (!actionTaken && activeOverlay.value) {
     console.log(`[MapViewer] ⭐ PRIORIDAD 3: Cerrando overlay: ${activeOverlay.value}`);
     activeOverlay.value = null;
+    actionTaken = true;
+  }
+
+  // PRIORIDAD 3b: Cerrar panel lateral activo (Economía, Mercado, Notificaciones, Perfil)
+  if (!actionTaken && activePanel.value) {
+    console.log(`[MapViewer] ⭐ PRIORIDAD 3b: Cerrando panel: ${activePanel.value}`);
+    activePanel.value = null;
+    // Devolver el foco al contenedor del mapa para que el usuario pueda interactuar
+    map?.getContainer()?.focus();
     actionTaken = true;
   }
 

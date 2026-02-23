@@ -7,23 +7,47 @@ const TITHE_RATE = 0.10;
 /**
  * Transfiere el diezmo (10% de cada recurso) de los feudos secundarios a la capital.
  *
- * Solo se ejecuta cuando config.gameplay.tithe_active === true.
- * Si un jugador no tiene capital definida (players.capital_h3), se omite.
+ * Solo se ejecuta el día 10 de cada mes del calendario de juego,
+ * cuando config.gameplay.tithe_active === true.
+ * Incluye guardia de idempotencia (igual que el cobrador de impuestos) para evitar
+ * doble ejecución si el servidor se reinicia el mismo día 10.
  *
  * Debe llamarse DENTRO de una transacción activa (el client ya tiene BEGIN).
  *
- * @param {Object} client - Cliente PostgreSQL (dentro de transacción)
- * @param {number} turn   - Turno actual (para logs y notificaciones)
- * @param {Object} config - Configuración del juego (cargada desde game_config)
+ * @param {Object} client   - Cliente PostgreSQL (dentro de transacción)
+ * @param {number} turn     - Turno actual (para logs y notificaciones)
+ * @param {Object} config   - Configuración del juego (cargada desde game_config)
+ * @param {Date}   gameDate - Fecha actual del calendario de juego
  */
-async function processTithe(client, turn, config) {
+async function processTithe(client, turn, config, gameDate) {
     // Guard: tithe only runs when explicitly enabled
     if (!config.gameplay?.tithe_active) {
         Logger.engine(`[TURN ${turn}] Tithe system: disabled (tithe_active = false)`);
         return;
     }
 
-    Logger.engine(`[TURN ${turn}] Tithe collection started (rate: ${TITHE_RATE * 100}%)`);
+    // ── Safety check 1: solo el día 10 del mes del calendario de juego ──────
+    const gd = new Date(gameDate);
+    const dayOfMonth = gd.getDate();
+    if (dayOfMonth !== 10) {
+        Logger.engine(`[TURN ${turn}] Tithe skipped (game day ${dayOfMonth}, only runs on day 10)`);
+        return;
+    }
+
+    // ── Safety check 2: evitar doble ejecución en caso de reinicio del servidor ──
+    const gameYearMonth = `${gd.getFullYear()}-${String(gd.getMonth() + 1).padStart(2, '0')}`;
+
+    const lastRunResult = await client.query(
+        `SELECT value FROM game_config WHERE "group" = 'system' AND key = 'last_tithe_month'`
+    );
+    const lastRunMonth = lastRunResult.rows[0]?.value ?? null;
+
+    if (lastRunMonth === gameYearMonth) {
+        Logger.engine(`[TURN ${turn}] Tithe skipped (already collected for game month ${gameYearMonth})`);
+        return;
+    }
+
+    Logger.engine(`[TURN ${turn}] Tithe collection started — game month ${gameYearMonth} (rate: ${TITHE_RATE * 100}%)`);
 
     try {
         // Only players who own territories AND have a capital defined
@@ -144,7 +168,15 @@ async function processTithe(client, turn, config) {
             }
         }
 
-        Logger.engine(`[TURN ${turn}] Tithe collection completed: ${totalPlayers} players processed`);
+        // ── Mark this month as collected (prevents double-execution on restart) ──
+        await client.query(
+            `INSERT INTO game_config ("group", "key", "value")
+             VALUES ('system', 'last_tithe_month', $1)
+             ON CONFLICT ("group", "key") DO UPDATE SET value = EXCLUDED.value`,
+            [gameYearMonth]
+        );
+
+        Logger.engine(`[TURN ${turn}] Tithe collection completed: ${totalPlayers} players processed. Recorded month ${gameYearMonth}.`);
 
     } catch (error) {
         Logger.error(error, {
