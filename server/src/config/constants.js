@@ -59,30 +59,4 @@ const GAME_CONFIG = {
     },
 };
 
-/**
- * Calcula el límite máximo de población de un feudo.
- * @param {string}  terrainName - Valor de terrain_types.name
- * @param {boolean} isCapital   - true si este hex es la capital del jugador
- * @returns {number} Límite de población (hard cap)
- */
-function getPopulationCap(terrainName, isCapital) {
-    if (isCapital) return GAME_CONFIG.POPULATION.CAP_CAPITAL;
-    const t = (terrainName || '').toLowerCase();
-    const { PLAINS_COAST_TERRAINS, CAP_PLAINS_COAST, CAP_DEFAULT } = GAME_CONFIG.POPULATION;
-    return PLAINS_COAST_TERRAINS.some(n => t.includes(n)) ? CAP_PLAINS_COAST : CAP_DEFAULT;
-}
-
-/**
- * Calcula el límite máximo de ejércitos de un jugador.
- * @param {number} numFiefs - Número de feudos que posee el jugador
- * @returns {number} Límite de ejércitos
- */
-function getArmyLimit(numFiefs) {
-    const { BASE, FIEFS_PER_SLOT } = GAME_CONFIG.ARMY_LIMITS;
-    return BASE + Math.floor((numFiefs || 0) / FIEFS_PER_SLOT);
-}
-
-// Exportar para Node.js (CommonJS) o ESModules según tu setup
 module.exports = GAME_CONFIG;
-module.exports.getPopulationCap = getPopulationCap;
-module.exports.getArmyLimit = getArmyLimit;

@@ -4,7 +4,7 @@ const ArmySimulationService = require('./ArmySimulationService.js');
 const h3 = require('h3-js');
 const pool = require('../../db.js');
 const GAME_CONFIG = require('../config/constants.js');
-const { getArmyLimit } = require('../config/constants.js');
+const { getArmyLimit, getPopulationCap } = require('../config/gameFunctions.js');
 const NameGenerator = require('../logic/NameGenerator.js');
 
 class ArmyService {
@@ -222,7 +222,7 @@ class ArmyService {
             detail.army.fief_iron        = parseInt(detail.army.fief_iron)          || 0;
             detail.army.is_own_fief      = detail.army.is_own_fief === true;
             // Compute population cap for dismiss-warning in the UI
-            const { getPopulationCap } = require('../config/constants.js');
+            // getPopulationCap imported at top of file
             const isCapital = detail.army.h3_index === detail.army.capital_h3;
             detail.army.fief_pop_cap = getPopulationCap(detail.army.terrain_name, isCapital);
 
@@ -709,7 +709,7 @@ class ArmyService {
             }
 
             // Soldiers return to local population, capped by terrain limit
-            const { getPopulationCap } = require('../config/constants.js');
+            // getPopulationCap imported at top of file
             const isCapital = army.h3_index === army.capital_h3;
             const popCap = getPopulationCap(army.terrain_name, isCapital);
             const currentPop = parseInt(army.fief_population) || 0;
