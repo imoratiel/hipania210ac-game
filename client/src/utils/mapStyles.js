@@ -81,7 +81,7 @@ export function getHexagonBorderStyle(hex, config) {
     // Neutral hexes use terrain color or minimal border
     if (!hex.player_id && !hasRoad) {
       borderColor = terrainColor;
-      borderWeight = isHighRes ? 0.5 : 1;
+      borderWeight = isHighRes ? 1.0 : 1.5;
     }
   }
 

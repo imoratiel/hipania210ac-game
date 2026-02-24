@@ -2219,7 +2219,7 @@ const renderHexagons = (hexagons) => {
         fill: false,
         color: borderColor,
         weight: borderWeight,
-        opacity: 1.0, // Assuming solid borders unless specified
+        opacity: 0.8,
         interactive: false, // Click-through to fill
         className: isCapital ? 'capital-hexagon' : '' // Keep class for possible CSS overrides
       });
@@ -6007,9 +6007,9 @@ onBeforeUnmount(() => {
   height: 100%;
 }
 
-/* Filtro medieval: sepia suave + contraste ligero sobre los tiles de fondo */
+/* Filtro "war room": fondo oscuro tipo pergamino quemado, hexágonos brillan sobre él */
 #map :deep(.leaflet-layer) {
-  filter: sepia(0.4) contrast(1.05) brightness(0.97);
+  filter: sepia(0.5) brightness(0.7) contrast(1.2) saturate(0.8);
 }
 
 .loading-overlay {
