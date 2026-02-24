@@ -24,6 +24,7 @@ const { Logger }            = require('../utils/logger');
 const CombatModel           = require('../models/CombatModel.js');
 const ArmyModel             = require('../models/ArmyModel.js');
 const NotificationService   = require('./NotificationService.js');
+const GAME_CONFIG           = require('../config/constants.js');
 
 class CombatService {
     // ─────────────────────────────────────────────────────────────────────────
@@ -247,7 +248,7 @@ class CombatService {
                     Milicia:  makeDesglose(preDefender, enemyBattle.lossRate)
                 },
                 message,
-                experience_gained: 0
+                experience_gained: playerBattle.xp
             });
 
         } catch (error) {
@@ -348,8 +349,8 @@ class CombatService {
         // 9. Experiencia para supervivientes
         const survivorsA = await this._getSurvivors(client, armyAId);
         const survivorsB = await this._getSurvivors(client, armyBId);
-        if (survivorsA.length > 0) await this._distributeExperience(client, survivorsA, deadB + deadA * 2);
-        if (survivorsB.length > 0) await this._distributeExperience(client, survivorsB, deadA + deadB * 2);
+        const xpA = await this._distributeExperience(client, survivorsA, deadB + deadA * 2);
+        const xpB = await this._distributeExperience(client, survivorsB, deadA + deadB * 2);
 
         // 10. Verificar ejércitos aniquilados
         const armyADestroyed = await CombatModel.deleteArmyIfEmpty(client, armyAId);
@@ -393,12 +394,14 @@ class CombatService {
             armyA: {
                 id: armyAId, name: armyA.name, playerId: armyA.player_id,
                 pc: pcA, dead: deadA, lossRate: lossRateA,
+                xp: xpA,
                 destroyed: armyADestroyed,
                 retreat: retreatA,
             },
             armyB: {
                 id: armyBId, name: armyB.name, playerId: armyB.player_id,
                 pc: pcB, dead: deadB, lossRate: lossRateB,
+                xp: xpB,
                 destroyed: armyBDestroyed,
                 retreat: retreatB,
             },
@@ -492,16 +495,20 @@ class CombatService {
 
     /**
      * Distribuye experiencia entre supervivientes de forma proporcional.
-     * EXP = (bajas enemigas × 1) + (bajas propias × 2). Cap 100.
+     * EXP_base = (bajas enemigas × 1) + (bajas propias × 2)
+     * EXP_final = EXP_base × COMBAT_XP_MULTIPLIER. Cap 100 por tropa.
+     * @returns {number} XP total distribuida (tras multiplicador)
      */
     async _distributeExperience(client, survivors, totalExp) {
-        if (totalExp <= 0 || survivors.length === 0) return;
-        const totalQty = survivors.reduce((s, t) => s + t.quantity, 0) || 1;
+        if (totalExp <= 0 || survivors.length === 0) return 0;
+        const multiplied = Math.round(totalExp * GAME_CONFIG.MILITARY.COMBAT_XP_MULTIPLIER);
+        const totalQty   = survivors.reduce((s, t) => s + t.quantity, 0) || 1;
         for (const troop of survivors) {
-            const share  = (troop.quantity / totalQty) * totalExp;
+            const share  = (troop.quantity / totalQty) * multiplied;
             const newExp = Math.min(100, Math.round(parseFloat(troop.experience) + share));
             await CombatModel.updateTroopExperience(client, troop.troop_id, newExp);
         }
+        return multiplied;
     }
 
     /**
