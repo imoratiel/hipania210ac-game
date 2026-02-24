@@ -47,7 +47,7 @@ services:
       # Persistencia: los datos no se borran al apagar Docker
       - pgdata:/var/lib/postgresql/data
       # Autoejecución de tus scripts de la carpeta /sql/
-      - ./sql:/docker-entrypoint-initdb.d/
+      - ./sql:/docker-entrypoint-initdb.d/:ro
     # Verificación de salud para que 'app' sepa cuándo conectarse
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
