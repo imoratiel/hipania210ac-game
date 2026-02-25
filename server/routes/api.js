@@ -141,5 +141,57 @@ module.exports = function () {
     router.post('/admin/engine/force-harvest',     authenticateToken, requireAdmin, (req, res) => TurnService.ForceGameHarvest(req, res));
     router.post('/admin/engine/force-exploration', authenticateToken, requireAdmin, (req, res) => TurnService.ForceGameExploration(req, res));
 
+    // ============================================
+    // AI AGENTS (ADMIN ONLY)
+    // ============================================
+    const AIManagerService = require('../src/services/AIManagerService');
+
+    // List all AI agents
+    router.get('/admin/ai/agents', authenticateToken, requireAdmin, async (req, res) => {
+        try {
+            const pool = require('../db.js');
+            const result = await pool.query(
+                `SELECT p.player_id, p.display_name, p.ai_profile, p.gold, p.color, p.capital_h3,
+                        COUNT(m.h3_index)::int AS territory_count
+                 FROM players p
+                 LEFT JOIN h3_map m ON m.player_id = p.player_id
+                 WHERE p.is_ai = TRUE
+                 GROUP BY p.player_id
+                 ORDER BY p.player_id`
+            );
+            res.json({ success: true, agents: result.rows });
+        } catch (error) {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
+    // Spawn a new Farmer AI agent (optionally at a specific hex)
+    router.post('/admin/ai/spawn-farmer', authenticateToken, requireAdmin, async (req, res) => {
+        try {
+            const { h3_index } = req.body;
+            const result = await AIManagerService.spawnFarmerAgent(h3_index || null);
+            if (result.success) {
+                res.json(result);
+            } else {
+                res.status(400).json(result);
+            }
+        } catch (error) {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
+    // Force an AI decision cycle immediately (for testing)
+    router.post('/admin/ai/force-turn', authenticateToken, requireAdmin, async (req, res) => {
+        try {
+            const pool = require('../db.js');
+            const turnResult = await pool.query('SELECT current_turn FROM world_state WHERE id = 1');
+            const turn = turnResult.rows[0]?.current_turn ?? 0;
+            await AIManagerService.processAITurn(turn);
+            res.json({ success: true, message: `Ciclo IA forzado en turno ${turn}` });
+        } catch (error) {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
     return router;
 };

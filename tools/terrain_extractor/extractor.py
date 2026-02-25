@@ -1487,20 +1487,20 @@ def insert_terrain_data_batch(
             logger.info("Updating h3_map data (preserving has_road markers and inserting coordinates)...")
 
             # Prepare insert query that PRESERVES has_road on conflict and includes coord_x, coord_y
-            # New schema includes player_id, building_type_id, coord_x, coord_y (defaults: NULL, 0, 0, 0)
+            # New schema includes player_id, coord_x, coord_y (defaults: NULL, 0, 0, 0)
             insert_query = """
-                INSERT INTO h3_map (h3_index, terrain_type_id, player_id, building_type_id, has_road, coord_x, coord_y)
+                INSERT INTO h3_map (h3_index, terrain_type_id, player_id, has_road, coord_x, coord_y)
                 VALUES %s
                 ON CONFLICT (h3_index)
                 DO UPDATE SET
                     terrain_type_id = EXCLUDED.terrain_type_id,
                     coord_x = EXCLUDED.coord_x,
                     coord_y = EXCLUDED.coord_y
-                    -- player_id, building_type_id, has_road NOT updated, preserving existing values
+                    -- player_id, has_road NOT updated, preserving existing values
             """
 
             # Note: We need to provide all fields for new inserts
-            # Defaults: player_id=NULL, building_type_id=0, has_road=FALSE
+            # Defaults: player_id=NULL, has_road=FALSE
             # h3_index is already a hexadecimal string, coord_x and coord_y are integers
 
             # VALIDACIÓN: Verificar que coord_x y coord_y son enteros

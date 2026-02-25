@@ -506,6 +506,73 @@ async function processExplorations(client, turn, config) {
 }
 
 /**
+ * Process fief building construction ticks.
+ * Decrements remaining_construction_turns each turn and completes buildings at 0.
+ * @param {Object} client - PostgreSQL client (within transaction)
+ * @param {number} turn - Current turn number
+ */
+async function processConstructionTicks(client, turn) {
+    try {
+        // Decrement all buildings under construction
+        const decrementResult = await client.query(`
+            UPDATE fief_buildings
+            SET remaining_construction_turns = GREATEST(0, remaining_construction_turns - 1)
+            WHERE is_under_construction = TRUE
+            RETURNING h3_index, building_id, remaining_construction_turns
+        `);
+
+        if (decrementResult.rows.length === 0) return;
+
+        // Complete buildings that have reached 0 turns remaining
+        const completedResult = await client.query(`
+            UPDATE fief_buildings
+            SET is_under_construction = FALSE
+            WHERE is_under_construction = TRUE AND remaining_construction_turns = 0
+            RETURNING h3_index, building_id
+        `);
+
+        if (completedResult.rows.length === 0) {
+            Logger.engine(`[TURN ${turn}] Construction ticks: ${decrementResult.rows.length} en curso`);
+            return;
+        }
+
+        // Notify each affected human player
+        for (const building of completedResult.rows) {
+            try {
+                const infoResult = await client.query(`
+                    SELECT m.player_id, p.is_ai, b.name AS building_name
+                    FROM h3_map m
+                    JOIN players p ON p.player_id = m.player_id
+                    JOIN fief_buildings fb ON fb.h3_index = m.h3_index
+                    JOIN buildings b ON b.id = fb.building_id
+                    WHERE fb.h3_index = $1 AND fb.building_id = $2
+                `, [building.h3_index, building.building_id]);
+
+                if (infoResult.rows.length > 0) {
+                    const { player_id, is_ai, building_name } = infoResult.rows[0];
+                    if (!is_ai) {
+                        await NotificationService.createSystemNotification(
+                            player_id,
+                            'PRODUCTION',
+                            `🏗️ Construcción completada\n\n"${building_name}" ha sido construido en el feudo ${building.h3_index} y ya está operativo.`,
+                            turn
+                        );
+                    }
+                    Logger.engine(`[TURN ${turn}] Edificio completado: "${building_name}" en ${building.h3_index} (player ${player_id})`);
+                }
+            } catch (notifError) {
+                Logger.error(notifError, { context: 'processConstructionTicks.notify', h3_index: building.h3_index });
+            }
+        }
+
+        Logger.engine(`[TURN ${turn}] Construction ticks: ${decrementResult.rows.length} en curso, ${completedResult.rows.length} completados`);
+    } catch (error) {
+        Logger.error(error, { context: 'turn_engine.processConstructionTicks', turn });
+        // Don't throw — allow turn to continue
+    }
+}
+
+/**
  * Process passive stamina recovery for all armies
  * Also handles decrementing recovering counter and regenerating movement points
  * @param {Object} client - PostgreSQL client (within transaction)
@@ -798,6 +865,9 @@ async function processGameTurn(pool, config) {
         // Grace turns decay: decrement occupation counters (every turn)
         await processGraceTurns(client, newTurn);
 
+        // Building construction ticks (every turn)
+        await processConstructionTicks(client, newTurn);
+
         // Process completed explorations (every turn)
         await processExplorations(client, newTurn, config);
 
@@ -840,6 +910,12 @@ async function processGameTurn(pool, config) {
         await processTithe(client, newTurn, config, gameDate);
 
         await client.query('COMMIT');
+
+        // AI agent decision cycles (every 5 turns, outside the main transaction to avoid lock conflicts)
+        if (newTurn % 5 === 0) {
+            const AIManagerService = require('../services/AIManagerService');
+            await AIManagerService.processAITurn(newTurn);
+        }
         Logger.engine(`[TURN ${newTurn}] Completed successfully - Next turn in ${config.gameplay?.turn_duration_seconds || 60}s`);
 
         return { success: true, turn: newTurn, date: newDate, dayOfYear };
