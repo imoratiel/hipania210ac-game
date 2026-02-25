@@ -97,6 +97,12 @@
                 @click="$emit('openConstruction', fief.h3_index)"
                 title="Construir edificio"
               >🏗️</button>
+              <button
+                v-if="fief.fief_building && !fief.fief_building.is_under_construction && fief.fief_building.upgrade"
+                class="btn-micro btn-upgrade-micro"
+                @click="$emit('openUpgrade', { h3_index: fief.h3_index, upgrade: fief.fief_building.upgrade })"
+                :title="`Ampliar a ${fief.fief_building.upgrade.name} (${fief.fief_building.upgrade.gold_cost}💰, ${fief.fief_building.upgrade.turns}t)`"
+              >🏰</button>
             </td>
           </tr>
         </tbody>
@@ -115,7 +121,7 @@ defineProps({
   explorationConfig: Object
 });
 
-defineEmits(['focusOnFief', 'exploreFief', 'openRecruitment', 'openConstruction']);
+defineEmits(['focusOnFief', 'exploreFief', 'openRecruitment', 'openConstruction', 'openUpgrade']);
 
 const formatNumber = (val) => {
   if (val === null || val === undefined || isNaN(val)) return '0';
@@ -373,6 +379,17 @@ const formatGold = (val) => {
 .btn-build-micro:hover:not(:disabled) {
   background: rgba(45, 122, 79, 0.4);
   border-color: #81c784;
+}
+
+.btn-upgrade-micro {
+  background: rgba(93, 63, 211, 0.2);
+  color: #b39ddb;
+  border-color: rgba(93, 63, 211, 0.4);
+}
+
+.btn-upgrade-micro:hover:not(:disabled) {
+  background: rgba(93, 63, 211, 0.35);
+  border-color: #b39ddb;
 }
 
 .empty-state {

@@ -19,12 +19,12 @@ class TerrainModel {
                 fb.h3_index,
                 fb.building_id,
                 bld.name AS building_name,
-                bt.name  AS type_name
+                bt.name  AS type_name,
+                fb.is_under_construction
             FROM fief_buildings fb
             JOIN buildings bld ON fb.building_id = bld.id
             JOIN building_types bt ON bld.type_id = bt.building_type_id
             WHERE fb.h3_index = ANY($1::text[])
-              AND fb.is_under_construction = FALSE
         `;
         const result = await pool.query(query, [h3CellsArray]);
         return result;
@@ -48,7 +48,11 @@ class TerrainModel {
                 fb.building_id            AS fief_building_id,
                 fb.is_under_construction  AS fief_building_constructing,
                 fb.remaining_construction_turns AS fief_building_turns_left,
-                bld.name                  AS fief_building_name
+                bld.name                  AS fief_building_name,
+                upgrade_bld.id            AS upgrade_building_id,
+                upgrade_bld.name          AS upgrade_building_name,
+                upgrade_bld.gold_cost     AS upgrade_gold_cost,
+                upgrade_bld.construction_time_turns AS upgrade_turns
             FROM h3_map m
             LEFT JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
             LEFT JOIN players p ON m.player_id = p.player_id
@@ -56,6 +60,7 @@ class TerrainModel {
             LEFT JOIN territory_details td ON m.h3_index = td.h3_index
             LEFT JOIN fief_buildings fb ON m.h3_index = fb.h3_index
             LEFT JOIN buildings bld ON fb.building_id = bld.id
+            LEFT JOIN buildings upgrade_bld ON upgrade_bld.required_building_id = fb.building_id
             WHERE m.h3_index = $1
         `;
         const result = await pool.query(query, [h3_index]);

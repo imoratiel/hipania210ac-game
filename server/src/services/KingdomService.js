@@ -181,6 +181,70 @@ class KingdomService {
             client.release();
         }
     }
+    async UpgradeFiefBuilding(req, res) {
+        const client = await pool.connect();
+        try {
+            const { h3_index } = req.body;
+            const player_id = req.user.player_id;
+
+            if (!h3_index) {
+                return res.status(400).json({ success: false, message: 'h3_index es requerido' });
+            }
+
+            // Verify ownership
+            const owner = await KingdomModel.CheckTerritoryOwnership(client, h3_index);
+            if (owner?.player_id !== player_id) {
+                return res.status(403).json({ success: false, message: 'No posees este territorio' });
+            }
+
+            // Get current completed building
+            const current = await KingdomModel.GetExistingFiefBuilding(client, h3_index);
+            if (!current) {
+                return res.status(400).json({ success: false, message: 'Este feudo no tiene ningún edificio' });
+            }
+            if (current.is_under_construction) {
+                return res.status(400).json({ success: false, message: 'El edificio actual aún está en construcción' });
+            }
+
+            // Find the upgrade building
+            const result = await client.query(
+                'SELECT * FROM buildings WHERE required_building_id = $1 LIMIT 1',
+                [current.building_id]
+            );
+            const next = result.rows[0];
+            if (!next) {
+                return res.status(400).json({ success: false, message: 'Este edificio no tiene mejora disponible' });
+            }
+
+            // Verify gold
+            const player = await KingdomModel.GetPlayerGold(client, player_id);
+            if (player.gold < next.gold_cost) {
+                return res.status(400).json({ success: false, message: `Oro insuficiente. Necesitas ${next.gold_cost} 💰` });
+            }
+
+            await client.query('BEGIN');
+            await KingdomModel.DeductGold(client, player_id, next.gold_cost);
+            await KingdomModel.UpgradeFiefBuilding(client, h3_index, next.id, next.construction_time_turns);
+            await client.query('COMMIT');
+
+            Logger.action(
+                `🏰 Jugador ${player_id} inició ampliación a "${next.name}" en ${h3_index} (${next.construction_time_turns} turnos)`,
+                { player_id, h3_index, next_building_id: next.id, building_name: next.name }
+            );
+            res.json({
+                success: true,
+                message: `Ampliación a ${next.name} iniciada. Turnos restantes: ${next.construction_time_turns}`,
+                building_name: next.name,
+                turns: next.construction_time_turns,
+            });
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            Logger.error(error, { endpoint: '/territory/upgrade-building', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            res.status(500).json({ success: false, message: 'Error al iniciar ampliación' });
+        } finally {
+            client.release();
+        }
+    }
     async GetMyFiefs(req, res) {
         try {
             const result = await KingdomModel.GetMyFiefs(req.user.player_id);
@@ -196,6 +260,12 @@ class KingdomService {
                         name: row.fief_building_name,
                         is_under_construction: row.fief_building_constructing,
                         turns_left: row.fief_building_constructing ? row.fief_building_turns_left : null,
+                        upgrade: (!row.fief_building_constructing && row.upgrade_building_id) ? {
+                            id:        row.upgrade_building_id,
+                            name:      row.upgrade_building_name,
+                            gold_cost: row.upgrade_gold_cost,
+                            turns:     row.upgrade_turns
+                        } : null,
                     } : null,
                 };
             });

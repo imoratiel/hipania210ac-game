@@ -626,6 +626,16 @@ button {
   filter: brightness(1.2);
 }
 
+.btn-upgrade.btn-popup {
+  background: linear-gradient(135deg, #2d1a6e 0%, #5d3abf 100%) !important;
+  color: white !important;
+  margin-top: 6px !important;
+}
+
+.btn-upgrade.btn-popup:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+
 .popup-building-status {
   font-size: 12px !important;
   margin: 6px 14px 4px !important;

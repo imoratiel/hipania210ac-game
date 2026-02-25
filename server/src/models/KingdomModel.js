@@ -142,6 +142,14 @@ class KingdomModel {
             [h3_index, building_id, construction_turns]
         );
     }
+    async UpgradeFiefBuilding(client, h3_index, next_building_id, turns) {
+        await client.query(
+            `UPDATE fief_buildings
+             SET building_id = $1, remaining_construction_turns = $2, is_under_construction = TRUE
+             WHERE h3_index = $3`,
+            [next_building_id, turns, h3_index]
+        );
+    }
     async GetMyFiefs(player_id) {
         const query = `
             SELECT
@@ -157,7 +165,11 @@ class KingdomModel {
                 fb.building_id            AS fief_building_id,
                 bld.name                  AS fief_building_name,
                 fb.is_under_construction  AS fief_building_constructing,
-                fb.remaining_construction_turns AS fief_building_turns_left
+                fb.remaining_construction_turns AS fief_building_turns_left,
+                upgrade_bld.id            AS upgrade_building_id,
+                upgrade_bld.name          AS upgrade_building_name,
+                upgrade_bld.gold_cost     AS upgrade_gold_cost,
+                upgrade_bld.construction_time_turns AS upgrade_turns
             FROM h3_map m
             JOIN territory_details td ON m.h3_index = td.h3_index
             JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
@@ -165,6 +177,7 @@ class KingdomModel {
             LEFT JOIN settlements s ON m.h3_index = s.h3_index
             LEFT JOIN fief_buildings fb ON m.h3_index = fb.h3_index
             LEFT JOIN buildings bld ON fb.building_id = bld.id
+            LEFT JOIN buildings upgrade_bld ON upgrade_bld.required_building_id = fb.building_id
             LEFT JOIN (
                 SELECT a.h3_index, SUM(tr.quantity) AS total_troops
                 FROM armies a

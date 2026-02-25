@@ -106,6 +106,12 @@ class TerrainService {
                     name:             cell.fief_building_name,
                     is_under_construction: cell.fief_building_constructing,
                     turns_left:       cell.fief_building_constructing ? cell.fief_building_turns_left : null,
+                    upgrade: (!cell.fief_building_constructing && cell.upgrade_building_id) ? {
+                        id:        cell.upgrade_building_id,
+                        name:      cell.upgrade_building_name,
+                        gold_cost: cell.upgrade_gold_cost,
+                        turns:     cell.upgrade_turns
+                    } : null,
                 } : null,
                 settlement_name: cell.settlement_name,
                 coord_x: cell.coord_x,

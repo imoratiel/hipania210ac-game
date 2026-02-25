@@ -703,6 +703,7 @@
               @exploreFief="exploreFiefFromTable"
               @openRecruitment="openRecruitmentForFief"
               @openConstruction="openBuildModal"
+              @openUpgrade="(data) => openUpgradeModal(data.h3_index, data.upgrade)"
             />
           </div>
 
@@ -792,6 +793,42 @@
 
         <div v-if="buildModalBuildings.length === 0" class="build-empty">
           No hay edificios disponibles.
+        </div>
+      </div>
+    </div>
+
+    <!-- Building Upgrade Modal -->
+    <div v-if="showUpgradeModal" class="build-modal-overlay" @click.self="closeUpgradeModal">
+      <div class="build-modal">
+        <div class="build-modal-header">
+          <h2 class="build-modal-title">🏰 Ampliar Edificio</h2>
+          <button class="build-modal-close" @click="closeUpgradeModal" title="Cerrar">✕</button>
+        </div>
+        <p class="build-modal-subtitle">Feudo: <span class="build-modal-h3">{{ upgradeModalH3 }}</span></p>
+
+        <div v-if="upgradeModalBuilding" class="upgrade-preview">
+          <div class="build-card upgrade-card">
+            <div class="build-card-icon">{{ getBuildingIcon(upgradeModalBuilding.name) }}</div>
+            <div class="build-card-info">
+              <h3 class="build-card-name">{{ upgradeModalBuilding.name }}</h3>
+              <p class="build-card-type">Mejora del edificio actual</p>
+              <div class="build-card-stats">
+                <span class="build-stat">💰 {{ upgradeModalBuilding.gold_cost }}</span>
+                <span class="build-stat">⏱️ {{ upgradeModalBuilding.turns }}t</span>
+              </div>
+            </div>
+            <button
+              class="build-card-btn"
+              :disabled="playerGold < upgradeModalBuilding.gold_cost || isUpgrading"
+              :title="playerGold < upgradeModalBuilding.gold_cost ? `Oro insuficiente (necesitas ${upgradeModalBuilding.gold_cost} 💰)` : `Ampliar a ${upgradeModalBuilding.name}`"
+              @click="doUpgrade"
+            >
+              {{ isUpgrading ? '...' : 'Ampliar' }}
+            </button>
+          </div>
+          <p v-if="playerGold < upgradeModalBuilding.gold_cost" class="upgrade-warning">
+            ⚠️ Necesitas {{ upgradeModalBuilding.gold_cost - playerGold }} 💰 más para esta ampliación
+          </p>
         </div>
       </div>
     </div>
@@ -970,6 +1007,12 @@ const showBuildModal = ref(false);
 const buildModalH3 = ref(null);
 const buildModalBuildings = ref([]);
 const isConstructing = ref(false);
+
+// Building upgrade modal state
+const showUpgradeModal = ref(false);
+const upgradeModalH3 = ref(null);
+const upgradeModalBuilding = ref(null);
+const isUpgrading = ref(false);
 
 // Troops panel state
 const armies = ref([]);
@@ -1638,11 +1681,14 @@ const renderFiefIcons = (buildings) => {
   for (const bld of buildings) {
     try {
       const [lat, lng] = cellToLatLng(bld.h3_index);
-      const icon = getBuildingIcon(bld.building_name);
+      const isWip = bld.is_under_construction;
+      const icon = isWip ? '🏗️' : getBuildingIcon(bld.building_name);
+      const border = isWip ? '#c5a059' : '#9e9e9e';
+      const bg = isWip ? 'rgba(30,20,10,0.82)' : 'rgba(20,30,20,0.82)';
 
       const iconHtml = `<div style="
-        background: rgba(30,20,10,0.82);
-        border: 1.5px solid #c5a059;
+        background: ${bg};
+        border: 1.5px solid ${border};
         border-radius: 5px;
         width: 22px; height: 22px;
         display: flex; align-items: center; justify-content: center;
@@ -3232,6 +3278,19 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
       }, 100);
     }
 
+    // Add event listener to upgrade button (own fief with completed building that has an upgrade)
+    if (cell.player_id === playerId.value && cell.fief_building && !cell.fief_building.is_under_construction && cell.fief_building.upgrade) {
+      setTimeout(() => {
+        const upgradeBtn = document.getElementById(`upgrade-btn-${h3_index}`);
+        if (upgradeBtn) {
+          upgradeBtn.addEventListener('click', () => {
+            const upgrade = JSON.parse(upgradeBtn.dataset.upgrade);
+            map.closePopup();
+            openUpgradeModal(h3_index, upgrade);
+          });
+        }
+      }, 100);
+    }
 
   } catch (error) {
     console.error('Error fetching cell details:', error);
@@ -3511,7 +3570,7 @@ const getBuildingIcon = (name = '') => {
 };
 
 /**
- * Open the building construction modal for a fief
+ * Open the building construction modal for a fief (shows only base buildings)
  */
 const openBuildModal = async (h3_index) => {
   try {
@@ -3519,7 +3578,8 @@ const openBuildModal = async (h3_index) => {
     buildModalBuildings.value = [];
     showBuildModal.value = true;
     const data = await mapApi.getBuildings();
-    buildModalBuildings.value = data.buildings || [];
+    // Only show buildings with no prerequisite (base-level buildings)
+    buildModalBuildings.value = (data.buildings || []).filter(b => !b.required_building_id);
   } catch (err) {
     showToast('Error al cargar catálogo de edificios', 'error');
     showBuildModal.value = false;
@@ -3533,6 +3593,46 @@ const closeBuildModal = () => {
   showBuildModal.value = false;
   buildModalH3.value = null;
   buildModalBuildings.value = [];
+};
+
+/**
+ * Open the building upgrade modal for a fief
+ */
+const openUpgradeModal = (h3_index, upgrade) => {
+  upgradeModalH3.value = h3_index;
+  upgradeModalBuilding.value = upgrade;
+  showUpgradeModal.value = true;
+};
+
+/**
+ * Close the building upgrade modal
+ */
+const closeUpgradeModal = () => {
+  showUpgradeModal.value = false;
+  upgradeModalH3.value = null;
+  upgradeModalBuilding.value = null;
+};
+
+/**
+ * Execute fief building upgrade
+ */
+const doUpgrade = async () => {
+  if (isUpgrading.value) return;
+  try {
+    isUpgrading.value = true;
+    const data = await mapApi.upgradeFiefBuilding(upgradeModalH3.value);
+    if (data.success) {
+      closeUpgradeModal();
+      await updateFiefsUI();
+      showToast(`🏰 Ampliación iniciada: ${data.building_name}`, 'success');
+    } else {
+      showToast(data.message || 'Error al iniciar ampliación', 'error');
+    }
+  } catch (err) {
+    showToast(err.response?.data?.message || 'Error al iniciar ampliación', 'error');
+  } finally {
+    isUpgrading.value = false;
+  }
 };
 
 /**
@@ -7557,6 +7657,26 @@ onBeforeUnmount(() => {
   color: #a89875;
   font-style: italic;
   padding: 30px;
+}
+
+.upgrade-preview {
+  padding: 8px 0;
+}
+
+.upgrade-card {
+  border-color: rgba(93, 63, 211, 0.5) !important;
+  background: rgba(30, 20, 60, 0.6) !important;
+}
+
+.upgrade-warning {
+  text-align: center;
+  color: #ff9800;
+  font-size: 0.82rem;
+  margin-top: 10px;
+  padding: 6px 12px;
+  background: rgba(255, 152, 0, 0.1);
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  border-radius: 6px;
 }
 
 /* Toast Notifications - Bottom Right Corner */
