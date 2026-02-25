@@ -1,0 +1,21 @@
+meta {
+  name: Map Region - Resolucion H3 Personalizada
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/api/map/region?minLat={{region_minLat}}&maxLat={{region_maxLat}}&minLng={{region_minLng}}&maxLng={{region_maxLng}}&res=7
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body: isArray
+}
+
+script:post-response {
+  const body = res.getBody();
+  console.log(`Resolución 7: ${body.length} hexágonos devueltos`);
+}

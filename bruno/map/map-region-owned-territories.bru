@@ -1,0 +1,55 @@
+meta {
+  name: Map Region - Territorios Con Propietario
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{base_url}}/api/map/region?minLat={{region_minLat}}&maxLat={{region_maxLat}}&minLng={{region_minLng}}&maxLng={{region_maxLng}}
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body: isArray
+}
+
+script:post-response {
+  const body = res.getBody();
+
+  if (!Array.isArray(body) || body.length === 0) {
+    console.log("Sin hexágonos en la región - ajusta las coordenadas en el entorno.");
+    return;
+  }
+
+  const owned = body.filter(h => h.player_id !== null);
+  const unowned = body.filter(h => h.player_id === null);
+
+  console.log(`Total hexágonos: ${body.length}`);
+  console.log(`Con propietario: ${owned.length}`);
+  console.log(`Sin propietario: ${unowned.length}`);
+
+  // Verificar que hexágonos propietarios también tienen player_color
+  owned.forEach(h => {
+    if (h.player_color === null || h.player_color === undefined) {
+      console.warn(`Advertencia: h3_index=${h.h3_index} tiene player_id=${h.player_id} pero player_color es null`);
+    }
+  });
+
+  // Verificar que hexágonos sin propietario tienen player_color null
+  unowned.forEach(h => {
+    if (h.player_color !== null) {
+      console.warn(`Advertencia: h3_index=${h.h3_index} sin propietario pero player_color=${h.player_color}`);
+    }
+  });
+
+  // Verificar campo is_capital: solo puede ser true si hay propietario
+  const capitals = body.filter(h => h.is_capital === true);
+  console.log(`Capitales en región: ${capitals.length}`);
+  capitals.forEach(h => {
+    if (h.player_id === null) {
+      throw new Error(`h3_index=${h.h3_index} marcado como capital pero sin player_id`);
+    }
+  });
+}

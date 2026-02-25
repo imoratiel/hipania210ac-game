@@ -1,0 +1,29 @@
+meta {
+  name: Map Region - Happy Path
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/map/region?minLat={{region_minLat}}&maxLat={{region_maxLat}}&minLng={{region_minLng}}&maxLng={{region_maxLng}}
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body: isArray
+}
+
+script:post-response {
+  const body = res.getBody();
+
+  // Si el array no está vacío, verificar la estructura del primer elemento
+  if (Array.isArray(body) && body.length > 0) {
+    const hex = body[0];
+    bru.setVar("sample_h3_index", hex.h3_index);
+    console.log(`Region devolvió ${body.length} hexágonos. Muestra h3_index: ${hex.h3_index}`);
+  } else {
+    console.log("La región devolvió un array vacío (sin hexágonos conocidos en el mapa para ese bounding box)");
+  }
+}

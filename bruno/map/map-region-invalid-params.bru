@@ -1,0 +1,16 @@
+meta {
+  name: Map Region - Error Parametros Invalidos (NaN)
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{base_url}}/api/map/region?minLat=abc&maxLat=xyz&minLng=foo&maxLng=bar
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 400
+  res.body.error: eq "Invalid bounding box parameters"
+}

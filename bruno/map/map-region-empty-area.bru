@@ -1,0 +1,21 @@
+meta {
+  name: Map Region - Area Sin Hexagonos (Array Vacio)
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{base_url}}/api/map/region?minLat=0.0&maxLat=0.001&minLng=0.0&maxLng=0.001
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body: isArray
+}
+
+script:post-response {
+  const body = res.getBody();
+  console.log(`Área vacía devolvió ${body.length} hexágonos (se espera 0 o muy pocos sin feudo)`);
+}

@@ -1,0 +1,16 @@
+meta {
+  name: Map Region - Error Falta minLat
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{base_url}}/api/map/region?maxLat={{region_maxLat}}&minLng={{region_minLng}}&maxLng={{region_maxLng}}
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 400
+  res.body.error: eq "Missing bounding box parameters"
+}

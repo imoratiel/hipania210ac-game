@@ -1,0 +1,62 @@
+meta {
+  name: Map Region - Verificar Estructura de Respuesta
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/api/map/region?minLat={{region_minLat}}&maxLat={{region_maxLat}}&minLng={{region_minLng}}&maxLng={{region_maxLng}}
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body: isArray
+}
+
+script:post-response {
+  const body = res.getBody();
+
+  if (!Array.isArray(body)) {
+    throw new Error("Se esperaba un array en la respuesta");
+  }
+
+  if (body.length === 0) {
+    console.log("Array vacío - no se pueden verificar campos individuales. Ajusta las coordenadas en el entorno.");
+  } else {
+    const hex = body[0];
+
+    const requiredFields = [
+      "h3_index",
+      "terrain_type_id",
+      "terrain_color",
+      "has_road",
+      "is_capital",
+      "coord_x",
+      "coord_y"
+    ];
+
+    const missing = requiredFields.filter(f => !(f in hex));
+    if (missing.length > 0) {
+      throw new Error(`Campos obligatorios faltantes en hexágono: ${missing.join(", ")}`);
+    }
+
+    // Verificar tipos básicos
+    if (typeof hex.h3_index !== "string") throw new Error("h3_index debe ser string");
+    if (typeof hex.has_road !== "boolean") throw new Error("has_road debe ser boolean");
+    if (typeof hex.is_capital !== "boolean") throw new Error("is_capital debe ser boolean");
+    if (typeof hex.terrain_color !== "string") throw new Error("terrain_color debe ser string");
+
+    // terrain_color siempre tiene fallback '#9e9e9e', nunca debe ser null
+    if (!hex.terrain_color) throw new Error("terrain_color no debe ser falsy (tiene fallback '#9e9e9e')");
+
+    // building_type_id tiene fallback 0, nunca debe ser null
+    if (hex.building_type_id === null || hex.building_type_id === undefined) {
+      throw new Error("building_type_id no debe ser null (tiene fallback 0)");
+    }
+
+    console.log(`Estructura verificada correctamente. ${body.length} hexágonos en la región.`);
+    console.log(`Muestra: h3_index=${hex.h3_index}, terrain_color=${hex.terrain_color}, has_road=${hex.has_road}`);
+  }
+}
