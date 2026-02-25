@@ -45,6 +45,9 @@ module.exports = function () {
     // Get armies in visible extent (for map icons)
     router.get('/map/armies', authenticateToken, ArmyService.GetArmiesInRegion);
 
+    // Get completed buildings in visible extent (for map icons)
+    router.get('/map/buildings', authenticateToken, (req, res) => TerrainService.GetBuildingsInBounds(req, res));
+
     // Get detailed army info for a specific hex (for popup)
     router.get('/map/army-details/:h3_index', authenticateToken, ArmyService.GetArmyDetails);
 

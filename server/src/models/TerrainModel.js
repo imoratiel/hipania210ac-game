@@ -13,6 +13,22 @@ class TerrainModel {
         const result = await pool.query('SELECT terrain_type_id, name, color FROM terrain_types ORDER BY terrain_type_id');
         return result;
     }
+    async GetBuildingsInBounds(h3CellsArray) {
+        const query = `
+            SELECT
+                fb.h3_index,
+                fb.building_id,
+                bld.name AS building_name,
+                bt.name  AS type_name
+            FROM fief_buildings fb
+            JOIN buildings bld ON fb.building_id = bld.id
+            JOIN building_types bt ON bld.type_id = bt.building_type_id
+            WHERE fb.h3_index = ANY($1::text[])
+              AND fb.is_under_construction = FALSE
+        `;
+        const result = await pool.query(query, [h3CellsArray]);
+        return result;
+    }
     async GetCellDetails(h3_index) {
         const query = `
             SELECT

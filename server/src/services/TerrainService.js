@@ -54,6 +54,34 @@ class TerrainService {
             res.status(500).json({ error: 'Failed to fetch terrain types', message: error.message });
         }
     }
+    async GetBuildingsInBounds(req, res) {
+        try {
+            const { minLat, maxLat, minLng, maxLng } = req.query;
+            if (!minLat || !maxLat || !minLng || !maxLng) {
+                return res.status(400).json({ success: false, message: 'Missing bounding box parameters' });
+            }
+            const bounds = {
+                minLat: parseFloat(minLat), maxLat: parseFloat(maxLat),
+                minLng: parseFloat(minLng), maxLng: parseFloat(maxLng)
+            };
+            if (Object.values(bounds).some(isNaN)) {
+                return res.status(400).json({ success: false, message: 'Invalid bounding box parameters' });
+            }
+            const polygon = [
+                [bounds.minLat, bounds.minLng], [bounds.minLat, bounds.maxLng],
+                [bounds.maxLat, bounds.maxLng], [bounds.maxLat, bounds.minLng]
+            ];
+            const h3CellsArray = Array.from(h3.polygonToCells(polygon, 8)).slice(0, 50000);
+            if (h3CellsArray.length === 0) {
+                return res.json({ success: true, buildings: [] });
+            }
+            const result = await TerrainModel.GetBuildingsInBounds(h3CellsArray);
+            res.json({ success: true, buildings: result.rows });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/map/buildings', method: 'GET' });
+            res.status(500).json({ success: false, message: error.message });
+        }
+    }
     async GetCellDetails(req, res) {
         try {
             const { h3_index } = req.params;

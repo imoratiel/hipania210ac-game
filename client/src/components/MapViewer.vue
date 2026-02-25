@@ -1211,7 +1211,8 @@ let map = null;
 let hexagonLayer = null;
 let settlementMarkersLayer = null;
 let settlementMarkersMap = {}; // Map: settlement name -> marker
-let buildingMarkersLayer = null; // Layer for building icons (farms, castles, etc.)
+let buildingMarkersLayer = null; // Layer for capital crown markers
+let fiefIconsLayer = null;       // Layer for fief building icons (API-driven)
 let armyMarkersLayer = null; // Layer for army/troop icons
 let highlightLayer = null; // Temporary highlight polygon for navigation
 let debounceTimer = null;
@@ -1365,6 +1366,10 @@ const initMap = () => {
   map.createPane('starPane');
   map.getPane('starPane').style.zIndex = 650;
 
+  // Building Pane (Building Icons) - Below army icons
+  map.createPane('buildingPane');
+  map.getPane('buildingPane').style.zIndex = 660;
+
   // Army Pane (Troop Icons) - Below popupPane (700) so popups always render on top
   map.createPane('armyPane');
   map.getPane('armyPane').style.zIndex = 680;
@@ -1421,6 +1426,7 @@ const initMap = () => {
   // Create separate layers for markers
   settlementMarkersLayer = L.layerGroup().addTo(map);
   buildingMarkersLayer = L.layerGroup().addTo(map);
+  fiefIconsLayer = L.layerGroup().addTo(map);
   armyMarkersLayer = L.layerGroup().addTo(map);
 
   // Track zoom level
@@ -1523,6 +1529,7 @@ const loadHexagonsIfZoomValid = () => {
     // Clear hexagons and army markers if zoom is outside valid range
     clearHexagons();
     clearArmyMarkers();
+    clearFiefIcons();
     if (currentZoom < MIN_ZOOM_H3) {
       console.log(`Hexágonos ocultos: zoom ${currentZoom} < ${MIN_ZOOM_H3}`);
     } else if (currentZoom > MAX_ZOOM_H3) {
@@ -1568,6 +1575,9 @@ const fetchHexagonData = async () => {
     // Fetch and render army markers after hexagons are loaded
     await fetchArmyData();
 
+    // Fetch and render building markers
+    await fetchBuildingData();
+
     loading.value = false;
   } catch (err) {
     console.error('Failed to fetch hexagon data:', err);
@@ -1582,6 +1592,77 @@ const fetchHexagonData = async () => {
 const clearArmyMarkers = () => {
   if (armyMarkersLayer) {
     armyMarkersLayer.clearLayers();
+  }
+};
+
+/**
+ * Clear all fief building icons from the map
+ */
+const clearFiefIcons = () => {
+  if (fiefIconsLayer) {
+    fiefIconsLayer.clearLayers();
+  }
+};
+
+/**
+ * Fetch completed buildings in the visible map bounds and render icons
+ */
+const fetchBuildingData = async () => {
+  try {
+    if (!map) return;
+    const bounds = map.getBounds();
+    const params = {
+      minLat: bounds.getSouth(),
+      maxLat: bounds.getNorth(),
+      minLng: bounds.getWest(),
+      maxLng: bounds.getEast()
+    };
+    const data = await mapApi.getMapBuildings(params);
+    if (data.success) {
+      renderFiefIcons(data.buildings);
+    }
+  } catch (err) {
+    // Silent — building icons are supplementary
+  }
+};
+
+/**
+ * Render fief building icons on the map (from /api/map/buildings).
+ * Each completed building gets a small icon centered on its hex.
+ * @param {Array} buildings - [{ h3_index, building_name, type_name }]
+ */
+const renderFiefIcons = (buildings) => {
+  clearFiefIcons();
+  if (!buildings || buildings.length === 0) return;
+
+  for (const bld of buildings) {
+    try {
+      const [lat, lng] = cellToLatLng(bld.h3_index);
+      const icon = getBuildingIcon(bld.building_name);
+
+      const iconHtml = `<div style="
+        background: rgba(30,20,10,0.82);
+        border: 1.5px solid #c5a059;
+        border-radius: 5px;
+        width: 22px; height: 22px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 13px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+        cursor: default;
+        user-select: none;">${icon}</div>`;
+
+      const customIcon = L.divIcon({
+        html: iconHtml,
+        className: 'building-marker-icon',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+      });
+
+      const marker = L.marker([lat, lng], { icon: customIcon, pane: 'buildingPane', interactive: false });
+      marker.addTo(fiefIconsLayer);
+    } catch (err) {
+      // Skip bad hex
+    }
   }
 };
 

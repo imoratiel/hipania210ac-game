@@ -35,6 +35,15 @@ export async function getMapArmies(params) {
 }
 
 /**
+ * Get completed buildings in visible map extent (for map icons)
+ * @param {Object} params - { minLat, maxLat, minLng, maxLng }
+ */
+export async function getMapBuildings(params) {
+  const response = await axios.get(`${API_URL}/api/map/buildings`, { params });
+  return response.data;
+}
+
+/**
  * Get detailed cell information
  * @param {string} h3_index - H3 index of the cell
  */
