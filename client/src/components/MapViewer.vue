@@ -2433,72 +2433,14 @@ const renderBuildingMarkers = (hexagons) => {
     buildingMarkersLayer.clearLayers();
   }
 
-  // Filter hexagons that have buildings but NO settlement name (avoid overlap)
-  const buildingsToRender = hexagons.filter(hex =>
-    hex.icon_slug &&
-    !hex.location_name  // Only show if no settlement/custom name
-  );
-
   // Filter capital hexagons (for crown markers)
   const capitalsToRender = hexagons.filter(hex => hex.is_capital === true);
 
-  if (buildingsToRender.length === 0 && capitalsToRender.length === 0) {
+  if (capitalsToRender.length === 0) {
     return;
   }
 
-  console.log(`Rendering ${buildingsToRender.length} building markers and ${capitalsToRender.length} capital markers...`);
-
-  // Render regular building markers
-  buildingsToRender.forEach((hex) => {
-    try {
-      // Get center coordinates
-      const [lat, lng] = cellToLatLng(hex.h3_index);
-
-      // Map icon_slug to emoji icons
-      const buildingIcons = {
-        village: '🏘️',
-        town: '🏛️',
-        city: '🏰',
-        castle: '🏰',
-        farm: '🌾',
-        mine: '⛏️',
-        port: '⚓'
-      };
-      const icon = buildingIcons[hex.icon_slug] || '🏗️';
-
-      // Create simple divIcon with emoji
-      const buildingIcon = L.divIcon({
-        className: 'building-marker',
-        html: `<div class="building-icon-emoji">${icon}</div>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-      });
-
-      // Create marker
-      const marker = L.marker([lat, lng], {
-        icon: buildingIcon,
-        zIndexOffset: 500, // Below settlements (1000) but above hexagons
-      });
-
-      // Add simple tooltip
-      marker.bindTooltip(hex.icon_slug, {
-        permanent: false,
-        direction: 'top',
-        className: 'building-tooltip',
-        offset: [0, -10],
-      });
-
-      // Add to layer
-      marker.addTo(buildingMarkersLayer);
-    } catch (err) {
-      console.error(`Error rendering building marker for ${hex.h3_index}:`, err);
-    }
-  });
-
-      // --- LAYER 3: STAR MARKER (starPane) ---
-      // Capital markers handled in renderHexagons now
-
-  console.log(`✓ Rendered ${buildingsToRender.length} building markers and ${capitalsToRender.length} capital markers`);
+  console.log(`Rendering ${capitalsToRender.length} capital markers...`);
 };
 
 /**
