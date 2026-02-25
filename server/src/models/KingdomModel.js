@@ -103,6 +103,45 @@ class KingdomModel {
         const result = await client.query('SELECT is_exiled FROM players WHERE player_id = $1', [player_id]);
         return result.rows[0]?.is_exiled ?? false;
     }
+    async GetAllBuildings(client) {
+        const result = await client.query(
+            `SELECT b.id, b.name, b.gold_cost, b.construction_time_turns,
+                    b.required_building_id, b.food_bonus, b.description,
+                    bt.name AS type_name
+             FROM buildings b
+             JOIN building_types bt ON b.type_id = bt.building_type_id
+             ORDER BY b.type_id, b.id`
+        );
+        return result.rows;
+    }
+    async GetBuildingDefinition(client, building_id) {
+        const result = await client.query(
+            'SELECT * FROM buildings WHERE id = $1',
+            [building_id]
+        );
+        return result.rows[0] || null;
+    }
+    async GetExistingFiefBuilding(client, h3_index) {
+        const result = await client.query(
+            'SELECT * FROM fief_buildings WHERE h3_index = $1',
+            [h3_index]
+        );
+        return result.rows[0] || null;
+    }
+    async GetCompletedBuilding(client, h3_index, building_id) {
+        const result = await client.query(
+            'SELECT * FROM fief_buildings WHERE h3_index = $1 AND building_id = $2 AND is_under_construction = FALSE',
+            [h3_index, building_id]
+        );
+        return result.rows[0] || null;
+    }
+    async StartConstruction(client, h3_index, building_id, construction_turns) {
+        await client.query(
+            `INSERT INTO fief_buildings (h3_index, building_id, remaining_construction_turns, is_under_construction)
+             VALUES ($1, $2, $3, TRUE)`,
+            [h3_index, building_id, construction_turns]
+        );
+    }
     async GetMyFiefs(player_id) {
         const query = `
             SELECT

@@ -101,6 +101,86 @@ class KingdomService {
             client.release();
         }
     }
+    async GetBuildings(req, res) {
+        const client = await pool.connect();
+        try {
+            const buildings = await KingdomModel.GetAllBuildings(client);
+            res.json({ success: true, buildings });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/territory/buildings', method: 'GET', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al obtener catálogo de edificios' });
+        } finally {
+            client.release();
+        }
+    }
+    async ConstructBuilding(req, res) {
+        const client = await pool.connect();
+        try {
+            const { h3_index, building_id } = req.body;
+            const player_id = req.user.player_id;
+
+            if (!h3_index || !building_id) {
+                return res.status(400).json({ success: false, message: 'h3_index y building_id son requeridos' });
+            }
+
+            // Verificar propiedad del territorio
+            const owner = await KingdomModel.CheckTerritoryOwnership(client, h3_index);
+            if (owner?.player_id !== player_id) {
+                return res.status(403).json({ success: false, message: 'No posees este territorio' });
+            }
+
+            // Verificar que no hay edificio ya en construcción o construido
+            const existing = await KingdomModel.GetExistingFiefBuilding(client, h3_index);
+            if (existing) {
+                const msg = existing.is_under_construction
+                    ? `Ya hay una construcción en curso (${existing.remaining_construction_turns} turnos restantes)`
+                    : 'Este feudo ya tiene un edificio construido';
+                return res.status(400).json({ success: false, message: msg });
+            }
+
+            // Obtener definición del edificio
+            const building = await KingdomModel.GetBuildingDefinition(client, building_id);
+            if (!building) {
+                return res.status(404).json({ success: false, message: 'Edificio no encontrado' });
+            }
+
+            // Verificar edificio prerequisito si aplica
+            if (building.required_building_id) {
+                const prereq = await KingdomModel.GetCompletedBuilding(client, h3_index, building.required_building_id);
+                if (!prereq) {
+                    return res.status(400).json({ success: false, message: 'Debes construir el edificio prerequisito primero' });
+                }
+            }
+
+            // Verificar oro del jugador
+            const player = await KingdomModel.GetPlayerGold(client, player_id);
+            if (player.gold < building.gold_cost) {
+                return res.status(400).json({ success: false, message: `Oro insuficiente. Necesitas 🌲 ${building.gold_cost} oro` });
+            }
+
+            await client.query('BEGIN');
+            await KingdomModel.DeductGold(client, player_id, building.gold_cost);
+            await KingdomModel.StartConstruction(client, h3_index, building_id, building.construction_time_turns);
+            await client.query('COMMIT');
+
+            Logger.action(
+                `🏗️ Jugador ${player_id} inició construcción de "${building.name}" en ${h3_index} (${building.construction_time_turns} turnos)`,
+                { player_id, h3_index, building_id, building_name: building.name }
+            );
+            res.json({
+                success: true,
+                message: `Construcción de ${building.name} iniciada. Turnos restantes: ${building.construction_time_turns}`,
+                building_name: building.name,
+                turns: building.construction_time_turns,
+            });
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            Logger.error(error, { endpoint: '/territory/construct', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            res.status(500).json({ success: false, message: 'Error al iniciar construcción' });
+        } finally {
+            client.release();
+        }
+    }
     async GetMyFiefs(req, res) {
         try {
             const result = await KingdomModel.GetMyFiefs(req.user.player_id);

@@ -109,3 +109,25 @@
 - path (jsonb)
 - created_at (timestamp)
 - updated_at (timestamp)
+
+## Tabla: building_types
+- building_type_id (SERIAL PK)
+- name (VARCHAR 50) - 'military', 'religious', 'economic', 'other'
+- icon_slug (VARCHAR 50) - Identificador para iconos en la interfaz
+
+## Tabla: buildings
+- id (SERIAL PK)
+- name (VARCHAR 100)
+- type_id (INT FK -> building_types.building_type_id)
+- gold_cost (INT) - Coste para iniciar construcción
+- construction_time_turns (INT) - Turnos totales para completarse
+- required_building_id (INT NULL FK -> buildings.id) - Pre-requisito tecnológico
+- food_bonus (INT) - Sustituye a la antigua columna 'delta_alim'
+- description (TEXT)
+
+## Tabla: fief_buildings
+- h3_index (VARCHAR 15 PK FK -> h3_map.h3_index) - Un edificio por cada índice H3
+- building_id (INT FK -> buildings.id)
+- remaining_construction_turns (INT) - Contador regresivo de obra
+- is_under_construction (BOOLEAN) - True mientras se construye
+- created_at (TIMESTAMP)
