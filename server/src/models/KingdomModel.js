@@ -70,7 +70,7 @@ class KingdomModel {
     }
     async ClaimHex(client, h3_index, player_id) {
         await client.query(
-            'UPDATE h3_map SET player_id = $1, building_type_id = 0, last_update = CURRENT_TIMESTAMP WHERE h3_index = $2',
+            'UPDATE h3_map SET player_id = $1, last_update = CURRENT_TIMESTAMP WHERE h3_index = $2',
             [player_id, h3_index]
         );
     }

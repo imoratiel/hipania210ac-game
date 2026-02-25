@@ -28,7 +28,6 @@ class TerrainService {
                 is_capital: row.is_capital || false,
                 player_id: row.player_id || null,
                 player_color: row.player_color || null,
-                building_type_id: row.building_type_id || 0,
                 icon_slug: row.icon_slug || null,
                 location_name: row.location_name || null,
                 settlement_type: row.settlement_type || null,

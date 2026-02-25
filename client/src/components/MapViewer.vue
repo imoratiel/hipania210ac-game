@@ -2436,7 +2436,6 @@ const renderBuildingMarkers = (hexagons) => {
   // Filter hexagons that have buildings but NO settlement name (avoid overlap)
   const buildingsToRender = hexagons.filter(hex =>
     hex.icon_slug &&
-    hex.building_type_id > 0 &&
     !hex.location_name  // Only show if no settlement/custom name
   );
 
