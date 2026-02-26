@@ -81,9 +81,9 @@
             <td class="text-right troops-cell">{{ fief.total_troops || 0 }}</td>
             <td class="table-actions">
               <button class="btn-micro" @click="$emit('focusOnFief', fief.h3_index)" title="Ver en el mapa">🗺️</button>
-              <button 
+              <button
                 v-if="fief.explorationStatus === 'pending'"
-                class="btn-micro btn-explore-micro" 
+                class="btn-micro btn-explore-micro"
                 @click="$emit('exploreFief', fief.h3_index)"
                 :disabled="playerGold < explorationConfig.gold_cost"
                 :title="`Explorar (${explorationConfig.gold_cost} 💰)`"
@@ -116,17 +116,60 @@
         <p>No se encontraron feudos.</p>
       </div>
     </div>
+
+    <!-- Pagination bar (controlled by parent) -->
+    <div v-if="total > 0" class="pagination-bar">
+      <span class="pagination-info">
+        {{ rangeStart }}–{{ rangeEnd }} de {{ total }} feudos
+      </span>
+      <div class="pagination-controls">
+        <button
+          class="page-btn"
+          :disabled="page <= 1"
+          @click="$emit('change-page', page - 1)"
+          title="Página anterior"
+        >‹</button>
+        <span class="page-indicator">{{ page }} / {{ totalPages }}</span>
+        <button
+          class="page-btn"
+          :disabled="page >= totalPages"
+          @click="$emit('change-page', page + 1)"
+          title="Página siguiente"
+        >›</button>
+      </div>
+      <div class="page-size-row">
+        <span class="page-size-label">Filas:</span>
+        <select
+          :value="limit"
+          class="page-size-select"
+          @change="$emit('change-limit', parseInt($event.target.value))"
+        >
+          <option :value="10">10</option>
+          <option :value="20">20</option>
+          <option :value="50">50</option>
+        </select>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-defineProps({
-  fiefs: Array,
-  playerGold: Number,
-  explorationConfig: Object
+import { computed } from 'vue';
+
+const props = defineProps({
+  fiefs:           { type: Array,  default: () => [] },
+  total:           { type: Number, default: 0 },
+  page:            { type: Number, default: 1 },
+  limit:           { type: Number, default: 10 },
+  playerGold:      { type: Number, default: 0 },
+  explorationConfig: { type: Object, default: () => ({ gold_cost: 0 }) },
 });
 
-defineEmits(['focusOnFief', 'exploreFief', 'openRecruitment', 'openConstruction', 'openUpgrade']);
+defineEmits(['focusOnFief', 'exploreFief', 'openRecruitment', 'openConstruction', 'openUpgrade', 'change-page', 'change-limit']);
+
+const totalPages = computed(() => Math.max(1, Math.ceil(props.total / props.limit)));
+const rangeStart = computed(() => props.total === 0 ? 0 : (props.page - 1) * props.limit + 1);
+const rangeEnd   = computed(() => Math.min(props.page * props.limit, props.total));
 
 const formatNumber = (val) => {
   if (val === null || val === undefined || isNaN(val)) return '0';
@@ -139,7 +182,6 @@ const formatGold = (val) => {
   if (val === null || val === undefined || isNaN(val)) return '0.00';
   return Number(val).toFixed(2);
 };
-
 </script>
 
 <style scoped>
@@ -403,4 +445,77 @@ const formatGold = (val) => {
   color: #a89875;
   font-style: italic;
 }
+
+/* ── Pagination bar ─────────────────────────────────────────────────────────── */
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-top: 1px solid rgba(93, 78, 55, 0.4);
+  background: rgba(0, 0, 0, 0.25);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pagination-info {
+  font-size: 0.75rem;
+  color: #a89875;
+  min-width: 120px;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-btn {
+  background: rgba(197, 160, 89, 0.1);
+  border: 1px solid rgba(197, 160, 89, 0.3);
+  color: #c5a059;
+  font-size: 1rem;
+  font-weight: 700;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  line-height: 1;
+}
+.page-btn:hover:not(:disabled) { background: rgba(197, 160, 89, 0.25); }
+.page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.page-indicator {
+  font-size: 0.78rem;
+  color: #e8d5b5;
+  font-family: monospace;
+  min-width: 48px;
+  text-align: center;
+}
+
+.page-size-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-size-label {
+  font-size: 0.75rem;
+  color: #a89875;
+}
+
+.page-size-select {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(197, 160, 89, 0.35);
+  border-radius: 5px;
+  color: #e8d5b5;
+  font-size: 0.8rem;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+.page-size-select:focus { outline: none; border-color: rgba(197, 160, 89, 0.7); }
 </style>

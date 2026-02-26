@@ -247,9 +247,17 @@ class KingdomService {
     }
     async GetMyFiefs(req, res) {
         try {
-            const result = await KingdomModel.GetMyFiefs(req.user.player_id);
+            const page         = Math.max(1, parseInt(req.query.page)  || 1);
+            const limit        = Math.min(50, Math.max(1, parseInt(req.query.limit) || 10));
+            const filter_name  = (req.query.filter_name || '').trim();
+            const filter_maxpop = req.query.filter_maxpop != null && req.query.filter_maxpop !== ''
+                ? parseInt(req.query.filter_maxpop) : null;
 
-            const fiefs = result.rows.map(row => {
+            const { rows, total } = await KingdomModel.GetMyFiefs(req.user.player_id, {
+                page, limit, filter_name, filter_maxpop
+            });
+
+            const fiefs = rows.map(row => {
                 const is_capital = (row.h3_index === row.capital_h3);
                 return {
                     ...row,
@@ -276,7 +284,7 @@ class KingdomService {
                 };
             });
 
-            res.json({ success: true, fiefs });
+            res.json({ success: true, fiefs, total, page, limit });
         } catch (error) {
             Logger.error(error, { endpoint: '/game/my-fiefs', method: 'GET', userId: req.user?.player_id });
             res.status(500).json({ success: false, message: 'Error al obtener feudos' });

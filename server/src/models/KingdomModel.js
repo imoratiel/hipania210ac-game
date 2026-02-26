@@ -150,9 +150,27 @@ class KingdomModel {
             [next_building_id, turns, h3_index]
         );
     }
-    async GetMyFiefs(player_id) {
+    async GetMyFiefs(player_id, { page = 1, limit = 10, filter_name = '', filter_maxpop = null } = {}) {
+        const offset = (page - 1) * limit;
+        const params = [player_id];
+        const whereClauses = ['m.player_id = $1'];
+
+        if (filter_name) {
+            params.push(`%${filter_name}%`);
+            whereClauses.push(`COALESCE(td.custom_name, s.name, m.h3_index) ILIKE $${params.length}`);
+        }
+        if (filter_maxpop !== null && !isNaN(filter_maxpop)) {
+            params.push(filter_maxpop);
+            whereClauses.push(`td.population <= $${params.length}`);
+        }
+
+        params.push(limit, offset);
+        const limitIdx  = params.length - 1;
+        const offsetIdx = params.length;
+
         const query = `
             SELECT
+                COUNT(*) OVER() AS total_count,
                 m.h3_index,
                 m.coord_x,
                 m.coord_y,
@@ -187,11 +205,13 @@ class KingdomModel {
                 WHERE a.player_id = $1
                 GROUP BY a.h3_index
             ) garrison ON m.h3_index = garrison.h3_index
-            WHERE m.player_id = $1
-            ORDER BY td.population DESC
+            WHERE ${whereClauses.join(' AND ')}
+            ORDER BY (m.h3_index = p.capital_h3) DESC, td.population DESC
+            LIMIT $${limitIdx} OFFSET $${offsetIdx}
         `;
-        const result = await pool.query(query, [player_id]);
-        return result;
+        const result = await pool.query(query, params);
+        const total  = result.rows.length > 0 ? parseInt(result.rows[0].total_count) : 0;
+        return { rows: result.rows, total };
     }
 }
 

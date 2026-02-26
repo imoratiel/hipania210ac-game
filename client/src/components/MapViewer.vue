@@ -698,6 +698,9 @@
           <div v-if="activeKingdomTab === 'fiefs'" class="kingdom-table-wrapper">
             <KingdomPanel
               :fiefs="filteredAndSortedFiefs"
+              :total="fiefsTotalCount"
+              :page="fiefsPage"
+              :limit="fiefsLimit"
               :playerGold="playerGold"
               :explorationConfig="explorationConfig"
               @focusOnFief="focusOnFiefAndClose"
@@ -705,6 +708,8 @@
               @openRecruitment="openRecruitmentForFief"
               @openConstruction="openBuildModal"
               @openUpgrade="(data) => openUpgradeModal(data.h3_index, data.upgrade)"
+              @change-page="handleFiefsPageChange"
+              @change-limit="handleFiefsLimitChange"
             />
           </div>
 
@@ -992,6 +997,17 @@ const kingdomSort = ref({
   asc: true
 });
 
+// Fiefs pagination state (server-side)
+const fiefsPage       = ref(1);
+const fiefsLimit      = ref(10);
+const fiefsTotalCount = ref(0);
+
+// Re-fetch from page 1 whenever filters change
+watch(kingdomFilters, () => {
+  fiefsPage.value = 1;
+  updateFiefsUI({ page: 1 });
+}, { deep: true });
+
 // Military recruitment state
 const activeKingdomTab = ref('fiefs'); // 'fiefs' or 'military'
 const unitTypes = ref([]);
@@ -1202,48 +1218,6 @@ const filteredAndSortedFiefs = computed(() => {
       fief_building: fief.fief_building || null,
       can_recruit: fief.can_recruit || false,
     };
-  });
-
-  // Apply filters
-  if (kingdomFilters.value.name) {
-    const nameFilter = kingdomFilters.value.name.toLowerCase();
-    enrichedFiefs = enrichedFiefs.filter(f =>
-      f.name.toLowerCase().includes(nameFilter)
-    );
-  }
-
-  if (kingdomFilters.value.maxPopulation !== null && kingdomFilters.value.maxPopulation !== '') {
-    enrichedFiefs = enrichedFiefs.filter(f =>
-      f.population <= kingdomFilters.value.maxPopulation
-    );
-  }
-
-  // Apply sorting
-  const field = kingdomSort.value.field;
-  const asc = kingdomSort.value.asc;
-
-  enrichedFiefs.sort((a, b) => {
-    let valA = a[field];
-    let valB = b[field];
-
-    // Handle Infinity for autonomy
-    if (valA === Infinity) valA = 999999;
-    if (valB === Infinity) valB = 999999;
-
-    // Handle exploration status sorting (pending < exploring < completed)
-    if (field === 'explorationStatus') {
-      const statusOrder = { 'pending': 0, 'exploring': 1, 'completed': 2 };
-      valA = statusOrder[valA] || 0;
-      valB = statusOrder[valB] || 0;
-    }
-
-    // Handle string comparison for name and terrain
-    if (typeof valA === 'string') {
-      return asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
-    }
-
-    // Numeric comparison
-    return asc ? valA - valB : valB - valA;
   });
 
   return enrichedFiefs;
@@ -2174,83 +2148,48 @@ const stopSync = () => {
 };
 
 /**
- * Update fiefs list from server
- * Fetches all territories owned by the current player
+ * Update fiefs list from server (paginated)
+ * @param {Object} opts - Override page/limit for the request
  */
-const updateFiefsUI = async () => {
+const updateFiefsUI = async ({ page, limit } = {}) => {
   try {
     loadingFiefs.value = true;
-    console.log(`[Fiefs] Updating fiefs list for player ${playerId.value}...`);
 
-    const data = await mapApi.getMyFiefs();
+    const requestPage  = page  ?? fiefsPage.value;
+    const requestLimit = limit ?? fiefsLimit.value;
 
-    console.log('[Fiefs] ===== RAW SERVER RESPONSE =====');
-    console.log('[Fiefs] Full response:', data);
-    console.log('[Fiefs] Success:', data.success);
-    console.log('[Fiefs] Fiefs array:', data.fiefs);
-    console.log('[Fiefs] Fiefs count:', data.fiefs?.length);
+    const data = await mapApi.getMyFiefs({
+      page:           requestPage,
+      limit:          requestLimit,
+      filter_name:    kingdomFilters.value.name    || '',
+      filter_maxpop:  kingdomFilters.value.maxPopulation ?? null,
+    });
 
     if (data.success) {
-      const receivedFiefs = data.fiefs;
-
-      // Debug: Log first fief structure if exists
-      if (receivedFiefs && receivedFiefs.length > 0) {
-        console.log('[Fiefs] First fief structure:', receivedFiefs[0]);
-        console.log('[Fiefs] Fields:', Object.keys(receivedFiefs[0]));
-      } else {
-        console.warn('[Fiefs] ⚠️ No fiefs returned from server (array is empty)');
-      }
-
-      // Store previous food values for animation
-      previousFoodValues = {};
-      myFiefs.value.forEach(fief => {
-        previousFoodValues[fief.h3_index] = fief.food_stored;
-      });
-
-      // CRITICAL: Clear and update fiefs array
-      myFiefs.value = [];
-      console.log('[Fiefs] Cleared myFiefs array');
-
-      // Use nextTick to ensure Vue processes the clear
-      await new Promise(resolve => setTimeout(resolve, 0));
-
-      myFiefs.value = receivedFiefs || [];
-      console.log(`[Fiefs] ✓ Updated myFiefs.value with ${myFiefs.value.length} fiefs`);
-      console.log('[Fiefs] myFiefs.value contents:', JSON.stringify(myFiefs.value, null, 2));
-
-      // Verify the assignment worked
-      if (myFiefs.value.length > 0) {
-        console.log('[Fiefs] ✓ Fiefs successfully loaded and assigned');
-      } else {
-        console.warn('[Fiefs] ⚠️ myFiefs.value is still empty after assignment');
-      }
-
-      // Highlight food changes (green if increased)
-      setTimeout(() => {
-        myFiefs.value.forEach(fief => {
-          const prevValue = previousFoodValues[fief.h3_index];
-          if (prevValue !== undefined && fief.food_stored > prevValue) {
-            const foodElement = document.querySelector(`.fief-food[data-h3="${fief.h3_index}"]`);
-            if (foodElement) {
-              foodElement.classList.add('food-increased');
-              setTimeout(() => {
-                foodElement.classList.remove('food-increased');
-              }, 2000);
-            }
-          }
-        });
-      }, 100);
+      fiefsTotalCount.value = data.total ?? 0;
+      fiefsPage.value       = data.page  ?? requestPage;
+      fiefsLimit.value      = data.limit ?? requestLimit;
+      myFiefs.value         = data.fiefs || [];
     } else {
-      console.error('[Fiefs] Server returned success=false:', response.data);
       myFiefs.value = [];
     }
   } catch (err) {
     console.error('[Fiefs] ❌ Error fetching fiefs:', err);
-    console.error('[Fiefs] Error details:', err.response?.data || err.message);
     myFiefs.value = [];
   } finally {
     loadingFiefs.value = false;
   }
+};
+
+const handleFiefsPageChange = (p) => {
+  fiefsPage.value = p;
+  updateFiefsUI({ page: p });
+};
+
+const handleFiefsLimitChange = (l) => {
+  fiefsPage.value  = 1;
+  fiefsLimit.value = l;
+  updateFiefsUI({ page: 1, limit: l });
 };
 
 /**
