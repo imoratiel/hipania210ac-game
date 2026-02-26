@@ -177,6 +177,8 @@ module.exports = function () {
 
             const spawnerFn = type === 'expansionist'
                 ? (h3) => AIManagerService.spawnExpansionistAgent(h3)
+                : type === 'balanced'
+                ? (h3) => AIManagerService.spawnBalancedAgent(h3)
                 : (h3) => AIManagerService.spawnFarmerAgent(h3);
 
             if (spawnCount === 1) {

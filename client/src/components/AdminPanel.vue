@@ -155,6 +155,7 @@
             <select v-model="spawnType" class="ai-spawn-select" :disabled="spawning">
               <option value="farmer">🌾 Agricultor</option>
               <option value="expansionist">⚔️ Expansionista</option>
+              <option value="balanced">⚖️ Equilibrado</option>
             </select>
             <button
               class="ctrl-btn btn-ai-spawn"
@@ -195,7 +196,10 @@
                   <td class="ai-td ai-td-center">
                     <span
                       class="ai-profile-badge"
-                      :class="{ 'badge-expansionist': agent.ai_profile === 'expansionist' }"
+                      :class="{
+                        'badge-expansionist': agent.ai_profile === 'expansionist',
+                        'badge-balanced': agent.ai_profile === 'balanced'
+                      }"
                     >{{ profileLabel(agent.ai_profile) }}</span>
                   </td>
                   <td class="ai-td ai-td-num">{{ formatGold(agent.gold) }}</td>
@@ -322,7 +326,7 @@ const formatTimestamp = (ts) => {
 };
 
 // ── AI helpers ──────────────────────────────────────────────────────────────
-const PROFILE_LABELS = { farmer: '🌾 Agricultor', expansionist: '⚔️ Expansionista' };
+const PROFILE_LABELS = { farmer: '🌾 Agricultor', expansionist: '⚔️ Expansionista', balanced: '⚖️ Equilibrado' };
 const profileLabel = (p) => PROFILE_LABELS[p] || p || '—';
 
 const formatGold = (n) => {
@@ -880,6 +884,10 @@ onUnmounted(() => {
 .ai-profile-badge.badge-expansionist {
   background: rgba(178,34,34,0.18);
   color: #ef9a9a;
+}
+.ai-profile-badge.badge-balanced {
+  background: rgba(21,101,192,0.18);
+  color: #90caf9;
 }
 
 .ai-goto-btn {

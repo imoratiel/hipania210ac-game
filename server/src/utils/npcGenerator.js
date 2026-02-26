@@ -41,6 +41,19 @@ const EXPANSIONIST_EPITHETS = [
     'el Despiadado', 'la de Hierro', 'el que no perdona',
 ];
 
+// ── Balanced profile ────────────────────────────────────────────────────────
+
+const BALANCED_FIRST_NAMES = [
+    'Cedric', 'Aveline', 'Osric', 'Gisela', 'Baudouin', 'Aldric', 'Matilde',
+    'Renaud', 'Hildegard', 'Bertrand', 'Isolde', 'Thierry', 'Adela', 'Godfrey',
+];
+
+const BALANCED_EPITHETS = [
+    'el Sabio', 'el Vigilante', 'el Grande', 'de la Corona', 'el Prudente',
+    'la Ecuánime', 'el Justo', 'la Magnánima', 'el Estratega', 'de la Paz',
+    'el Moderado', 'el Previsor', 'la Astuta', 'el Equilibrado',
+];
+
 // ── Name generator ──────────────────────────────────────────────────────────
 
 /**
@@ -52,6 +65,12 @@ function generateAIName(profile = 'farmer') {
     if (profile === 'expansionist') {
         const first   = EXPANSIONIST_FIRST_NAMES[Math.floor(Math.random() * EXPANSIONIST_FIRST_NAMES.length)];
         const epithet = EXPANSIONIST_EPITHETS[Math.floor(Math.random() * EXPANSIONIST_EPITHETS.length)];
+        return `${first} ${epithet}`;
+    }
+
+    if (profile === 'balanced') {
+        const first   = BALANCED_FIRST_NAMES[Math.floor(Math.random() * BALANCED_FIRST_NAMES.length)];
+        const epithet = BALANCED_EPITHETS[Math.floor(Math.random() * BALANCED_EPITHETS.length)];
         return `${first} ${epithet}`;
     }
 

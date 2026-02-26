@@ -35,6 +35,20 @@ const EXPANSIONIST = {
     COLORS: ['#8B0000','#B22222','#DC143C','#800000','#4A0E0E','#C0392B','#922B21','#641E16'],
 };
 
+// ── Constantes del perfil Equilibrado ────────────────────────────────────────
+const BALANCED = {
+    STARTING_GOLD:        55_000,
+    CLAIM_COST:           100,
+    GOLD_TO_EXPAND:       20_000,  // More conservative than farmer (15K)
+    GOLD_TO_BUILD:        5_000,
+    GOLD_TO_RECRUIT:      3_000,
+    GOLD_RESERVE:         3_500,
+    RECRUIT_QUANTITY:     40,
+    GARRISON_RATIO:       0.30,    // Maintain 30% of total population as troops
+    FOOD_GOLD_RATIO_MIN:  0.30,    // food_stored / gold: below this → prioritize food terrain
+    COLORS: ['#1565C0','#1976D2','#283593','#0D47A1','#0288D1','#01579B','#006064','#00695C'],
+};
+
 // ── Constantes del perfil Agricultor ─────────────────────────────────────────
 const FARMER = {
     STARTING_GOLD:       50_000,
@@ -62,13 +76,17 @@ class AIManagerService {
         return this._spawnAgent('expansionist', EXPANSIONIST, targetH3);
     }
 
+    async spawnBalancedAgent(targetH3 = null) {
+        return this._spawnAgent('balanced', BALANCED, targetH3);
+    }
+
     /**
      * Lógica de spawn compartida.
      * Crea el jugador IA, reclama el hex capital y los vecinos colonizables de radio 1.
      */
     async _spawnAgent(profile, config, targetH3 = null) {
-        const EMOJI = { farmer: '🌾', expansionist: '⚔️' };
-        const LABEL = { farmer: 'Agricultor', expansionist: 'Expansionista' };
+        const EMOJI = { farmer: '🌾', expansionist: '⚔️', balanced: '⚖️' };
+        const LABEL = { farmer: 'Agricultor', expansionist: 'Expansionista', balanced: 'Equilibrado' };
 
         const client = await pool.connect();
         try {
@@ -165,6 +183,8 @@ class AIManagerService {
                     await this._processFarmerTurn(agent.player_id, turn);
                 } else if (agent.ai_profile === 'expansionist') {
                     await this._processExpansionistTurn(agent.player_id, turn);
+                } else if (agent.ai_profile === 'balanced') {
+                    await this._processBalancedTurn(agent.player_id, turn);
                 }
             } catch (agentError) {
                 Logger.error(agentError, {
@@ -831,6 +851,338 @@ class AIManagerService {
 
         Logger.engine(
             `[TURN ${turn}] 🏯 AI Expansionista (${playerId}) construyendo "${building.name}" en ${target.h3_index} (frontera, -${building.gold_cost}💰)`
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PRIVADO: Ciclo completo del Equilibrado
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Ciclo de decisión del perfil Equilibrado.
+     * Prioridad: A (construcción circular) → B (expansión selectiva) → C (reclutamiento de guarnición)
+     * Evaluación del ratio food/gold para determinar prioridades de expansión.
+     */
+    async _processBalancedTurn(playerId, turn) {
+        const state = await this._balancedAnalysis(playerId);
+        if (!state || state.territories.length === 0) return;
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            await this._balancedConstruction(client, playerId, state, turn);
+            await this._balancedExpansion(client, playerId, state, turn);
+            await this._balancedRecruitment(client, playerId, state, turn);
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            Logger.error(error, { context: 'AIManagerService._processBalancedTurn', playerId, turn });
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * Fase de análisis del Equilibrado (solo lectura).
+     * Calcula ratio food/gold, objetivo de guarnición y estado general del reino.
+     */
+    async _balancedAnalysis(playerId) {
+        const client = await pool.connect();
+        try {
+            const kingdomResult = await client.query(`
+                SELECT
+                    m.h3_index,
+                    td.population,
+                    td.food_stored,
+                    tt.food_output,
+                    tt.wood_output,
+                    tt.stone_output,
+                    tt.name               AS terrain_name,
+                    p.gold,
+                    p.capital_h3,
+                    fb.building_id        AS existing_building_id,
+                    fb.is_under_construction,
+                    bt.name               AS building_type_name
+                FROM territory_details td
+                JOIN h3_map m         ON td.h3_index = m.h3_index
+                JOIN terrain_types tt ON m.terrain_type_id = tt.terrain_type_id
+                JOIN players p        ON p.player_id = m.player_id
+                LEFT JOIN fief_buildings fb ON fb.h3_index = td.h3_index
+                LEFT JOIN buildings bld     ON bld.id = fb.building_id
+                LEFT JOIN building_types bt ON bt.building_type_id = bld.type_id
+                WHERE m.player_id = $1
+            `, [playerId]);
+
+            if (kingdomResult.rows.length === 0) return null;
+
+            const gold      = parseInt(kingdomResult.rows[0].gold) || 0;
+            const capitalH3 = kingdomResult.rows[0].capital_h3;
+            const territories = kingdomResult.rows;
+            const ownedSet  = new Set(territories.map(t => t.h3_index));
+
+            // Food ratio: compare total food_stored vs current gold
+            const totalFoodStored = territories.reduce((s, t) => s + (parseInt(t.food_stored) || 0), 0);
+            const foodGoldRatio   = gold > 0 ? totalFoodStored / gold : 1;
+
+            // Garrison target: 30% of total population
+            const totalPopulation = territories.reduce((s, t) => s + (parseInt(t.population) || 0), 0);
+            const garrisonTarget  = Math.floor(totalPopulation * BALANCED.GARRISON_RATIO);
+
+            const troopResult = await client.query(`
+                SELECT COALESCE(SUM(tr.quantity), 0)::int AS total
+                FROM armies a
+                JOIN troops tr ON tr.army_id = a.army_id
+                WHERE a.player_id = $1
+            `, [playerId]);
+            const totalTroops = parseInt(troopResult.rows[0].total) || 0;
+
+            // Expansion candidates
+            const candidateSet = new Set();
+            for (const hex of ownedSet) {
+                h3.gridDisk(hex, 1)
+                  .filter(n => n !== hex && !ownedSet.has(n))
+                  .forEach(n => candidateSet.add(n));
+            }
+
+            // Frontier hexes (own hexes with at least one non-owned neighbor)
+            const frontierSet = new Set(
+                territories
+                    .filter(t => h3.gridDisk(t.h3_index, 1).some(n => n !== t.h3_index && !ownedSet.has(n)))
+                    .map(t => t.h3_index)
+            );
+
+            // Recruit locations: capital + completed military buildings
+            const recruitLocations = [];
+            if (capitalH3) recruitLocations.push(capitalH3);
+            for (const t of territories) {
+                if (t.h3_index !== capitalH3 &&
+                    t.building_type_name === 'military' &&
+                    t.existing_building_id &&
+                    !t.is_under_construction) {
+                    recruitLocations.push(t.h3_index);
+                }
+            }
+
+            return {
+                gold, capitalH3, territories, ownedSet,
+                candidateSet: [...candidateSet],
+                frontierSet,
+                totalFoodStored, foodGoldRatio,
+                totalPopulation, garrisonTarget, totalTroops,
+                recruitLocations,
+            };
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * Fase A — Construcción circular: Market en capital → Church en interior → Barracks en frontera.
+     * Solo un edificio por turno.
+     */
+    async _balancedConstruction(client, playerId, state, turn) {
+        if (state.gold < BALANCED.GOLD_TO_BUILD) return;
+
+        let targetH3     = null;
+        let buildingType = null; // 'economic' | 'religious' | 'military'
+
+        const capitalTerr = state.territories.find(t => t.h3_index === state.capitalH3);
+        if (capitalTerr && !capitalTerr.existing_building_id) {
+            targetH3 = state.capitalH3;
+            buildingType = 'economic';
+        } else {
+            // Interior: not frontier, not capital, no building
+            const interiorNoBuild = state.territories.filter(
+                t => t.h3_index !== state.capitalH3 &&
+                     !state.frontierSet.has(t.h3_index) &&
+                     !t.existing_building_id
+            );
+            if (interiorNoBuild.length > 0) {
+                interiorNoBuild.sort((a, b) => (parseInt(b.population) || 0) - (parseInt(a.population) || 0));
+                targetH3 = interiorNoBuild[0].h3_index;
+                buildingType = 'religious';
+            } else {
+                // Frontier: pick closest to capital (well-connected, not bleeding edge)
+                const frontierNoBuild = state.territories.filter(
+                    t => state.frontierSet.has(t.h3_index) && !t.existing_building_id
+                );
+                if (frontierNoBuild.length > 0 && state.capitalH3) {
+                    try {
+                        frontierNoBuild.sort((a, b) => {
+                            const dA = h3.gridDistance(state.capitalH3, a.h3_index);
+                            const dB = h3.gridDistance(state.capitalH3, b.h3_index);
+                            return dA - dB;
+                        });
+                    } catch { /* gridDistance may throw on mismatched resolutions */ }
+                    targetH3 = frontierNoBuild[0].h3_index;
+                    buildingType = 'military';
+                }
+            }
+        }
+
+        if (!targetH3 || !buildingType) return;
+
+        const bldResult = await client.query(`
+            SELECT b.id, b.name, b.gold_cost, b.construction_time_turns
+            FROM buildings b
+            JOIN building_types bt ON bt.building_type_id = b.type_id
+            WHERE bt.name = $1
+              AND b.required_building_id IS NULL
+            ORDER BY b.gold_cost ASC
+            LIMIT 1
+        `, [buildingType]);
+        if (bldResult.rows.length === 0) return;
+
+        const building = bldResult.rows[0];
+        if (state.gold - parseInt(building.gold_cost) < BALANCED.GOLD_RESERVE) return;
+
+        await client.query(
+            'UPDATE players SET gold = gold - $1 WHERE player_id = $2',
+            [building.gold_cost, playerId]
+        );
+        await client.query(`
+            INSERT INTO fief_buildings (h3_index, building_id, remaining_construction_turns, is_under_construction)
+            VALUES ($1, $2, $3, TRUE)
+            ON CONFLICT (h3_index) DO NOTHING
+        `, [targetH3, building.id, building.construction_time_turns]);
+
+        const emoji = { economic: '🏪', religious: '⛪', military: '🏰' }[buildingType] || '🏗️';
+        Logger.engine(
+            `[TURN ${turn}] ${emoji} AI Equilibrado (${playerId}) construyendo "${building.name}" en ${targetH3} (${buildingType}, -${building.gold_cost}💰)`
+        );
+    }
+
+    /**
+     * Fase B — Expansión selectiva: coloniza 1 hex por turno si gold > GOLD_TO_EXPAND.
+     * Si el ratio food/gold es bajo, prioriza terrenos de alta producción alimentaria.
+     * Si el ratio es aceptable, elige el terreno con mejor puntuación equilibrada.
+     */
+    async _balancedExpansion(client, playerId, state, turn) {
+        if (state.gold < BALANCED.GOLD_TO_EXPAND) return;
+        if (state.candidateSet.length === 0) return;
+
+        const needsFood   = state.foodGoldRatio < BALANCED.FOOD_GOLD_RATIO_MIN;
+        const foodWeight  = needsFood ? 0.6 : 0.4;
+        const otherWeight = needsFood ? 0.2 : 0.3;
+
+        const result = await client.query(`
+            SELECT m.h3_index,
+                   tt.food_output,
+                   tt.wood_output,
+                   tt.stone_output,
+                   tt.name AS terrain_name,
+                   (tt.food_output * $2 + tt.wood_output * $3 + tt.stone_output * $3) AS score
+            FROM h3_map m
+            JOIN terrain_types tt ON m.terrain_type_id = tt.terrain_type_id
+            WHERE m.h3_index = ANY($1)
+              AND m.player_id IS NULL
+              AND COALESCE(tt.is_colonizable, TRUE) = TRUE
+            ORDER BY score DESC
+            LIMIT 1
+            FOR UPDATE OF m
+        `, [state.candidateSet, foodWeight, otherWeight]);
+
+        if (result.rows.length === 0) return;
+
+        const target = result.rows[0];
+        await client.query(
+            'UPDATE players SET gold = gold - $1 WHERE player_id = $2',
+            [BALANCED.CLAIM_COST, playerId]
+        );
+        await KingdomModel.ClaimHex(client, target.h3_index, playerId);
+        await KingdomModel.InsertTerritoryDetails(client, target.h3_index, generateInitialEconomy());
+
+        Logger.engine(
+            `[TURN ${turn}] 🌍 AI Equilibrado (${playerId}) expandió a ${target.h3_index} ` +
+            `(${target.terrain_name}, ${needsFood ? 'prioridad alimentos' : 'balance'}, food=${target.food_output})`
+        );
+    }
+
+    /**
+     * Fase C — Reclutamiento de guarnición: solo recluta si las tropas actuales
+     * están por debajo del 30% de la población total del reino.
+     */
+    async _balancedRecruitment(client, playerId, state, turn) {
+        if (state.recruitLocations.length === 0) return;
+        if (state.totalTroops >= state.garrisonTarget) return;
+
+        const freshGold = await client.query(
+            'SELECT gold FROM players WHERE player_id = $1 FOR UPDATE',
+            [playerId]
+        );
+        const currentGold = parseInt(freshGold.rows[0]?.gold) || 0;
+        if (currentGold < BALANCED.GOLD_TO_RECRUIT) return;
+
+        const unitResult = await pool.query(`
+            SELECT ut.unit_type_id, COALESCE(r.amount, 0)::int AS gold_cost
+            FROM unit_types ut
+            LEFT JOIN unit_requirements r
+              ON r.unit_type_id = ut.unit_type_id AND r.resource_type = 'gold'
+            ORDER BY COALESCE(r.amount, 0) ASC
+            LIMIT 1
+        `);
+        if (unitResult.rows.length === 0) return;
+
+        const unitType      = unitResult.rows[0];
+        const toRecruit     = Math.min(state.garrisonTarget - state.totalTroops, BALANCED.RECRUIT_QUANTITY);
+        const totalGoldCost = unitType.gold_cost * toRecruit;
+
+        if (currentGold < totalGoldCost + BALANCED.GOLD_RESERVE) return;
+
+        let recruitH3 = null, connectedH3s = null, lockedFiefPops = null;
+        for (const locationH3 of state.recruitLocations) {
+            const network      = await recruitmentNetwork.getConnectedNetwork(client, locationH3, playerId);
+            const fiefPops     = await recruitmentNetwork.getFiefPopulations(client, network);
+            const availablePop = recruitmentNetwork.calcRecruitablePool(fiefPops);
+            if (availablePop >= toRecruit) {
+                recruitH3 = locationH3; connectedH3s = network; lockedFiefPops = fiefPops;
+                break;
+            }
+        }
+
+        if (!recruitH3) {
+            Logger.engine(`[TURN ${turn}] ⚖️ AI Equilibrado (${playerId}) sin población suficiente para guarnición`);
+            return;
+        }
+
+        const existingArmy = await client.query(
+            'SELECT army_id FROM armies WHERE player_id = $1 AND h3_index = $2 LIMIT 1',
+            [playerId, recruitH3]
+        );
+        let armyId;
+        if (existingArmy.rows.length > 0) {
+            armyId = existingArmy.rows[0].army_id;
+        } else {
+            const newArmy = await client.query(
+                `INSERT INTO armies (name, player_id, h3_index)
+                 VALUES ('Guardia Equilibrada', $1, $2)
+                 RETURNING army_id`,
+                [playerId, recruitH3]
+            );
+            armyId = newArmy.rows[0].army_id;
+        }
+
+        await client.query(`
+            INSERT INTO troops (army_id, unit_type_id, quantity)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (army_id, unit_type_id)
+            DO UPDATE SET quantity = troops.quantity + EXCLUDED.quantity
+        `, [armyId, unitType.unit_type_id, toRecruit]);
+
+        if (totalGoldCost > 0) {
+            await client.query(
+                'UPDATE players SET gold = gold - $1 WHERE player_id = $2',
+                [totalGoldCost, playerId]
+            );
+        }
+
+        await recruitmentNetwork.deductFromNetwork(
+            client, connectedH3s, lockedFiefPops, toRecruit
+        );
+
+        Logger.engine(
+            `[TURN ${turn}] ⚖️ AI Equilibrado (${playerId}) reclutó ${toRecruit} tropas ` +
+            `(guarnición: ${state.totalTroops + toRecruit}/${state.garrisonTarget}, -${totalGoldCost}💰)`
         );
     }
 
