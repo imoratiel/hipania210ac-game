@@ -491,3 +491,28 @@ export async function forceAITurn() {
   const response = await axios.post(`${API_URL}/api/admin/ai/force-turn`);
   return response.data;
 }
+
+export async function getAISettings() {
+  const response = await axios.get(`${API_URL}/api/admin/ai/settings`);
+  return response.data;
+}
+
+export async function updateAISetting(key, value) {
+  const response = await axios.post(`${API_URL}/api/admin/ai/settings`, { key, value });
+  return response.data;
+}
+
+export async function getAIUsageStats() {
+  const response = await axios.get(`${API_URL}/api/admin/ai/usage-stats`);
+  return response.data;
+}
+
+export async function resetAIUsageStats() {
+  const response = await axios.delete(`${API_URL}/api/admin/ai/usage-stats`);
+  return response.data;
+}
+
+export async function testAIConnection() {
+  const response = await axios.post(`${API_URL}/api/admin/ai/test`);
+  return response.data;
+}

@@ -141,6 +141,62 @@
             <span class="ai-count-badge">{{ agents.length }}</span>
           </h3>
 
+          <!-- AI Control strip -->
+          <div class="ai-control-strip">
+            <button
+              class="ai-toggle-btn"
+              :class="aiEnabled ? 'toggle-on' : 'toggle-off'"
+              :disabled="settingsLoading"
+              @click="handleToggleAI"
+              :title="aiEnabled ? 'IA activa — clic para desactivar' : 'IA desactivada — clic para activar'"
+            >
+              <span class="toggle-dot"></span>
+              <span class="toggle-label">{{ aiEnabled ? 'IA Activa' : 'IA Off' }}</span>
+            </button>
+            <select
+              v-model="aiProvider"
+              class="ai-spawn-select"
+              :disabled="settingsLoading"
+              @change="handleSaveSetting('ai_provider', aiProvider)"
+              title="Proveedor de decisiones IA"
+            >
+              <option value="procedural">🔧 Procedural (Gratis)</option>
+              <option value="gemini">✨ Gemini Flash</option>
+              <option value="openai">🤖 GPT-4o Mini</option>
+            </select>
+            <input
+              v-model.number="aiBudget"
+              type="number"
+              min="1000"
+              step="10000"
+              class="ai-budget-input"
+              :disabled="settingsLoading"
+              title="Presupuesto máximo en tokens"
+            />
+            <button
+              class="ctrl-btn btn-ai-save"
+              :disabled="settingsLoading"
+              @click="handleSaveSetting('max_token_budget', aiBudget)"
+              title="Guardar presupuesto"
+            >💾</button>
+            <button
+              class="ctrl-btn btn-ai-test"
+              :disabled="settingsLoading || testing || aiProvider === 'procedural'"
+              @click="handleTestConnection"
+              title="Probar conexión con la API del proveedor seleccionado"
+            >{{ testing ? '⏳' : '🔌 Probar' }}</button>
+          </div>
+
+          <!-- API key error banner -->
+          <div v-if="aiLastError && aiProvider !== 'procedural'" class="ai-error-banner">
+            <span class="ai-error-icon">⚠️</span>
+            <div class="ai-error-body">
+              <span class="ai-error-title">Error de API ({{ aiLastError.provider }})</span>
+              <span class="ai-error-msg">{{ aiLastError.message }}</span>
+            </div>
+            <span class="ai-error-time">{{ aiLastError.timestamp ? new Date(aiLastError.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '' }}</span>
+          </div>
+
           <!-- Spawn form -->
           <div class="ai-spawn-row">
             <label class="ai-spawn-label">Crear</label>
@@ -217,6 +273,58 @@
               </tbody>
             </table>
           </div>
+
+          <!-- Usage monitor -->
+          <div class="ai-usage-monitor">
+            <div class="usage-header">
+              <span class="usage-title">📊 Consumo IA</span>
+              <button
+                class="ctrl-btn btn-usage-reset"
+                :disabled="acting"
+                @click="handleResetStats"
+                title="Reiniciar contadores de uso"
+              >↺ Reiniciar</button>
+            </div>
+            <div class="ai-progress">
+              <div
+                class="ai-progress-bar"
+                :style="{ width: budgetPercent + '%' }"
+                :class="{
+                  'bar-warn':  budgetPercent > 50,
+                  'bar-crit':  budgetPercent > 80
+                }"
+              ></div>
+            </div>
+            <div class="usage-numbers">
+              {{ (usageTotals.total_tokens || 0).toLocaleString() }} /
+              {{ aiBudget.toLocaleString() }} tokens
+              &nbsp;·&nbsp;
+              Coste: ${{ Number(usageTotals.total_cost || 0).toFixed(4) }}
+            </div>
+            <table v-if="usageRows.length > 0" class="usage-table">
+              <thead>
+                <tr>
+                  <th>Agente</th>
+                  <th>Modelo</th>
+                  <th>Llamadas</th>
+                  <th>Tokens</th>
+                  <th>Coste</th>
+                  <th>Última</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in usageRows" :key="`${row.player_id}-${row.model_name}`">
+                  <td>{{ row.display_name }}</td>
+                  <td><code>{{ row.model_name }}</code></td>
+                  <td>{{ row.calls_count }}</td>
+                  <td>{{ (row.total_tokens || 0).toLocaleString() }}</td>
+                  <td>${{ Number(row.estimated_cost || 0).toFixed(4) }}</td>
+                  <td>{{ row.last_call_at ? new Date(row.last_call_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else class="ai-empty" style="margin-top:6px">Sin registros de uso</div>
+          </div>
         </section>
 
         <!-- Feedback message -->
@@ -247,6 +355,7 @@ import {
   pauseGame, resumeGame,
   forceTurn, forceHarvest, forceExploration,
   getAIAgents, spawnAIFarmer, spawnAIAgent, forceAITurn,
+  getAISettings, updateAISetting, getAIUsageStats, resetAIUsageStats, testAIConnection,
 } from '../services/mapApi.js';
 
 const emit = defineEmits(['close', 'go-to-hex']);
@@ -266,6 +375,16 @@ const agentLoading = ref(false);
 const spawnCount   = ref(1);
 const spawnType    = ref('farmer');
 const spawning     = ref(false);
+
+// AI proxy / budget state
+const aiEnabled      = ref(false);
+const aiProvider     = ref('procedural');
+const aiBudget       = ref(100000);
+const settingsLoading = ref(false);
+const usageRows      = ref([]);
+const usageTotals    = ref({ total_calls: 0, total_tokens: 0, total_cost: 0 });
+const aiLastError    = ref(null);  // { provider, message, timestamp } | null
+const testing        = ref(false);
 
 let refreshTimer = null;
 
@@ -366,6 +485,94 @@ const handleSpawnAgents = async () => {
 
 const handleForceAITurn = () => runAction(forceAITurn, 'Ciclo IA ejecutado');
 
+// ── AI proxy helpers ─────────────────────────────────────────────────────────
+const budgetPercent = computed(() => {
+  const budget = aiBudget.value || 1;
+  return Math.min(100, Math.round((usageTotals.value.total_tokens || 0) / budget * 100));
+});
+
+const fetchAISettings = async () => {
+  try {
+    const data = await getAISettings();
+    if (data.success && data.settings) {
+      aiEnabled.value  = data.settings.ai_enabled === 'true';
+      aiProvider.value = data.settings.ai_provider || 'procedural';
+      aiBudget.value   = parseInt(data.settings.max_token_budget) || 100000;
+      aiLastError.value = data.lastError || null;
+    }
+  } catch { /* silencioso */ }
+};
+
+const fetchUsageStats = async () => {
+  try {
+    const data = await getAIUsageStats();
+    if (data.success) {
+      usageRows.value   = data.rows   || [];
+      usageTotals.value = data.totals || { total_calls: 0, total_tokens: 0, total_cost: 0 };
+    }
+  } catch { /* silencioso */ }
+};
+
+const handleSaveSetting = async (key, value) => {
+  if (settingsLoading.value) return;
+  settingsLoading.value = true;
+  try {
+    const data = await updateAISetting(key, String(value));
+    if (data.success) {
+      showMsg(data.message || `${key} actualizado`);
+    } else {
+      showMsg(data.message || 'Error al guardar', 'msg-err');
+    }
+  } catch (e) {
+    showMsg(`Error: ${e.response?.data?.message || e.message}`, 'msg-err');
+  } finally {
+    settingsLoading.value = false;
+  }
+};
+
+const handleToggleAI = async () => {
+  const newVal = !aiEnabled.value;
+  aiEnabled.value = newVal; // optimistic update
+  await handleSaveSetting('ai_enabled', newVal ? 'true' : 'false');
+};
+
+const handleTestConnection = async () => {
+  if (testing.value) return;
+  testing.value = true;
+  try {
+    const data = await testAIConnection();
+    if (data.success) {
+      aiLastError.value = null;
+      showMsg(`✅ Conexión OK con ${data.provider}`);
+    } else {
+      aiLastError.value = { provider: data.provider, message: data.message, timestamp: new Date().toISOString() };
+      showMsg(`Error de conexión: ${data.message}`, 'msg-err');
+    }
+  } catch (e) {
+    const msg = e.response?.data?.message || e.message;
+    aiLastError.value = { provider: aiProvider.value, message: msg, timestamp: new Date().toISOString() };
+    showMsg(`Error: ${msg}`, 'msg-err');
+  } finally {
+    testing.value = false;
+  }
+};
+
+const handleResetStats = async () => {
+  if (!confirm('¿Reiniciar todos los contadores de uso de IA?')) return;
+  try {
+    const data = await resetAIUsageStats();
+    if (data.success) {
+      usageRows.value   = [];
+      usageTotals.value = { total_calls: 0, total_tokens: 0, total_cost: 0 };
+      showMsg('Estadísticas reiniciadas');
+    } else {
+      showMsg(data.message || 'Error al reiniciar', 'msg-err');
+    }
+  } catch (e) {
+    showMsg(`Error: ${e.response?.data?.message || e.message}`, 'msg-err');
+  }
+};
+
 // ── Data fetching ───────────────────────────────────────────────────────────
 const fetchStatus = async () => {
   loading.value = true;
@@ -447,7 +654,13 @@ const handleForceExploration = () => runAction(forceExploration,'Exploraciones p
 onMounted(() => {
   fetchStatus();
   fetchAgents();
-  refreshTimer = setInterval(() => { fetchStatus(); fetchAgents(); }, 10000);
+  fetchAISettings();
+  fetchUsageStats();
+  refreshTimer = setInterval(() => {
+    fetchStatus();
+    fetchAgents();
+    fetchUsageStats();
+  }, 10000);
 });
 
 onUnmounted(() => {
@@ -907,5 +1120,181 @@ onUnmounted(() => {
 .ai-no-capital {
   color: #555;
   font-size: 0.8rem;
+}
+
+/* ── AI Control Strip ────────────────────────────────────────────────────── */
+.ai-control-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 20px;
+  border: 1px solid;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 700;
+  transition: all 0.15s;
+  min-width: 95px;
+}
+.ai-toggle-btn.toggle-on {
+  background: rgba(56,142,60,0.18);
+  border-color: rgba(56,142,60,0.5);
+  color: #81c784;
+}
+.ai-toggle-btn.toggle-off {
+  background: rgba(97,97,97,0.15);
+  border-color: rgba(97,97,97,0.3);
+  color: #9e9e9e;
+}
+.toggle-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.ai-budget-input {
+  width: 90px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 5px;
+  color: #e0e0e0;
+  font-size: 0.78rem;
+  padding: 4px 6px;
+}
+.btn-ai-save {
+  padding: 4px 8px;
+  min-width: unset;
+  background: rgba(197,160,89,0.12);
+  border-color: rgba(197,160,89,0.3);
+  color: #c5a059;
+}
+.btn-ai-save:hover:not(:disabled) { background: rgba(197,160,89,0.25); }
+
+.btn-ai-test {
+  padding: 4px 10px;
+  min-width: unset;
+  background: rgba(100,181,246,0.12);
+  border-color: rgba(100,181,246,0.3);
+  color: #64b5f6;
+}
+.btn-ai-test:hover:not(:disabled) { background: rgba(100,181,246,0.25); }
+
+.ai-error-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(244,67,54,0.1);
+  border: 1px solid rgba(244,67,54,0.4);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.ai-error-icon { font-size: 1.05rem; flex-shrink: 0; margin-top: 1px; }
+.ai-error-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.ai-error-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #ef5350;
+}
+.ai-error-msg {
+  font-size: 0.75rem;
+  color: #ef9a9a;
+  word-break: break-word;
+}
+.ai-error-time {
+  font-size: 0.7rem;
+  color: #888;
+  flex-shrink: 0;
+  align-self: flex-start;
+  white-space: nowrap;
+}
+
+/* ── AI Usage Monitor ────────────────────────────────────────────────────── */
+.ai-usage-monitor {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+}
+.usage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.usage-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #aaa;
+  letter-spacing: 0.05em;
+}
+.btn-usage-reset {
+  font-size: 0.7rem;
+  padding: 3px 8px;
+  background: rgba(97,97,97,0.15);
+  border-color: rgba(97,97,97,0.3);
+  color: #9e9e9e;
+}
+.btn-usage-reset:hover:not(:disabled) { background: rgba(97,97,97,0.3); }
+.ai-progress {
+  height: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 5px;
+}
+.ai-progress-bar {
+  height: 100%;
+  border-radius: 3px;
+  background: #42a5f5;
+  transition: width 0.4s ease, background 0.4s ease;
+  min-width: 2px;
+}
+.ai-progress-bar.bar-warn { background: #ffa726; }
+.ai-progress-bar.bar-crit { background: #ef5350; }
+.usage-numbers {
+  font-size: 0.73rem;
+  color: #888;
+  margin-bottom: 8px;
+}
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+}
+.usage-table th {
+  color: #777;
+  font-weight: 600;
+  text-align: left;
+  padding: 3px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.usage-table td {
+  color: #ccc;
+  padding: 3px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.usage-table code {
+  font-size: 0.68rem;
+  background: rgba(255,255,255,0.07);
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: #90caf9;
 }
 </style>

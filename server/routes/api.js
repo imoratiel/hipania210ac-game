@@ -149,6 +149,7 @@ module.exports = function () {
     // AI AGENTS (ADMIN ONLY)
     // ============================================
     const AIManagerService = require('../src/services/AIManagerService');
+    const AIProxyService   = require('../src/services/AIProxyService');
 
     // List all AI agents
     router.get('/admin/ai/agents', authenticateToken, requireAdmin, async (req, res) => {
@@ -219,6 +220,74 @@ module.exports = function () {
             for (let i = 0; i < spawnCount; i++) results.push(await spawnerFn(null));
             const succeeded = results.filter(r => r.success).length;
             res.json({ success: succeeded > 0, message: `${succeeded}/${spawnCount} agentes creados`, results });
+        } catch (error) {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
+    // ── AI Settings (global_settings table) ──────────────────────────────────
+
+    // GET /admin/ai/settings — devuelve la configuración de IA + último error en memoria
+    router.get('/admin/ai/settings', authenticateToken, requireAdmin, async (req, res) => {
+        try {
+            const settings  = await AIProxyService.getSettings();
+            const lastError = AIProxyService.getLastError();
+            res.json({ success: true, settings, lastError });
+        } catch (error) {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
+    // POST /admin/ai/settings — actualiza un valor { key, value }
+    router.post('/admin/ai/settings', authenticateToken, requireAdmin, async (req, res) => {
+        try {
+            const { key, value } = req.body;
+            const ALLOWED_KEYS = ['ai_enabled', 'ai_provider', 'max_token_budget'];
+            if (!key || !ALLOWED_KEYS.includes(key)) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Clave inválida. Permitidas: ${ALLOWED_KEYS.join(', ')}`,
+                });
+            }
+            if (key === 'ai_provider' && !AIProxyService.VALID_PROVIDERS?.includes(value)) {
+                const valid = ['procedural', 'gemini', 'openai'];
+                return res.status(400).json({
+                    success: false,
+                    message: `Proveedor inválido. Opciones: ${valid.join(', ')}`,
+                });
+            }
+            await AIProxyService.setSetting(key, value);
+            res.json({ success: true, message: `Configuración actualizada: ${key} = ${value}` });
+        } catch (error) {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
+    // GET /admin/ai/usage-stats — resumen de tokens y costes por bot
+    router.get('/admin/ai/usage-stats', authenticateToken, requireAdmin, async (req, res) => {
+        try {
+            const summary = await AIProxyService.getUsageSummary();
+            res.json({ success: true, ...summary });
+        } catch (error) {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
+    // DELETE /admin/ai/usage-stats — reinicia todos los contadores de uso
+    router.delete('/admin/ai/usage-stats', authenticateToken, requireAdmin, async (req, res) => {
+        try {
+            await AIProxyService.resetUsageStats();
+            res.json({ success: true, message: 'Estadísticas de uso de IA reiniciadas' });
+        } catch (error) {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
+    // POST /admin/ai/test — verifica la conexión con el proveedor configurado
+    router.post('/admin/ai/test', authenticateToken, requireAdmin, async (req, res) => {
+        try {
+            const result = await AIProxyService.testConnection();
+            res.status(result.success ? 200 : 400).json({ success: result.success, message: result.message, provider: result.provider });
         } catch (error) {
             res.status(500).json({ success: false, message: error.message });
         }

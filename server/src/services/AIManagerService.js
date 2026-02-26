@@ -22,6 +22,7 @@ const { generateAIName } = require('../utils/npcGenerator');
 const KingdomModel       = require('../models/KingdomModel');
 const { generateInitialEconomy } = require('../logic/conquest');
 const recruitmentNetwork = require('../logic/recruitmentNetwork');
+const aiProxy            = require('./AIProxyService');
 
 // ── Constantes del perfil Agricultor ─────────────────────────────────────────
 // ── Constantes del perfil Expansionista ──────────────────────────────────────
@@ -177,19 +178,27 @@ class AIManagerService {
         if (agents.length === 0) return;
         Logger.engine(`[TURN ${turn}] 🤖 AI: procesando ${agents.length} agente(s)...`);
 
+        // Check proxy availability once per cycle (cached 30s) — avoids per-agent DB hits
+        const { available: aiAvailable, provider: aiProvider } = await aiProxy.checkAvailability();
+
         for (const agent of agents) {
             try {
-                if (agent.ai_profile === 'farmer') {
-                    await this._processFarmerTurn(agent.player_id, turn);
-                } else if (agent.ai_profile === 'expansionist') {
-                    await this._processExpansionistTurn(agent.player_id, turn);
-                } else if (agent.ai_profile === 'balanced') {
-                    await this._processBalancedTurn(agent.player_id, turn);
+                if (aiAvailable) {
+                    await this._processAIGuidedTurn(agent, turn);
+                } else {
+                    // Procedural fallback (default behavior)
+                    if (agent.ai_profile === 'farmer') {
+                        await this._processFarmerTurn(agent.player_id, turn);
+                    } else if (agent.ai_profile === 'expansionist') {
+                        await this._processExpansionistTurn(agent.player_id, turn);
+                    } else if (agent.ai_profile === 'balanced') {
+                        await this._processBalancedTurn(agent.player_id, turn);
+                    }
                 }
             } catch (agentError) {
                 Logger.error(agentError, {
                     context: 'AIManagerService.processAITurn',
-                    turn, playerId: agent.player_id,
+                    turn, playerId: agent.player_id, provider: aiProvider,
                 });
             }
         }
@@ -1184,6 +1193,116 @@ class AIManagerService {
             `[TURN ${turn}] ⚖️ AI Equilibrado (${playerId}) reclutó ${toRecruit} tropas ` +
             `(guarnición: ${state.totalTroops + toRecruit}/${state.garrisonTarget}, -${totalGoldCost}💰)`
         );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PRIVADO: Ciclo guiado por IA (proveedor externo)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Ciclo de turno guiado por un proveedor de IA (Gemini / OpenAI).
+     * Usa el método de análisis del perfil para construir el contexto,
+     * luego delega la decisión al proxy. Si el proxy devuelve 'procedural',
+     * ejecuta el ciclo completo habitual del perfil.
+     */
+    async _processAIGuidedTurn(agent, turn) {
+        const { player_id: playerId, ai_profile: profile } = agent;
+
+        // 1. Obtener estado del reino (análisis de solo lectura)
+        let state;
+        if (profile === 'farmer') {
+            state = await this._farmerAnalysis(playerId);
+        } else if (profile === 'expansionist') {
+            state = await this._expansionistAnalysis(playerId);
+        } else if (profile === 'balanced') {
+            state = await this._balancedAnalysis(playerId);
+        } else {
+            return; // Perfil desconocido
+        }
+
+        if (!state || state.territories.length === 0) return;
+
+        // 2. Solicitar decisión al proxy
+        const decision = await aiProxy.requestDecision(playerId, profile, state, turn);
+
+        // 3a. Fallback procedural si el proxy lo indica
+        if (decision.mode === 'procedural') {
+            if (profile === 'farmer') {
+                await this._processFarmerTurn(playerId, turn);
+            } else if (profile === 'expansionist') {
+                await this._processExpansionistTurn(playerId, turn);
+            } else if (profile === 'balanced') {
+                await this._processBalancedTurn(playerId, turn);
+            }
+            return;
+        }
+
+        // 3b. Ejecutar la acción decidida por la IA
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            await this._executeAIDecision(client, playerId, profile, state, decision.action, turn);
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            Logger.error(error, { context: 'AIManagerService._processAIGuidedTurn', playerId, turn });
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * Ejecuta la acción elegida por el LLM, enrutando al método de fase correcto
+     * según el perfil y la acción indicada.
+     *
+     * @param {Object} client
+     * @param {number} playerId
+     * @param {string} profile  - 'farmer' | 'expansionist' | 'balanced'
+     * @param {Object} state    - Estado pre-calculado por el análisis del perfil
+     * @param {Object} action   - { action: string, params: {} }
+     * @param {number} turn
+     * @returns {Promise<void>}
+     */
+    async _executeAIDecision(client, playerId, profile, state, action, turn) {
+        switch (action.action) {
+
+            case 'expand':
+                if (profile === 'expansionist') {
+                    await this._expansionistColonization(client, playerId, state, turn);
+                } else if (profile === 'balanced') {
+                    await this._balancedExpansion(client, playerId, state, turn);
+                } else {
+                    await this._farmerExpansion(client, playerId, state, turn);
+                }
+                break;
+
+            case 'build':
+                if (profile === 'expansionist') {
+                    await this._expansionistConstruction(client, playerId, state, turn);
+                } else if (profile === 'balanced') {
+                    await this._balancedConstruction(client, playerId, state, turn);
+                } else {
+                    await this._farmerConstruction(client, playerId, state, turn);
+                }
+                break;
+
+            case 'recruit':
+                // _farmerThreatResponse gestiona su propio cliente — usamos balancedRecruitment
+                // para farmer en modo IA (interfaz compatible con client activo)
+                if (profile === 'expansionist') {
+                    await this._expansionistRecruitment(client, playerId, state, turn);
+                } else {
+                    await this._balancedRecruitment(client, playerId, state, turn);
+                }
+                break;
+
+            case 'idle':
+                Logger.engine(`[TURN ${turn}] 💤 AI ${profile} (${playerId}) decidió descansar (idle) este turno`);
+                break;
+
+            default:
+                Logger.engine(`[TURN ${turn}] ⚠️ AI ${profile} (${playerId}) acción desconocida: ${action.action}. Ignorando.`);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
