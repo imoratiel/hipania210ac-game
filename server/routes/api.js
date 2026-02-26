@@ -169,14 +169,18 @@ module.exports = function () {
         }
     });
 
-    // Spawn one or more Farmer AI agents
-    router.post('/admin/ai/spawn-farmer', authenticateToken, requireAdmin, async (req, res) => {
+    // Spawn AI agents — generic endpoint supporting both profiles
+    router.post('/admin/ai/spawn', authenticateToken, requireAdmin, async (req, res) => {
         try {
-            const { h3_index, count = 1 } = req.body;
+            const { type = 'farmer', h3_index, count = 1 } = req.body;
             const spawnCount = Math.max(1, Math.min(10, parseInt(count) || 1));
 
+            const spawnerFn = type === 'expansionist'
+                ? (h3) => AIManagerService.spawnExpansionistAgent(h3)
+                : (h3) => AIManagerService.spawnFarmerAgent(h3);
+
             if (spawnCount === 1) {
-                const result = await AIManagerService.spawnFarmerAgent(h3_index || null);
+                const result = await spawnerFn(h3_index || null);
                 if (result.success) return res.json(result);
                 return res.status(400).json(result);
             }
@@ -184,8 +188,7 @@ module.exports = function () {
             // Batch spawn: run sequentially to avoid concurrent DB contention
             const results = [];
             for (let i = 0; i < spawnCount; i++) {
-                const r = await AIManagerService.spawnFarmerAgent(null);
-                results.push(r);
+                results.push(await spawnerFn(null));
             }
             const succeeded = results.filter(r => r.success).length;
             res.json({
@@ -193,6 +196,27 @@ module.exports = function () {
                 message: `${succeeded}/${spawnCount} agentes creados correctamente`,
                 results,
             });
+        } catch (error) {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
+    // Legacy alias kept for backwards compatibility
+    router.post('/admin/ai/spawn-farmer', authenticateToken, requireAdmin, async (req, res) => {
+        req.body.type = 'farmer';
+        const { type, h3_index, count = 1 } = req.body;
+        try {
+            const spawnCount = Math.max(1, Math.min(10, parseInt(count) || 1));
+            const spawnerFn = (h3) => AIManagerService.spawnFarmerAgent(h3);
+            if (spawnCount === 1) {
+                const result = await spawnerFn(h3_index || null);
+                if (result.success) return res.json(result);
+                return res.status(400).json(result);
+            }
+            const results = [];
+            for (let i = 0; i < spawnCount; i++) results.push(await spawnerFn(null));
+            const succeeded = results.filter(r => r.success).length;
+            res.json({ success: succeeded > 0, message: `${succeeded}/${spawnCount} agentes creados`, results });
         } catch (error) {
             res.status(500).json({ success: false, message: error.message });
         }

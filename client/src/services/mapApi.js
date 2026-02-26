@@ -482,6 +482,11 @@ export async function spawnAIFarmer(count = 1) {
   return response.data;
 }
 
+export async function spawnAIAgent(type = 'farmer', count = 1) {
+  const response = await axios.post(`${API_URL}/api/admin/ai/spawn`, { type, count });
+  return response.data;
+}
+
 export async function forceAITurn() {
   const response = await axios.post(`${API_URL}/api/admin/ai/force-turn`);
   return response.data;

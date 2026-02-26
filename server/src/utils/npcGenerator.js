@@ -27,27 +27,45 @@ const FARMER_DOMAINS = [
     'de Campollano', 'del Huerto', 'de las Eras',
 ];
 
+// ── Expansionist profile ────────────────────────────────────────────────────
+
+const EXPANSIONIST_FIRST_NAMES = [
+    'Ragnar', 'Varg', 'Hilda', 'Sigrid', 'Kael', 'Bjorn', 'Ivar', 'Astrid',
+    'Gunnar', 'Freya', 'Ulf', 'Ragnhild', 'Leif', 'Thyra', 'Sven', 'Gorm',
+];
+
+const EXPANSIONIST_EPITHETS = [
+    'el Conquistador', 'el Terrible', 'el Martillo', 'de las Cenizas',
+    'el Devastador', 'la Implacable', 'el Sanguinario', 'el Temido',
+    'el Arrasador', 'la Feroz', 'el Inclemente', 'el de la Espada',
+    'el Despiadado', 'la de Hierro', 'el que no perdona',
+];
+
+// ── Name generator ──────────────────────────────────────────────────────────
+
 /**
- * Generate a medieval Hispanic name for an AI agent.
- * @param {string} profile - AI profile type ('farmer', etc.)
+ * Generate a medieval name for an AI agent.
+ * @param {string} profile - AI profile type ('farmer' | 'expansionist')
  * @returns {string} Generated name
  */
 function generateAIName(profile = 'farmer') {
+    if (profile === 'expansionist') {
+        const first   = EXPANSIONIST_FIRST_NAMES[Math.floor(Math.random() * EXPANSIONIST_FIRST_NAMES.length)];
+        const epithet = EXPANSIONIST_EPITHETS[Math.floor(Math.random() * EXPANSIONIST_EPITHETS.length)];
+        return `${first} ${epithet}`;
+    }
+
+    // farmer (default): Hispanic medieval names
     const useMale = Math.random() < 0.6;
     const firstName = useMale
         ? FIRST_NAMES_MALE[Math.floor(Math.random() * FIRST_NAMES_MALE.length)]
         : FIRST_NAMES_FEMALE[Math.floor(Math.random() * FIRST_NAMES_FEMALE.length)];
 
-    if (profile === 'farmer') {
-        const useEpithet = Math.random() < 0.6;
-        const suffix = useEpithet
-            ? FARMER_EPITHETS[Math.floor(Math.random() * FARMER_EPITHETS.length)]
-            : FARMER_DOMAINS[Math.floor(Math.random() * FARMER_DOMAINS.length)];
-        return `${firstName} ${suffix}`;
-    }
-
-    // Default fallback
-    return firstName;
+    const useEpithet = Math.random() < 0.6;
+    const suffix = useEpithet
+        ? FARMER_EPITHETS[Math.floor(Math.random() * FARMER_EPITHETS.length)]
+        : FARMER_DOMAINS[Math.floor(Math.random() * FARMER_DOMAINS.length)];
+    return `${firstName} ${suffix}`;
 }
 
 module.exports = { generateAIName };

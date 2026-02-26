@@ -24,6 +24,18 @@ const { generateInitialEconomy } = require('../logic/conquest');
 const recruitmentNetwork = require('../logic/recruitmentNetwork');
 
 // ── Constantes del perfil Agricultor ─────────────────────────────────────────
+// ── Constantes del perfil Expansionista ──────────────────────────────────────
+const EXPANSIONIST = {
+    STARTING_GOLD:       60_000,
+    CLAIM_COST:          100,
+    GOLD_TO_BUILD:       8_000,   // Build military only if well-funded
+    GOLD_TO_RECRUIT:     5_000,   // Recruit unconditionally above this
+    GOLD_RESERVE:        3_000,   // Never go below this
+    RECRUIT_QUANTITY:    100,     // Larger batches for aggression
+    COLORS: ['#8B0000','#B22222','#DC143C','#800000','#4A0E0E','#C0392B','#922B21','#641E16'],
+};
+
+// ── Constantes del perfil Agricultor ─────────────────────────────────────────
 const FARMER = {
     STARTING_GOLD:       50_000,
     CLAIM_COST:          100,
@@ -39,15 +51,25 @@ const FARMER = {
 class AIManagerService {
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PÚBLICO: Spawning de un agente Agricultor
+    // PÚBLICO: Spawning de agentes
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Crea un agente Agricultor en el hex indicado (o en uno auto-seleccionado).
-     * Reclama el hex capital y los vecinos colonizables de radio 1.
-     * @param {string|null} targetH3
-     */
     async spawnFarmerAgent(targetH3 = null) {
+        return this._spawnAgent('farmer', FARMER, targetH3);
+    }
+
+    async spawnExpansionistAgent(targetH3 = null) {
+        return this._spawnAgent('expansionist', EXPANSIONIST, targetH3);
+    }
+
+    /**
+     * Lógica de spawn compartida.
+     * Crea el jugador IA, reclama el hex capital y los vecinos colonizables de radio 1.
+     */
+    async _spawnAgent(profile, config, targetH3 = null) {
+        const EMOJI = { farmer: '🌾', expansionist: '⚔️' };
+        const LABEL = { farmer: 'Agricultor', expansionist: 'Expansionista' };
+
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
@@ -71,15 +93,15 @@ class AIManagerService {
                 return { success: false, message: `El hex ${spawnHex} no está disponible` };
             }
 
-            const aiName     = generateAIName('farmer');
-            const aiColor    = FARMER.COLORS[Math.floor(Math.random() * FARMER.COLORS.length)];
-            const aiUsername = `ai_farmer_${Date.now()}`;
+            const aiName     = generateAIName(profile);
+            const aiColor    = config.COLORS[Math.floor(Math.random() * config.COLORS.length)];
+            const aiUsername = `ai_${profile}_${Date.now()}`;
 
             const playerResult = await client.query(
                 `INSERT INTO players (username, password, display_name, color, gold, is_ai, ai_profile, role)
-                 VALUES ($1, 'NO_LOGIN', $2, $3, $4, TRUE, 'farmer', 'player')
+                 VALUES ($1, 'NO_LOGIN', $2, $3, $4, TRUE, $5, 'player')
                  RETURNING player_id`,
-                [aiUsername, aiName, aiColor, FARMER.STARTING_GOLD]
+                [aiUsername, aiName, aiColor, config.STARTING_GOLD, profile]
             );
             const aiPlayerId = playerResult.rows[0].player_id;
 
@@ -88,8 +110,8 @@ class AIManagerService {
             await KingdomModel.InsertTerritoryDetails(client, spawnHex, capitalEco);
             await KingdomModel.SetCapital(client, spawnHex, aiPlayerId);
 
-            const ring1      = h3.gridDisk(spawnHex, 1).filter(n => n !== spawnHex);
-            const neighbors  = await KingdomModel.GetColonizableNeighbors(client, ring1);
+            const ring1     = h3.gridDisk(spawnHex, 1).filter(n => n !== spawnHex);
+            const neighbors = await KingdomModel.GetColonizableNeighbors(client, ring1);
             for (const neighbor of neighbors) {
                 const eco = generateInitialEconomy();
                 await KingdomModel.ClaimHex(client, neighbor.h3_index, aiPlayerId);
@@ -99,14 +121,14 @@ class AIManagerService {
             await client.query('COMMIT');
 
             Logger.action(
-                `[AI] 🌾 Agente Agricultor "${aiName}" (id=${aiPlayerId}) fundado en ${spawnHex} (${neighbors.length + 1} hexes)`,
+                `[AI] ${EMOJI[profile]} Agente ${LABEL[profile]} "${aiName}" (id=${aiPlayerId}) fundado en ${spawnHex} (${neighbors.length + 1} hexes)`,
                 { player_id: aiPlayerId, h3_index: spawnHex }
             );
             return { success: true, player_id: aiPlayerId, name: aiName,
                      h3_index: spawnHex, hexes_claimed: neighbors.length + 1 };
         } catch (error) {
             await client.query('ROLLBACK').catch(() => {});
-            Logger.error(error, { context: 'AIManagerService.spawnFarmerAgent', targetH3 });
+            Logger.error(error, { context: `AIManagerService._spawnAgent[${profile}]`, targetH3 });
             return { success: false, message: error.message };
         } finally {
             client.release();
@@ -141,6 +163,8 @@ class AIManagerService {
             try {
                 if (agent.ai_profile === 'farmer') {
                     await this._processFarmerTurn(agent.player_id, turn);
+                } else if (agent.ai_profile === 'expansionist') {
+                    await this._processExpansionistTurn(agent.player_id, turn);
                 }
             } catch (agentError) {
                 Logger.error(agentError, {
@@ -510,6 +534,304 @@ class AIManagerService {
         } finally {
             client.release();
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PRIVADO: Ciclo completo del Expansionista
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Ciclo de decisión del perfil Expansionista.
+     * Prioridad: A (colonizar) → B (reclutar) → C (construir cuarteles en la frontera)
+     * No espera amenazas: siempre recluta si hay oro y población suficiente.
+     */
+    async _processExpansionistTurn(playerId, turn) {
+        const state = await this._expansionistAnalysis(playerId);
+        if (!state || state.territories.length === 0) return;
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            await this._expansionistColonization(client, playerId, state, turn);
+            await this._expansionistRecruitment(client, playerId, state, turn);
+            await this._expansionistConstruction(client, playerId, state, turn);
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            Logger.error(error, { context: 'AIManagerService._processExpansionistTurn', playerId, turn });
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * Fase de análisis del Expansionista (solo lectura).
+     * Calcula territorios, frontera, candidatos de expansión y ubicaciones de reclutamiento.
+     */
+    async _expansionistAnalysis(playerId) {
+        const client = await pool.connect();
+        try {
+            const kingdomResult = await client.query(`
+                SELECT
+                    m.h3_index,
+                    td.population,
+                    p.gold,
+                    p.capital_h3,
+                    fb.building_id        AS existing_building_id,
+                    fb.is_under_construction,
+                    bt.name               AS building_type_name
+                FROM territory_details td
+                JOIN h3_map m         ON td.h3_index = m.h3_index
+                JOIN players p        ON p.player_id = m.player_id
+                LEFT JOIN fief_buildings fb ON fb.h3_index = td.h3_index
+                LEFT JOIN buildings bld     ON bld.id = fb.building_id
+                LEFT JOIN building_types bt ON bt.building_type_id = bld.type_id
+                WHERE m.player_id = $1
+            `, [playerId]);
+
+            if (kingdomResult.rows.length === 0) return null;
+
+            const gold      = parseInt(kingdomResult.rows[0].gold) || 0;
+            const capitalH3 = kingdomResult.rows[0].capital_h3;
+            const territories = kingdomResult.rows;
+            const ownedSet  = new Set(territories.map(t => t.h3_index));
+
+            // Expansion candidates: adjacent unclaimed hexes
+            const candidateSet = new Set();
+            for (const hex of ownedSet) {
+                h3.gridDisk(hex, 1)
+                  .filter(n => n !== hex && !ownedSet.has(n))
+                  .forEach(n => candidateSet.add(n));
+            }
+
+            // Frontier hexes: own hexes with at least one non-owned neighbor
+            const frontierHexes = territories.filter(t =>
+                h3.gridDisk(t.h3_index, 1).some(n => n !== t.h3_index && !ownedSet.has(n))
+            );
+
+            // Territories without buildings (frontier priority for construction)
+            const territoriesWithoutBuilding = territories.filter(t => !t.existing_building_id);
+
+            // Recruit locations: capital + completed military building fiefs
+            const recruitLocations = [];
+            if (capitalH3) recruitLocations.push(capitalH3);
+            for (const t of territories) {
+                if (t.h3_index !== capitalH3 &&
+                    t.building_type_name === 'military' &&
+                    t.existing_building_id &&
+                    !t.is_under_construction) {
+                    recruitLocations.push(t.h3_index);
+                }
+            }
+
+            return {
+                gold, capitalH3, territories, ownedSet,
+                candidateSet: [...candidateSet],
+                frontierHexes, territoriesWithoutBuilding,
+                recruitLocations,
+            };
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * Fase A — Colonización agresiva: coloniza TODOS los hexes adyacentes libres
+     * que el oro permita (criterio: espacio disponible, no food_output).
+     */
+    async _expansionistColonization(client, playerId, state, turn) {
+        if (state.candidateSet.length === 0) return;
+
+        // Lock gold row once for the whole colonization loop
+        const goldRow = await client.query(
+            'SELECT gold FROM players WHERE player_id = $1 FOR UPDATE',
+            [playerId]
+        );
+        let currentGold = parseInt(goldRow.rows[0]?.gold) || 0;
+
+        if (currentGold < EXPANSIONIST.CLAIM_COST + EXPANSIONIST.GOLD_RESERVE) return;
+
+        const result = await client.query(`
+            SELECT m.h3_index
+            FROM h3_map m
+            JOIN terrain_types tt ON m.terrain_type_id = tt.terrain_type_id
+            WHERE m.h3_index = ANY($1)
+              AND m.player_id IS NULL
+              AND COALESCE(tt.is_colonizable, TRUE) = TRUE
+            FOR UPDATE OF m
+        `, [state.candidateSet]);
+
+        if (result.rows.length === 0) return;
+
+        let colonized = 0;
+        for (const target of result.rows) {
+            if (currentGold < EXPANSIONIST.CLAIM_COST + EXPANSIONIST.GOLD_RESERVE) break;
+
+            await client.query(
+                'UPDATE players SET gold = gold - $1 WHERE player_id = $2',
+                [EXPANSIONIST.CLAIM_COST, playerId]
+            );
+            await KingdomModel.ClaimHex(client, target.h3_index, playerId);
+            await KingdomModel.InsertTerritoryDetails(client, target.h3_index, generateInitialEconomy());
+
+            currentGold -= EXPANSIONIST.CLAIM_COST;
+            colonized++;
+        }
+
+        if (colonized > 0) {
+            Logger.engine(
+                `[TURN ${turn}] 🗺️ AI Expansionista (${playerId}) colonizó ${colonized} hex(es) (-${colonized * EXPANSIONIST.CLAIM_COST}💰)`
+            );
+        }
+    }
+
+    /**
+     * Fase B — Reclutamiento incondicional: recluta si el oro supera el umbral,
+     * sin necesidad de amenaza previa.
+     * Usa la red de suministro con bloqueo FOR UPDATE.
+     */
+    async _expansionistRecruitment(client, playerId, state, turn) {
+        if (state.recruitLocations.length === 0) return;
+
+        const unitResult = await pool.query(`
+            SELECT ut.unit_type_id, COALESCE(r.amount, 0)::int AS gold_cost
+            FROM unit_types ut
+            LEFT JOIN unit_requirements r
+              ON r.unit_type_id = ut.unit_type_id AND r.resource_type = 'gold'
+            ORDER BY COALESCE(r.amount, 0) ASC
+            LIMIT 1
+        `);
+        if (unitResult.rows.length === 0) return;
+
+        const unitType      = unitResult.rows[0];
+        const totalGoldCost = unitType.gold_cost * EXPANSIONIST.RECRUIT_QUANTITY;
+
+        // Re-verify gold with lock
+        const freshGold = await client.query(
+            'SELECT gold FROM players WHERE player_id = $1 FOR UPDATE',
+            [playerId]
+        );
+        const currentGold = parseInt(freshGold.rows[0]?.gold) || 0;
+
+        if (currentGold < EXPANSIONIST.GOLD_TO_RECRUIT) return;
+        if (currentGold < totalGoldCost + EXPANSIONIST.GOLD_RESERVE) return;
+
+        // Find recruit location with sufficient population in connected network
+        let recruitH3 = null, connectedH3s = null, lockedFiefPops = null;
+
+        for (const locationH3 of state.recruitLocations) {
+            const network      = await recruitmentNetwork.getConnectedNetwork(client, locationH3, playerId);
+            const fiefPops     = await recruitmentNetwork.getFiefPopulations(client, network);
+            const availablePop = recruitmentNetwork.calcRecruitablePool(fiefPops);
+
+            if (availablePop >= EXPANSIONIST.RECRUIT_QUANTITY) {
+                recruitH3 = locationH3; connectedH3s = network; lockedFiefPops = fiefPops;
+                break;
+            }
+        }
+
+        if (!recruitH3) {
+            Logger.engine(`[TURN ${turn}] ⚔️ AI Expansionista (${playerId}) sin población suficiente para reclutar`);
+            return;
+        }
+
+        // Find or create army
+        const existingArmy = await client.query(
+            'SELECT army_id FROM armies WHERE player_id = $1 AND h3_index = $2 LIMIT 1',
+            [playerId, recruitH3]
+        );
+        let armyId;
+        if (existingArmy.rows.length > 0) {
+            armyId = existingArmy.rows[0].army_id;
+        } else {
+            const newArmy = await client.query(
+                `INSERT INTO armies (name, player_id, h3_index)
+                 VALUES ('Horda Expansionista', $1, $2)
+                 RETURNING army_id`,
+                [playerId, recruitH3]
+            );
+            armyId = newArmy.rows[0].army_id;
+        }
+
+        await client.query(`
+            INSERT INTO troops (army_id, unit_type_id, quantity)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (army_id, unit_type_id)
+            DO UPDATE SET quantity = troops.quantity + EXCLUDED.quantity
+        `, [armyId, unitType.unit_type_id, EXPANSIONIST.RECRUIT_QUANTITY]);
+
+        if (totalGoldCost > 0) {
+            await client.query(
+                'UPDATE players SET gold = gold - $1 WHERE player_id = $2',
+                [totalGoldCost, playerId]
+            );
+        }
+
+        await recruitmentNetwork.deductFromNetwork(
+            client, connectedH3s, lockedFiefPops, EXPANSIONIST.RECRUIT_QUANTITY
+        );
+
+        Logger.engine(
+            `[TURN ${turn}] ⚔️ AI Expansionista (${playerId}) reclutó ${EXPANSIONIST.RECRUIT_QUANTITY} tropas en ${recruitH3} (-${totalGoldCost}💰)`
+        );
+    }
+
+    /**
+     * Fase C — Construcción: levanta un cuartel (edificio militar base) en el feudo
+     * de frontera más alejado de la capital — empuja el punto de reclutamiento al frente.
+     */
+    async _expansionistConstruction(client, playerId, state, turn) {
+        const freshGold = await client.query(
+            'SELECT gold FROM players WHERE player_id = $1', [playerId]
+        );
+        const currentGold = parseInt(freshGold.rows[0]?.gold) || 0;
+
+        if (currentGold < EXPANSIONIST.GOLD_TO_BUILD) return;
+
+        // Frontier fiefs without any building
+        const frontierNoBuild = state.frontierHexes.filter(t => !t.existing_building_id);
+        if (frontierNoBuild.length === 0) return;
+
+        // Get base military building
+        const bldResult = await client.query(`
+            SELECT b.id, b.name, b.gold_cost, b.construction_time_turns
+            FROM buildings b
+            JOIN building_types bt ON bt.building_type_id = b.type_id
+            WHERE bt.name = 'military'
+              AND b.required_building_id IS NULL
+            ORDER BY b.gold_cost ASC
+            LIMIT 1
+        `);
+        if (bldResult.rows.length === 0) return;
+
+        const building = bldResult.rows[0];
+        if (currentGold - parseInt(building.gold_cost) < EXPANSIONIST.GOLD_RESERVE) return;
+
+        // Pick the frontier fief FURTHEST from capital (the "front line")
+        let target = frontierNoBuild[0];
+        if (state.capitalH3 && frontierNoBuild.length > 1) {
+            try {
+                target = frontierNoBuild.reduce((best, t) => {
+                    const dT = h3.gridDistance(state.capitalH3, t.h3_index);
+                    const dB = h3.gridDistance(state.capitalH3, best.h3_index);
+                    return dT > dB ? t : best;
+                });
+            } catch { /* gridDistance may throw on mismatched resolutions */ }
+        }
+
+        await client.query(
+            'UPDATE players SET gold = gold - $1 WHERE player_id = $2',
+            [building.gold_cost, playerId]
+        );
+        await client.query(`
+            INSERT INTO fief_buildings (h3_index, building_id, remaining_construction_turns, is_under_construction)
+            VALUES ($1, $2, $3, TRUE)
+            ON CONFLICT (h3_index) DO NOTHING
+        `, [target.h3_index, building.id, building.construction_time_turns]);
+
+        Logger.engine(
+            `[TURN ${turn}] 🏯 AI Expansionista (${playerId}) construyendo "${building.name}" en ${target.h3_index} (frontera, -${building.gold_cost}💰)`
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────

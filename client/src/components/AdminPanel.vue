@@ -153,7 +153,8 @@
               @input="spawnCount = Math.min(10, Math.max(1, spawnCount || 1))"
             />
             <select v-model="spawnType" class="ai-spawn-select" :disabled="spawning">
-              <option value="farmer">Agricultor</option>
+              <option value="farmer">🌾 Agricultor</option>
+              <option value="expansionist">⚔️ Expansionista</option>
             </select>
             <button
               class="ctrl-btn btn-ai-spawn"
@@ -192,7 +193,10 @@
                     {{ agent.display_name }}
                   </td>
                   <td class="ai-td ai-td-center">
-                    <span class="ai-profile-badge">{{ profileLabel(agent.ai_profile) }}</span>
+                    <span
+                      class="ai-profile-badge"
+                      :class="{ 'badge-expansionist': agent.ai_profile === 'expansionist' }"
+                    >{{ profileLabel(agent.ai_profile) }}</span>
                   </td>
                   <td class="ai-td ai-td-num">{{ formatGold(agent.gold) }}</td>
                   <td class="ai-td ai-td-num">{{ agent.territory_count }}</td>
@@ -238,7 +242,7 @@ import {
   startEngine, stopEngine,
   pauseGame, resumeGame,
   forceTurn, forceHarvest, forceExploration,
-  getAIAgents, spawnAIFarmer, forceAITurn,
+  getAIAgents, spawnAIFarmer, spawnAIAgent, forceAITurn,
 } from '../services/mapApi.js';
 
 const emit = defineEmits(['close', 'go-to-hex']);
@@ -318,7 +322,7 @@ const formatTimestamp = (ts) => {
 };
 
 // ── AI helpers ──────────────────────────────────────────────────────────────
-const PROFILE_LABELS = { farmer: '🌾 Agricultor' };
+const PROFILE_LABELS = { farmer: '🌾 Agricultor', expansionist: '⚔️ Expansionista' };
 const profileLabel = (p) => PROFILE_LABELS[p] || p || '—';
 
 const formatGold = (n) => {
@@ -341,9 +345,10 @@ const handleSpawnAgents = async () => {
   if (spawning.value) return;
   spawning.value = true;
   try {
-    const data = await spawnAIFarmer(spawnCount.value);
+    const data = await spawnAIAgent(spawnType.value, spawnCount.value);
     if (data.success) {
-      showMsg(data.message || `Agente${spawnCount.value > 1 ? 's' : ''} creado${spawnCount.value > 1 ? 's' : ''} correctamente`);
+      const n = spawnCount.value;
+      showMsg(data.message || `Agente${n > 1 ? 's' : ''} creado${n > 1 ? 's' : ''} correctamente`);
       await fetchAgents();
     } else {
       showMsg(data.message || 'Error al crear agente', 'msg-err');
@@ -871,6 +876,10 @@ onUnmounted(() => {
   border-radius: 8px;
   padding: 2px 7px;
   white-space: nowrap;
+}
+.ai-profile-badge.badge-expansionist {
+  background: rgba(178,34,34,0.18);
+  color: #ef9a9a;
 }
 
 .ai-goto-btn {

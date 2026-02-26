@@ -23,7 +23,7 @@ const MAX_RANGE = GAME_CONFIG.ECONOMY.RECRUITMENT_NETWORK_RANGE;
  * @param {Object} client  - Conexión de BD activa (dentro de transacción)
  * @param {string} startH3 - H3 index del feudo de reclutamiento
  * @param {number} playerId
- * @returns {string[]} Ordered BFS list of connected h3 indices (max distance MAX_RANGE)
+ * @returns {Promise<string[]>} Ordered BFS list of connected h3 indices (max distance MAX_RANGE)
  */
 async function getConnectedNetwork(client, startH3, playerId) {
     const result = await client.query(
@@ -58,7 +58,7 @@ async function getConnectedNetwork(client, startH3, playerId) {
  *
  * @param {Object}   client     - Conexión de BD activa
  * @param {string[]} h3Indices  - Lista de h3_index a consultar
- * @returns {Array} [{ h3_index, population }]
+ * @returns {Promise<{h3_index: string, population: number}[]>}
  */
 async function getFiefPopulations(client, h3Indices) {
     if (h3Indices.length === 0) return [];
