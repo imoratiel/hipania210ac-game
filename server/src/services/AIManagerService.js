@@ -24,6 +24,7 @@ const { generateInitialEconomy } = require('../logic/conquest');
 const recruitmentNetwork = require('../logic/recruitmentNetwork');
 const aiProxy            = require('./AIProxyService');
 const { executeRecruitment, executeConstruction, GameActionError } = require('./gameActions');
+const { getSpawnCoordinates } = require('./BotService');
 
 // ── Constantes del perfil Agricultor ─────────────────────────────────────────
 // ── Constantes del perfil Expansionista ──────────────────────────────────────
@@ -89,15 +90,21 @@ class AIManagerService {
     async _spawnAgent(profile, config, targetH3 = null) {
         const LABEL = { farmer: 'Agricultor', expansionist: 'Expansionista', balanced: 'Equilibrado' };
 
+        // Resolve spawn location BEFORE opening the transaction (read-only, uses pool directly)
+        let spawnHex      = targetH3;
+        let playerTarget  = null;
+        if (!spawnHex) {
+            const coords = await getSpawnCoordinates();
+            spawnHex     = coords.h3_index;
+            playerTarget = coords.player_target;
+        }
+        if (!spawnHex) {
+            return { success: false, message: 'No se encontró un hex disponible para el agente IA' };
+        }
+
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
-
-            const spawnHex = targetH3 || await this._findSuitableSpawnHex(client);
-            if (!spawnHex) {
-                await client.query('ROLLBACK');
-                return { success: false, message: 'No se encontró un hex disponible para el agente IA' };
-            }
 
             const hexCheck = await client.query(
                 `SELECT h3_index FROM h3_map
@@ -139,12 +146,15 @@ class AIManagerService {
 
             await client.query('COMMIT');
 
+            const nearLabel = playerTarget
+                ? `cerca de ${playerTarget.display_name} (jugador #${playerTarget.player_id})`
+                : 'en posición aleatoria';
             Logger.action(
-                `[ACTION][${aiName}]: Agente ${LABEL[profile]} fundado en ${spawnHex} (${neighbors.length + 1} hexes)`,
+                `[ACTION][${aiName}]: Agente ${LABEL[profile]} fundado en ${spawnHex} (${neighbors.length + 1} hexes, ${nearLabel})`,
                 { player_id: aiPlayerId, h3_index: spawnHex }
             );
             Logger.bot(aiPlayerId,
-                `========== AGENTE CREADO: ${aiName} (${LABEL[profile]}) | Capital: ${spawnHex} | Hexes: ${neighbors.length + 1} ==========`
+                `========== AGENTE CREADO: ${aiName} (${LABEL[profile]}) | Capital: ${spawnHex} | Hexes: ${neighbors.length + 1} | Spawn: ${nearLabel} ==========`
             );
             return { success: true, player_id: aiPlayerId, name: aiName,
                      h3_index: spawnHex, hexes_claimed: neighbors.length + 1 };
