@@ -520,3 +520,8 @@ export async function testAIConnection() {
   const response = await axios.post(`${API_URL}/api/admin/ai/test`);
   return response.data;
 }
+
+export async function deleteAIAgent(botId) {
+  const response = await axios.delete(`${API_URL}/api/admin/bots/${botId}`);
+  return response.data;
+}

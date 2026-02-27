@@ -268,6 +268,12 @@
                       title="Ir a la capital del agente"
                     >📍 Ir</button>
                     <span v-else class="ai-no-capital">—</span>
+                    <button
+                      class="ai-delete-btn"
+                      :disabled="deletingId === agent.player_id"
+                      @click="handleDeleteAgent(agent)"
+                      title="Eliminar agente permanentemente"
+                    >{{ deletingId === agent.player_id ? '⏳' : '🗑️' }}</button>
                   </td>
                 </tr>
               </tbody>
@@ -356,6 +362,7 @@ import {
   forceTurn, forceHarvest, forceExploration,
   getAIAgents, spawnAIFarmer, spawnAIAgent, forceAITurn,
   getAISettings, updateAISetting, getAIUsageStats, resetAIUsageStats, testAIConnection,
+  deleteAIAgent,
 } from '../services/mapApi.js';
 
 const emit = defineEmits(['close', 'go-to-hex']);
@@ -375,6 +382,7 @@ const agentLoading = ref(false);
 const spawnCount   = ref(1);
 const spawnType    = ref('farmer');
 const spawning     = ref(false);
+const deletingId   = ref(null);
 
 // AI proxy / budget state
 const aiEnabled      = ref(false);
@@ -484,6 +492,29 @@ const handleSpawnAgents = async () => {
 };
 
 const handleForceAITurn = () => runAction(forceAITurn, 'Ciclo IA ejecutado');
+
+const handleDeleteAgent = async (agent) => {
+  if (deletingId.value) return;
+  const confirmed = confirm(
+    `¿Eliminar al agente "${agent.display_name}"?\n\n` +
+    `Se borrarán sus ejércitos, mensajes, edificios y se liberarán sus ${agent.territory_count} feudos. Esta acción no se puede deshacer.`
+  );
+  if (!confirmed) return;
+  deletingId.value = agent.player_id;
+  try {
+    const data = await deleteAIAgent(agent.player_id);
+    if (data.success) {
+      agents.value = agents.value.filter(a => a.player_id !== agent.player_id);
+      showMsg(data.message || 'Agente eliminado correctamente');
+    } else {
+      showMsg(data.message || 'Error al eliminar agente', 'msg-err');
+    }
+  } catch (e) {
+    showMsg(`Error: ${e.response?.data?.message || e.message}`, 'msg-err');
+  } finally {
+    deletingId.value = null;
+  }
+};
 
 // ── AI proxy helpers ─────────────────────────────────────────────────────────
 const budgetPercent = computed(() => {
@@ -1054,7 +1085,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .ai-th-num { text-align: right; }
-.ai-th-act { width: 56px; }
+.ai-th-act { width: 90px; }
 
 .ai-row { border-bottom: 1px solid rgba(197,160,89,0.08); }
 .ai-row:last-child { border-bottom: none; }
@@ -1116,6 +1147,20 @@ onUnmounted(() => {
   transition: background 0.15s;
 }
 .ai-goto-btn:hover { background: rgba(197,160,89,0.3); }
+
+.ai-delete-btn {
+  background: rgba(244,67,54,0.12);
+  border: 1px solid rgba(244,67,54,0.3);
+  color: #ef5350;
+  font-size: 0.78rem;
+  border-radius: 5px;
+  padding: 3px 7px;
+  cursor: pointer;
+  margin-left: 4px;
+  transition: background 0.15s;
+}
+.ai-delete-btn:hover:not(:disabled) { background: rgba(244,67,54,0.28); }
+.ai-delete-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .ai-no-capital {
   color: #555;

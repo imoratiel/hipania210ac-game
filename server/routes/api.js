@@ -159,7 +159,7 @@ module.exports = function () {
                         COUNT(m.h3_index)::int AS territory_count
                  FROM players p
                  LEFT JOIN h3_map m ON m.player_id = p.player_id
-                 WHERE p.is_ai = TRUE
+                 WHERE p.is_ai = TRUE AND p.deleted = FALSE
                  GROUP BY p.player_id
                  ORDER BY p.player_id`
             );
@@ -219,6 +219,19 @@ module.exports = function () {
             for (let i = 0; i < spawnCount; i++) results.push(await spawnerFn(null));
             const succeeded = results.filter(r => r.success).length;
             res.json({ success: succeeded > 0, message: `${succeeded}/${spawnCount} agentes creados`, results });
+        } catch (error) {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
+    // Delete AI agent
+    router.delete('/admin/bots/:botId', authenticateToken, requireAdmin, async (req, res) => {
+        const botId = parseInt(req.params.botId);
+        if (!botId) return res.status(400).json({ success: false, message: 'botId inválido' });
+        try {
+            const result = await AIManagerService.deleteAgent(botId);
+            if (result.success) return res.json(result);
+            return res.status(400).json(result);
         } catch (error) {
             res.status(500).json({ success: false, message: error.message });
         }

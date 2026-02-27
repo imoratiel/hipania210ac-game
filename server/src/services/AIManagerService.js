@@ -171,7 +171,7 @@ class AIManagerService {
         const qClient = await pool.connect();
         try {
             const result = await qClient.query(
-                `SELECT player_id, display_name, ai_profile FROM players WHERE is_ai = TRUE`
+                `SELECT player_id, display_name, ai_profile FROM players WHERE is_ai = TRUE AND deleted = FALSE`
             );
             agents = result.rows;
         } finally {
@@ -1050,6 +1050,93 @@ class AIManagerService {
             LIMIT 20
         `);
         return result.rows[0]?.h3_index || null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PÚBLICO: Eliminación de un agente
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Elimina un agente IA del sistema de juego:
+     *   1. Verifica que el jugador existe y es un bot no borrado.
+     *   2. Elimina ejércitos (cascade → troops, army_routes).
+     *   3. Elimina mensajes enviados o recibidos.
+     *   4. Elimina notificaciones y estadísticas de uso de IA.
+     *   5. Elimina edificios de sus feudos.
+     *   6. Libera sus feudos (player_id = NULL en h3_map).
+     *   7. Marca al jugador como deleted = TRUE y borra capital_h3.
+     *
+     * @param {number} botId - player_id del agente IA
+     * @returns {{ success: boolean, message: string, botName: string }}
+     */
+    async deleteAgent(botId) {
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // 1. Verificar que es un bot activo
+            const check = await client.query(
+                `SELECT display_name, is_ai, deleted FROM players WHERE player_id = $1`,
+                [botId]
+            );
+            if (check.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return { success: false, message: 'Agente no encontrado' };
+            }
+            const { display_name: botName, is_ai, deleted } = check.rows[0];
+            if (!is_ai) {
+                await client.query('ROLLBACK');
+                return { success: false, message: 'El jugador indicado no es un agente IA' };
+            }
+            if (deleted) {
+                await client.query('ROLLBACK');
+                return { success: false, message: `El agente "${botName}" ya ha sido eliminado` };
+            }
+
+            // 2. Eliminar ejércitos (cascade → troops, army_routes)
+            await client.query('DELETE FROM armies WHERE player_id = $1', [botId]);
+
+            // 3. Eliminar mensajes
+            await client.query(
+                'DELETE FROM messages WHERE sender_id = $1 OR receiver_id = $1',
+                [botId]
+            );
+
+            // 4. Eliminar notificaciones y estadísticas de IA
+            await client.query('DELETE FROM notifications WHERE player_id = $1', [botId]);
+            await client.query('DELETE FROM ai_usage_stats WHERE bot_id = $1', [botId]);
+
+            // 5. Eliminar edificios de sus feudos (antes de liberar la propiedad)
+            await client.query(
+                `DELETE FROM fief_buildings
+                 WHERE h3_index IN (SELECT h3_index FROM h3_map WHERE player_id = $1)`,
+                [botId]
+            );
+
+            // 6. Liberar feudos
+            await client.query('UPDATE h3_map SET player_id = NULL WHERE player_id = $1', [botId]);
+
+            // 7. Soft-delete del jugador
+            await client.query(
+                `UPDATE players SET deleted = TRUE, capital_h3 = NULL WHERE player_id = $1`,
+                [botId]
+            );
+
+            await client.query('COMMIT');
+
+            Logger.action(
+                `[ACTION][Admin]: Agente IA "${botName}" (id=${botId}) eliminado del sistema`,
+                { player_id: botId }
+            );
+            return { success: true, message: `Agente "${botName}" eliminado correctamente`, botName };
+
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            Logger.error(error, { context: 'AIManagerService.deleteAgent', botId });
+            return { success: false, message: error.message };
+        } finally {
+            client.release();
+        }
     }
 }
 
