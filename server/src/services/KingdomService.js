@@ -9,7 +9,7 @@ const conquest = require('../logic/conquest.js');
 const { calcMilitiaPower, processCapitalCollapse, GRACE_TURNS_DEFAULT } = require('../logic/conquest_system.js');
 const pool = require('../../db.js');
 const h3 = require('h3-js');
-const { executeConstruction, executeColonization, GameActionError } = require('./gameActions.js');
+const { executeConstruction, GameActionError } = require('./gameActions.js');
 
 class KingdomService {
     async StartExploration(req, res) {
@@ -243,30 +243,6 @@ class KingdomService {
         } catch (error) {
             Logger.error(error, { endpoint: '/game/my-fiefs', method: 'GET', userId: req.user?.player_id });
             res.status(500).json({ success: false, message: 'Error al obtener feudos' });
-        }
-    }
-    async ClaimTerritory(req, res) {
-        const client = await pool.connect();
-        try {
-            const player_id = req.user.player_id;
-            const { h3_index } = req.body;
-            if (!h3_index) return res.status(400).json({ success: false, message: 'Falta parámetro: h3_index' });
-
-            await client.query('BEGIN');
-            const result = await executeColonization(client, player_id, { h3_index });
-            await client.query('COMMIT');
-
-            logGameEvent(`[Claim] Jugador ${player_id} ${result.was_exiled ? 'refundó reino desde exilio' : 'fundó capital'} en ${h3_index} (${result.claimed_count} hexes reclamados)`);
-            res.json({ success: true, ...result });
-        } catch (error) {
-            if (client) await client.query('ROLLBACK');
-            if (error instanceof GameActionError) {
-                return res.status(400).json({ success: false, message: error.message });
-            }
-            Logger.error(error, { endpoint: '/game/claim', method: 'POST', userId: req.user?.player_id, payload: req.body });
-            res.status(500).json({ success: false, error: error.message });
-        } finally {
-            client.release();
         }
     }
     async GetCapital(req, res) {

@@ -307,22 +307,20 @@ class AIProxyService {
 
         const fiefCount    = context.territories?.length ?? 0;
         const emptyFiefs   = (context.territories || []).filter(t => !t.existing_building_id).length;
-        const freeHexes    = context.candidateSet?.length ?? 0;
         const foodRatio    = (context.foodGoldRatio ?? 0).toFixed(2);
         const garrisonInfo = context.garrisonTarget != null
             ? `${context.totalTroops ?? 0}/${context.garrisonTarget}`
             : `${context.totalTroops ?? 0}/N/A`;
 
-        return `Turno ${turn}. Eres consejero de un reino medieval.Perfil del rey: ${profileDesc}.
-Estado: oro=${context.gold}, feudos=${fiefCount}, tropas=${garrisonInfo}, ratio_alimento/oro=${foodRatio}, hexes_libres_adyacentes=${freeHexes}, feudos_sin_edificio=${emptyFiefs}.
+        return `Turno ${turn}. Eres consejero de un reino medieval. Perfil del rey: ${profileDesc}.
+Estado: oro=${context.gold}, feudos=${fiefCount}, tropas=${garrisonInfo}, ratio_alimento/oro=${foodRatio}, feudos_sin_edificio=${emptyFiefs}.
 Elige UNA acción:
-- expand: colonizar feudo adyacente (requiere oro suficiente y hexes libres)
 - build: construir edificio (economic=mercado, religious=iglesia, military=cuartel)
 - recruit: reclutar tropas (quantity: entero 1-100)
 - idle: no hacer nada
 Responde SOLO con JSON válido:
 {"action":"ACCION","params":{}}
-Ejemplos: {"action":"expand","params":{}} | {"action":"build","params":{"building_type":"economic"}} | {"action":"recruit","params":{"quantity":40}} | {"action":"idle","params":{}}`;
+Ejemplos: {"action":"build","params":{"building_type":"economic"}} | {"action":"recruit","params":{"quantity":40}} | {"action":"idle","params":{}}`;
     }
 
     /**
@@ -335,7 +333,7 @@ Ejemplos: {"action":"expand","params":{}} | {"action":"build","params":{"buildin
             const match = (text || '').match(/\{[\s\S]*?"action"[\s\S]*?\}/);
             if (!match) return null;
             const parsed = JSON.parse(match[0]);
-            if (!['expand', 'build', 'recruit', 'idle'].includes(parsed.action)) return null;
+            if (!['build', 'recruit', 'idle'].includes(parsed.action)) return null;
             return { action: parsed.action, params: parsed.params || {} };
         } catch {
             return null;

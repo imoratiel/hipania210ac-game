@@ -37,7 +37,6 @@ module.exports = function () {
     // ============================================
     // GAME LOGIC ENDPOINTS
     // ============================================
-    router.post('/game/claim', authenticateToken, KingdomService.ClaimTerritory);
     router.get('/game/capital', authenticateToken, KingdomService.GetCapital);
 
     router.get('/map/cell-details/:h3_index', TerrainService.GetCellDetails);

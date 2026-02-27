@@ -231,16 +231,15 @@ class AIManagerService {
             return;
         }
 
-        // ── Pasos B + C: Construcción y expansión (sin amenaza) ──────────────
+        // ── Paso B: Construcción (sin amenaza) ───────────────────────────────
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
             await this._farmerConstruction(client, playerId, botName, state, turn);
-            await this._farmerExpansion(client, playerId, state, turn);
             await client.query('COMMIT');
         } catch (error) {
             await client.query('ROLLBACK').catch(() => {});
-            Logger.error(error, { context: 'AIManagerService._processFarmerTurn.BC', playerId, turn });
+            Logger.error(error, { context: 'AIManagerService._processFarmerTurn.B', playerId, turn });
         } finally {
             client.release();
         }
@@ -382,58 +381,6 @@ class AIManagerService {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PRIVADO: Fase C — Expansión agrícola
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Fase C — Expansión: coloniza el hex adyacente libre con mayor food_output
-     * si el agente supera el umbral de oro para expansión.
-     */
-    async _farmerExpansion(client, playerId, state, turn) {
-        if (state.gold < FARMER.GOLD_TO_EXPAND) return;
-
-        const ownedSet = new Set(state.territories.map(t => t.h3_index));
-
-        // Todos los vecinos de todos los feudos propios que no son propios
-        const candidateSet = new Set();
-        for (const hex of ownedSet) {
-            h3.gridDisk(hex, 1)
-              .filter(n => n !== hex && !ownedSet.has(n))
-              .forEach(n => candidateSet.add(n));
-        }
-        if (candidateSet.size === 0) return;
-
-        const candidates = [...candidateSet];
-        const result = await client.query(`
-            SELECT m.h3_index, tt.food_output, tt.name AS terrain_name
-            FROM h3_map m
-            JOIN terrain_types tt ON m.terrain_type_id = tt.terrain_type_id
-            WHERE m.h3_index = ANY($1)
-              AND m.player_id IS NULL
-              AND COALESCE(tt.is_colonizable, TRUE) = TRUE
-            ORDER BY tt.food_output DESC
-            LIMIT 1
-            FOR UPDATE OF m
-        `, [candidates]);
-        if (result.rows.length === 0) return;
-
-        const target = result.rows[0];
-        const eco    = generateInitialEconomy();
-
-        await KingdomModel.DeductGold(client, playerId, FARMER.CLAIM_COST);
-        await KingdomModel.ClaimHex(client, target.h3_index, playerId);
-        await KingdomModel.InsertTerritoryDetails(client, target.h3_index, eco);
-
-        const terrainLower = (target.terrain_name || '').toLowerCase();
-        const emoji = terrainLower.includes('bosque') ? '🌲'
-                    : terrainLower.includes('llanura') || terrainLower.includes('cultivo') ? '🌾'
-                    : '🗺️';
-        Logger.bot(playerId,
-            `[TURN ${turn}] ${emoji} Expandió a ${target.h3_index} (${target.terrain_name}, food=${target.food_output})`
-        );
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
     // PRIVADO: Fase A — Respuesta a amenaza con reclutamiento
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -541,7 +488,6 @@ class AIManagerService {
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
-            await this._expansionistColonization(client, playerId, state, turn);
             await this._expansionistRecruitment(client, playerId, botName, state, turn);
             await this._expansionistConstruction(client, playerId, botName, state, turn);
             await client.query('COMMIT');
@@ -621,53 +567,6 @@ class AIManagerService {
             };
         } finally {
             client.release();
-        }
-    }
-
-    /**
-     * Fase A — Colonización agresiva: coloniza TODOS los hexes adyacentes libres
-     * que el oro permita (criterio: espacio disponible, no food_output).
-     */
-    async _expansionistColonization(client, playerId, state, turn) {
-        if (state.candidateSet.length === 0) return;
-
-        // Lock gold row once for the whole colonization loop
-        const goldRow = await client.query(
-            'SELECT gold FROM players WHERE player_id = $1 FOR UPDATE',
-            [playerId]
-        );
-        let currentGold = parseInt(goldRow.rows[0]?.gold) || 0;
-
-        if (currentGold < EXPANSIONIST.CLAIM_COST + EXPANSIONIST.GOLD_RESERVE) return;
-
-        const result = await client.query(`
-            SELECT m.h3_index
-            FROM h3_map m
-            JOIN terrain_types tt ON m.terrain_type_id = tt.terrain_type_id
-            WHERE m.h3_index = ANY($1)
-              AND m.player_id IS NULL
-              AND COALESCE(tt.is_colonizable, TRUE) = TRUE
-            FOR UPDATE OF m
-        `, [state.candidateSet]);
-
-        if (result.rows.length === 0) return;
-
-        let colonized = 0;
-        for (const target of result.rows) {
-            if (currentGold < EXPANSIONIST.CLAIM_COST + EXPANSIONIST.GOLD_RESERVE) break;
-
-            await KingdomModel.DeductGold(client, playerId, EXPANSIONIST.CLAIM_COST);
-            await KingdomModel.ClaimHex(client, target.h3_index, playerId);
-            await KingdomModel.InsertTerritoryDetails(client, target.h3_index, generateInitialEconomy());
-
-            currentGold -= EXPANSIONIST.CLAIM_COST;
-            colonized++;
-        }
-
-        if (colonized > 0) {
-            Logger.bot(playerId,
-                `[TURN ${turn}] 🗺️ Colonizó ${colonized} hex(es) (-${colonized * EXPANSIONIST.CLAIM_COST}💰)`
-            );
         }
     }
 
@@ -797,7 +696,6 @@ class AIManagerService {
         try {
             await client.query('BEGIN');
             await this._balancedConstruction(client, playerId, botName, state, turn);
-            await this._balancedExpansion(client, playerId, state, turn);
             await this._balancedRecruitment(client, playerId, botName, state, turn);
             await client.query('COMMIT');
         } catch (error) {
@@ -974,50 +872,7 @@ class AIManagerService {
     }
 
     /**
-     * Fase B — Expansión selectiva: coloniza 1 hex por turno si gold > GOLD_TO_EXPAND.
-     * Si el ratio food/gold es bajo, prioriza terrenos de alta producción alimentaria.
-     * Si el ratio es aceptable, elige el terreno con mejor puntuación equilibrada.
-     */
-    async _balancedExpansion(client, playerId, state, turn) {
-        if (state.gold < BALANCED.GOLD_TO_EXPAND) return;
-        if (state.candidateSet.length === 0) return;
-
-        const needsFood   = state.foodGoldRatio < BALANCED.FOOD_GOLD_RATIO_MIN;
-        const foodWeight  = needsFood ? 0.6 : 0.4;
-        const otherWeight = needsFood ? 0.2 : 0.3;
-
-        const result = await client.query(`
-            SELECT m.h3_index,
-                   tt.food_output,
-                   tt.wood_output,
-                   tt.stone_output,
-                   tt.name AS terrain_name,
-                   (tt.food_output * $2::numeric + tt.wood_output * $3::numeric + tt.stone_output * $3::numeric) AS score
-            FROM h3_map m
-            JOIN terrain_types tt ON m.terrain_type_id = tt.terrain_type_id
-            WHERE m.h3_index = ANY($1)
-              AND m.player_id IS NULL
-              AND COALESCE(tt.is_colonizable, TRUE) = TRUE
-            ORDER BY score DESC
-            LIMIT 1
-            FOR UPDATE OF m
-        `, [state.candidateSet, foodWeight, otherWeight]);
-
-        if (result.rows.length === 0) return;
-
-        const target = result.rows[0];
-        await KingdomModel.DeductGold(client, playerId, BALANCED.CLAIM_COST);
-        await KingdomModel.ClaimHex(client, target.h3_index, playerId);
-        await KingdomModel.InsertTerritoryDetails(client, target.h3_index, generateInitialEconomy());
-
-        Logger.bot(playerId,
-            `[TURN ${turn}] 🌍 Expandió a ${target.h3_index} ` +
-            `(${target.terrain_name}, ${needsFood ? 'prioridad alimentos' : 'balance'}, food=${target.food_output})`
-        );
-    }
-
-    /**
-     * Fase C — Reclutamiento de guarnición: solo recluta si las tropas actuales
+     * Fase B — Reclutamiento de guarnición: solo recluta si las tropas actuales
      * están por debajo del 30% de la población total del reino.
      */
     async _balancedRecruitment(client, playerId, botName, state, turn) {
@@ -1145,16 +1000,6 @@ class AIManagerService {
      */
     async _executeAIDecision(client, playerId, botName, profile, state, action, turn) {
         switch (action.action) {
-
-            case 'expand':
-                if (profile === 'expansionist') {
-                    await this._expansionistColonization(client, playerId, state, turn);
-                } else if (profile === 'balanced') {
-                    await this._balancedExpansion(client, playerId, state, turn);
-                } else {
-                    await this._farmerExpansion(client, playerId, state, turn);
-                }
-                break;
 
             case 'build':
                 if (profile === 'expansionist') {

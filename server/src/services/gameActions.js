@@ -3,16 +3,15 @@
 /**
  * gameActions.js
  *
- * Unified action layer that enforces ALL game rules for recruitment,
- * construction and colonization. Both human routes AND AI agents MUST go
- * through these functions so that rules apply equally to everyone.
+ * Unified action layer that enforces ALL game rules for recruitment and
+ * construction. Both human routes AND AI agents MUST go through these
+ * functions so that rules apply equally to everyone.
  *
  * Rule: If a validation changes for players, it automatically applies to bots.
  *
  * Functions:
  *   executeRecruitment(client, playerId, params, meta?)
  *   executeConstruction(client, playerId, params, meta?)
- *   executeColonization(client, playerId, params, meta?)
  *
  * All functions accept an active transaction client. Callers are responsible
  * for BEGIN / COMMIT / ROLLBACK.
@@ -20,11 +19,9 @@
  * On validation failure each function throws a GameActionError (user-friendly Spanish message).
  */
 
-const h3              = require('h3-js');
 const KingdomModel    = require('../models/KingdomModel');
 const ArmyModel       = require('../models/ArmyModel');
 const recruitmentNetwork = require('../logic/recruitmentNetwork');
-const conquest        = require('../logic/conquest');
 const GAME_CONFIG     = require('../config/constants');
 const { Logger }      = require('../utils/logger');
 
@@ -229,96 +226,6 @@ async function executeConstruction(client, playerId, { h3_index, building_id }, 
     };
 }
 
-// ─── executeColonization ─────────────────────────────────────────────────────
-
-/**
- * Claim a first territory (capital founding) for a human player.
- * Contains ALL validations from POST /api/game/claim.
- *
- * IMPORTANT: Bots CANNOT use this function — they receive territory at spawn and
- * expand into adjacent unclaimed hexes through their own conquest logic.
- * Any attempt by a bot to call this function throws a GameActionError.
- *
- * @param {import('pg').PoolClient} client
- * @param {number} playerId
- * @param {{ h3_index: string }} params
- * @param {{ actorName?: string }} [meta]
- * @returns {{ is_capital: boolean, was_exiled: boolean, claimed_count: number, message: string }}
- * @throws {GameActionError}
- */
-async function executeColonization(client, playerId, { h3_index }, meta = {}) {
-    const CLAIM_COST = 100;
-
-    // ── Guard: bots are FORBIDDEN from colonizing ─────────────────────────────
-    const playerRow = await client.query(
-        'SELECT is_ai, display_name FROM players WHERE player_id = $1',
-        [playerId]
-    );
-    const playerInfo = playerRow.rows[0];
-    if (!playerInfo) throw new GameActionError('Jugador no encontrado');
-    if (playerInfo.is_ai) {
-        throw new GameActionError(
-            `Los agentes IA no pueden colonizar. El bot "${playerInfo.display_name}" ` +
-            `(id=${playerId}) se expande mediante su lógica de conquista interna.`
-        );
-    }
-
-    // ── 1. Exile status ───────────────────────────────────────────────────────
-    const isExiled = await KingdomModel.GetPlayerExileStatus(client, playerId);
-
-    // ── 2. Non-exiled players can only found one capital ──────────────────────
-    if (!isExiled) {
-        const territoryCount = await KingdomModel.GetTerritoryCount(client, playerId);
-        if (territoryCount > 0) {
-            throw new GameActionError('👑 Ya tienes una capital. Usa la conquista para expandirte.');
-        }
-    }
-
-    // ── 3. Validate hex ───────────────────────────────────────────────────────
-    const hex = await KingdomModel.GetHexForClaim(client, h3_index);
-    if (!hex)               throw new GameActionError('Hexágono no encontrado');
-    if (!hex.is_colonizable) throw new GameActionError('🌊 Este terreno no puede ser colonizado');
-    if (hex.player_id !== null) throw new GameActionError('🛡️ Este territorio ya está ocupado');
-
-    // ── 4. Gold check ─────────────────────────────────────────────────────────
-    const player = await KingdomModel.GetPlayerGoldForUpdate(client, playerId);
-    if (player.gold < CLAIM_COST) throw new GameActionError('💰 Oro insuficiente');
-
-    // ── 5. Claim capital hex ──────────────────────────────────────────────────
-    const eco = conquest.generateInitialEconomy();
-    await KingdomModel.ClaimHex(client, h3_index, playerId);
-    await KingdomModel.InsertTerritoryDetails(client, h3_index, eco);
-    await KingdomModel.SetCapital(client, h3_index, playerId);
-    await KingdomModel.DeductGold(client, playerId, CLAIM_COST);
-
-    if (isExiled) {
-        await KingdomModel.ClearExileStatus(client, playerId);
-    }
-
-    // ── 6. Radial expansion: colonize ring-1 unclaimed colonizable neighbors ───
-    const ring1 = h3.gridDisk(h3_index, 1).filter(n => n !== h3_index);
-    const colonizableNeighbors = await KingdomModel.GetColonizableNeighbors(client, ring1);
-    for (const neighbor of colonizableNeighbors) {
-        await KingdomModel.ClaimHex(client, neighbor.h3_index, playerId);
-        await KingdomModel.InsertTerritoryDetails(client, neighbor.h3_index, conquest.generateInitialEconomy());
-    }
-
-    const label = _actorLabel(meta, playerId);
-    Logger.action(
-        `[ACTION]${label}: ${isExiled ? 'Exilio refundado' : 'Capital fundada'} en ${h3_index} (${colonizableNeighbors.length + 1} hexes)`,
-        { player_id: playerId, h3_index, claimed_count: colonizableNeighbors.length + 1 }
-    );
-
-    return {
-        is_capital:    true,
-        was_exiled:    isExiled,
-        claimed_count: colonizableNeighbors.length + 1,
-        message: isExiled
-            ? `🏕️ ¡Nuevo asentamiento fundado! Tu reino renace en ${h3_index}.`
-            : `👑 ¡Capital fundada! Se han reclamado ${colonizableNeighbors.length} territorios adyacentes.`,
-    };
-}
-
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
-module.exports = { executeRecruitment, executeConstruction, executeColonization, GameActionError };
+module.exports = { executeRecruitment, executeConstruction, GameActionError };
