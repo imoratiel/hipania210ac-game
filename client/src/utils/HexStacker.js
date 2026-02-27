@@ -2,15 +2,11 @@
  * HexStacker.js
  *
  * Generates combined Leaflet divIcon HTML for map hexagons.
- * Shows three layers of information (Owner, Building, Troops) in a
- * triangular layout so they don't overlap each other.
+ * Shows three layers of information in a triangular layout:
  *
- * Triangle layout (relative to icon center):
- *   TOP           (0,    -R*0.5)  → Troops count badge
- *   BOTTOM-LEFT   (-R*0.4, R*0.3) → Building icon
- *   BOTTOM-RIGHT  (+R*0.4, R*0.3) → Owner color dot
- *
- * When no building is present, troops shift to center.
+ *   TOP           (center-top)  → Building icon
+ *   BOTTOM-LEFT                 → Own troops badge  (blue, si las hay)
+ *   BOTTOM-RIGHT                → Enemy troops badge (red,  si las hay)
  */
 
 // ─── Container geometry ────────────────────────────────────────────────────
@@ -22,25 +18,38 @@ const R  = 26;    // abstract hex radius for triangle maths
 
 // Percentage positions for each slot (element centered via translate(-50%,-50%))
 const POS = {
-  // TOP — troops with building present
-  troopsTop: {
+  // TOP — building icon
+  building: {
     left: (CX / W) * 100,                     // 50 %
     top:  ((CY - R * 0.5) / H) * 100,         // ~26.8 %
   },
-  // CENTER — troops when no building
-  troopsCenter: {
+  // TOP centered — building alone (no troops at all)
+  buildingCenter: {
     left: 50,
-    top:  50,
+    top:  44,
   },
-  // BOTTOM-LEFT — building icon
-  building: {
+  // BOTTOM-LEFT — own troops
+  ownTroops: {
     left: ((CX - R * 0.4) / W) * 100,         // ~33.75 %
     top:  ((CY + R * 0.3) / H) * 100,         // ~63.9 %
   },
-  // BOTTOM-RIGHT — owner dot
-  owner: {
+  // BOTTOM-RIGHT — enemy troops
+  enemyTroops: {
     left: ((CX + R * 0.4) / W) * 100,         // ~66.25 %
     top:  ((CY + R * 0.3) / H) * 100,         // ~63.9 %
+  },
+  // CENTER — solo troops when there's no building
+  troopsSoloLeft: {
+    left: ((CX - R * 0.25) / W) * 100,        // ~38 %
+    top:  50,
+  },
+  troopsSoloRight: {
+    left: ((CX + R * 0.25) / W) * 100,        // ~62 %
+    top:  50,
+  },
+  troopsOnlyCenter: {
+    left: 50,
+    top:  50,
   },
 };
 
@@ -94,74 +103,90 @@ function formatCount(n) {
   return String(n);
 }
 
+// ─── Troop badge builder ───────────────────────────────────────────────────
+
+/**
+ * Returns the HTML for a single troop badge at the given position.
+ * @param {number} count    - troop count
+ * @param {'own'|'enemy'} side
+ * @param {Object} pos      - { left, top } percentage values
+ * @param {boolean} isConflict
+ * @returns {string}
+ */
+function _troopBadge(count, side, pos, isConflict) {
+  const isEnemy = side === 'enemy';
+  const bg      = isEnemy ? '#b71c1c' : '#1565C0';
+  const border  = isEnemy ? '#ef5350' : '#42a5f5';
+  const glyph   = count > 1 ? '⚔️' : '🗡️';
+  const shadow  = isConflict
+    ? '0 0 8px 2px rgba(255,23,68,0.8)'
+    : '0 2px 5px rgba(0,0,0,0.5)';
+  const badge   = formatCount(count);
+
+  return `
+    <div class="hs-troops" style="
+      position:absolute;
+      left:${pos.left.toFixed(1)}%;
+      top:${pos.top.toFixed(1)}%;
+      transform:translate(-50%,-50%);
+      z-index:3;
+      pointer-events:auto;
+    ">
+      <div style="
+        background:${bg};
+        border:2px solid ${border};
+        border-radius:50%;
+        width:22px;height:22px;
+        display:flex;align-items:center;justify-content:center;
+        font-size:11px;
+        box-shadow:${shadow};
+        cursor:pointer;
+        user-select:none;
+        position:relative;
+      ">
+        ${glyph}
+        <span style="
+          position:absolute;
+          top:-5px;right:-7px;
+          background:#222;color:#fff;
+          font-size:7px;font-weight:bold;
+          border-radius:3px;padding:0 2px;
+          line-height:11px;white-space:nowrap;
+          border:1px solid ${border};
+        ">${badge}</span>
+      </div>
+    </div>`;
+}
+
 // ─── Core HTML builder ─────────────────────────────────────────────────────
 
 /**
  * Builds the inner HTML for a hex stacker divIcon.
  *
- * @param {Object} opts
- * @param {Object|null} opts.owner    - { color: "#rrggbb" } or null
+ * New triangle layout:
+ *   TOP          → Building icon
+ *   BOTTOM-LEFT  → Own troops  (blue badge, if own_troops > 0)
+ *   BOTTOM-RIGHT → Enemy troops (red badge,  if enemy_troops > 0)
+ *
+ * @param {Object}      opts
  * @param {Object|null} opts.building - { name, is_under_construction } or null
- * @param {Object|null} opts.units    - { total_troops, has_enemy, is_conflict } or null
+ * @param {Object|null} opts.units    - { own_troops, enemy_troops, is_conflict } or null
  * @returns {string} HTML string for L.divIcon
  */
-export function createStackerHTML({ owner = null, building = null, units = null } = {}) {
+export function createStackerHTML({ building = null, units = null } = {}) {
   const hasBuilding = !!building;
-  const hasUnits    = !!(units && units.total_troops > 0);
-  const hasOwner    = !!(owner && owner.color);
+  const ownCount    = units?.own_troops   ?? 0;
+  const enemyCount  = units?.enemy_troops ?? 0;
+  const hasOwn      = ownCount   > 0;
+  const hasEnemy    = enemyCount > 0;
+  const hasTroops   = hasOwn || hasEnemy;
+  const isConflict  = !!(units?.is_conflict);
 
-  if (!hasBuilding && !hasUnits && !hasOwner) return '';
+  if (!hasBuilding && !hasTroops) return '';
 
   const parts = [];
 
-  // ── Troops ──────────────────────────────────────────────────────────────
-  if (hasUnits) {
-    const pos    = hasBuilding ? POS.troopsTop : POS.troopsCenter;
-    const glyph  = units.total_troops > 1 ? '⚔️' : '🗡️';
-    const bg     = units.has_enemy ? '#b71c1c' : '#1565C0';
-    const border = units.has_enemy ? '#ef5350' : '#42a5f5';
-    const shadow = units.is_conflict
-      ? '0 0 8px 2px rgba(255,23,68,0.8)'
-      : '0 2px 5px rgba(0,0,0,0.5)';
-    const badge  = formatCount(units.total_troops);
-
-    parts.push(`
-      <div class="hs-troops" style="
-        position:absolute;
-        left:${pos.left.toFixed(1)}%;
-        top:${pos.top.toFixed(1)}%;
-        transform:translate(-50%,-50%);
-        z-index:3;
-        pointer-events:auto;
-        transition:left 0.3s ease,top 0.3s ease;
-      ">
-        <div style="
-          background:${bg};
-          border:2px solid ${border};
-          border-radius:50%;
-          width:22px;height:22px;
-          display:flex;align-items:center;justify-content:center;
-          font-size:11px;
-          box-shadow:${shadow};
-          cursor:pointer;
-          user-select:none;
-          position:relative;
-        ">
-          ${glyph}
-          <span style="
-            position:absolute;
-            top:-5px;right:-7px;
-            background:#222;color:#fff;
-            font-size:7px;font-weight:bold;
-            border-radius:3px;padding:0 2px;
-            line-height:11px;white-space:nowrap;
-            border:1px solid ${border};
-          ">${badge}</span>
-        </div>
-      </div>`);
-  }
-
-  // ── Building ─────────────────────────────────────────────────────────────
+  // ── Building (TOP) ────────────────────────────────────────────────────────
   if (hasBuilding) {
     const bldName = building.name || building.building_name || '';
     const icon    = building.is_under_construction ? '🏗️' : getBuildingIconEmoji(bldName);
@@ -171,17 +196,17 @@ export function createStackerHTML({ owner = null, building = null, units = null 
     const foodTag = !building.is_under_construction && isFoodBonusBuilding(bldName)
       ? '<span style="position:absolute;top:-4px;right:-5px;font-size:7px;">🌾</span>'
       : '';
+    const pos     = hasTroops ? POS.building : POS.buildingCenter;
 
     parts.push(`
       <div class="hs-building" style="
         position:absolute;
-        left:${POS.building.left.toFixed(1)}%;
-        top:${POS.building.top.toFixed(1)}%;
+        left:${pos.left.toFixed(1)}%;
+        top:${pos.top.toFixed(1)}%;
         transform:translate(-50%,-50%);
         z-index:2;
         opacity:${opacity};
         pointer-events:none;
-        transition:opacity 0.2s;
       ">
         <div style="
           background:${bBg};
@@ -197,26 +222,27 @@ export function createStackerHTML({ owner = null, building = null, units = null 
       </div>`);
   }
 
-  // ── Owner dot ────────────────────────────────────────────────────────────
-  if (hasOwner) {
-    parts.push(`
-      <div class="hs-owner" style="
-        position:absolute;
-        left:${POS.owner.left.toFixed(1)}%;
-        top:${POS.owner.top.toFixed(1)}%;
-        transform:translate(-50%,-50%);
-        z-index:2;
-        pointer-events:none;
-      ">
-        <div style="
-          width:12px;height:12px;
-          border-radius:50%;
-          background:${owner.color};
-          border:1.5px solid rgba(255,255,255,0.75);
-          box-shadow:0 1px 3px rgba(0,0,0,0.55);
-          user-select:none;
-        "></div>
-      </div>`);
+  // ── Troop badges (BOTTOM-LEFT / BOTTOM-RIGHT) ─────────────────────────────
+  if (hasTroops) {
+    if (hasOwn && hasEnemy) {
+      // Ambos → posiciones fijas de la base del triángulo
+      parts.push(_troopBadge(ownCount,   'own',   POS.ownTroops,   isConflict));
+      parts.push(_troopBadge(enemyCount, 'enemy', POS.enemyTroops, isConflict));
+    } else if (hasBuilding) {
+      // Solo un tipo con edificio → posición base correspondiente
+      if (hasOwn)   parts.push(_troopBadge(ownCount,   'own',   POS.ownTroops,   isConflict));
+      if (hasEnemy) parts.push(_troopBadge(enemyCount, 'enemy', POS.enemyTroops, isConflict));
+    } else {
+      // Sin edificio → tropos centradas o ligeramente desplazadas
+      if (hasOwn && !hasEnemy) {
+        parts.push(_troopBadge(ownCount, 'own', POS.troopsOnlyCenter, isConflict));
+      } else if (hasEnemy && !hasOwn) {
+        parts.push(_troopBadge(enemyCount, 'enemy', POS.troopsOnlyCenter, isConflict));
+      } else {
+        parts.push(_troopBadge(ownCount,   'own',   POS.troopsSoloLeft,  isConflict));
+        parts.push(_troopBadge(enemyCount, 'enemy', POS.troopsSoloRight, isConflict));
+      }
+    }
   }
 
   return `<div class="hex-stacker" style="
@@ -231,7 +257,7 @@ export function createStackerHTML({ owner = null, building = null, units = null 
  * The caller must pass the Leaflet `L` instance.
  *
  * @param {Object} L    - Leaflet
- * @param {Object} data - { owner, building, units }
+ * @param {Object} data - { building, units }
  * @returns {L.DivIcon}
  */
 export function createStackerDivIcon(L, data) {

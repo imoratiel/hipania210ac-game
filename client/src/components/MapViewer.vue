@@ -1775,18 +1775,22 @@ const renderHexStackers = (buildings, armyEntries, currentPlayerId, ownerMap) =>
       // ── Building data ───────────────────────────────────────────────────
       const bld = buildingByHex.get(h3_index) || null;
 
-      // ── Army data ───────────────────────────────────────────────────────
+      // ── Army data (own vs enemy separated) ─────────────────────────────
       let units = null;
       const group = armyByHex.get(h3_index);
       if (group && group.length > 0) {
-        const totalTroops  = group.reduce((s, e) => s + (Number(e.total_troops) || 0), 0);
-        const playerIds    = new Set(group.map(e => e.player_id));
-        const hasEnemy     = [...playerIds].some(id => id !== currentPlayerId);
-        const isConflict   = playerIds.size > 1;
-        units = { total_troops: totalTroops, has_enemy: hasEnemy, is_conflict: isConflict };
+        let ownTroops   = 0;
+        let enemyTroops = 0;
+        for (const e of group) {
+          const count = Number(e.total_troops) || 0;
+          if (e.player_id === currentPlayerId) ownTroops   += count;
+          else                                  enemyTroops += count;
+        }
+        const isConflict = ownTroops > 0 && enemyTroops > 0;
+        units = { own_troops: ownTroops, enemy_troops: enemyTroops, is_conflict: isConflict };
       }
 
-      const divIcon = createStackerDivIcon(L, { owner, building: bld, units });
+      const divIcon = createStackerDivIcon(L, { building: bld, units });
 
       const marker = L.marker([lat, lng], {
         icon:        divIcon,
