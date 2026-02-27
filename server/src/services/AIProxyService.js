@@ -35,6 +35,13 @@ class AIProxyService {
         this._CACHE_TTL_MS  = 30_000; // 30 segundos
         // Last API error per provider — cleared on success, persisted in memory across calls
         this._lastApiError  = null; // { provider, message, timestamp }
+
+        // ── Rate limiter en memoria (protege contra ráfagas con múltiples bots) ──
+        // El tier gratuito de Gemini permite 15 RPM y el de OpenAI varía.
+        // Usamos 12 RPM como límite conservador para dejar margen.
+        this._MAX_RPM         = parseInt(process.env.AI_MAX_RPM || '12', 10);
+        this._callsThisWindow = 0;
+        this._windowStart     = Date.now();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -91,6 +98,15 @@ class AIProxyService {
         const { available, provider } = await this.checkAvailability();
 
         if (!available) {
+            return { mode: 'procedural' };
+        }
+
+        // Protección contra ráfagas: si se ha superado el límite de RPM configurado,
+        // este bot usa lógica procedural en el turno actual sin gastar cuota.
+        if (!this._checkRateLimit()) {
+            Logger.engine(
+                `⚠️ [AI PROXY] Rate limit local (${this._MAX_RPM} RPM). Bot ${botId} usa Procedural este turno.`
+            );
             return { mode: 'procedural' };
         }
 
@@ -265,6 +281,23 @@ class AIProxyService {
     // PRIVADO: Caché de configuración
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Comprueba si quedan llamadas disponibles en la ventana de 1 minuto actual.
+     * Si la ventana ha expirado, la reinicia. Devuelve false cuando se supera el límite.
+     * @returns {boolean}
+     */
+    _checkRateLimit() {
+        const now = Date.now();
+        if (now - this._windowStart >= 60_000) {
+            // Nueva ventana de 60 segundos
+            this._callsThisWindow = 0;
+            this._windowStart     = now;
+        }
+        if (this._callsThisWindow >= this._MAX_RPM) return false;
+        this._callsThisWindow++;
+        return true;
+    }
+
     _setApiError(provider, message) {
         this._lastApiError = { provider, message, timestamp: new Date().toISOString() };
     }
@@ -363,6 +396,34 @@ Ejemplos: {"action":"build","params":{"building_type":"economic"}} | {"action":"
                 }),
             }
         );
+
+        // Retry automático en 429 (rate limit de Google): espera 3 s e intenta una vez más
+        if (response.status === 429) {
+            Logger.engine('⚠️ [AI PROXY] Gemini 429 — esperando 3 s antes de reintentar...');
+            await new Promise(r => setTimeout(r, 3_000));
+            const retry = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+                {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents:         [{ parts: [{ text: prompt }] }],
+                        generationConfig: { temperature: 0.3, maxOutputTokens: 128 },
+                    }),
+                }
+            );
+            if (!retry.ok) {
+                const err = await retry.text();
+                throw new Error(`Gemini ${retry.status}: ${err.slice(0, 200)}`);
+            }
+            const retryData = await retry.json();
+            return {
+                text:         retryData.candidates?.[0]?.content?.parts?.[0]?.text || '',
+                inputTokens:  retryData.usageMetadata?.promptTokenCount     || 0,
+                outputTokens: retryData.usageMetadata?.candidatesTokenCount || 0,
+                model:        'gemini-2.0-flash',
+            };
+        }
 
         if (!response.ok) {
             const err = await response.text();
