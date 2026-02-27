@@ -2,7 +2,8 @@ const fs = require('fs');
 const path = require('path');
 
 // Directorio de logs
-const LOGS_DIR = path.join(__dirname, '..', '..', 'logs');
+const LOGS_DIR  = path.join(__dirname, '..', '..', 'logs');
+const BOTS_DIR  = path.join(LOGS_DIR, 'bots');
 
 // Archivos de log segregados
 const LOG_FILES = {
@@ -23,6 +24,12 @@ function initializeLogger() {
         if (!fs.existsSync(LOGS_DIR)) {
             fs.mkdirSync(LOGS_DIR, { recursive: true });
             console.log('✓ Logs directory created');
+        }
+
+        // Crear subdirectorio de bots si no existe
+        if (!fs.existsSync(BOTS_DIR)) {
+            fs.mkdirSync(BOTS_DIR, { recursive: true });
+            console.log('✓ Bots logs directory created');
         }
 
         // Limpiar logs antiguos al inicio del servidor (opcional)
@@ -100,6 +107,20 @@ function logArmy(armyId, eventType, message, metadata = {}) {
     const fullMessage = `[ARMY:${armyId}] [${eventType}] ${message}${metaInfo}`;
 
     appendToLog(LOG_FILES.armies, fullMessage);
+}
+
+/**
+ * Registrar eventos de un agente IA en su propio archivo de log.
+ * Archivo: logs/bots/bot_id{botId}.log
+ * @param {number|string} botId   - player_id del agente IA
+ * @param {string}        message - Mensaje a registrar
+ * @param {Object}        [metadata] - Datos adicionales opcionales
+ */
+function logBot(botId, message, metadata = {}) {
+    const botFile   = path.join(BOTS_DIR, `bot_id${botId}.log`);
+    const metaInfo  = Object.keys(metadata).length > 0 ? ` | ${JSON.stringify(metadata)}` : '';
+    const fullMessage = `${message}${metaInfo}`;
+    appendToLog(botFile, fullMessage);
 }
 
 /**
@@ -239,6 +260,14 @@ const Logger = {
      * @param {Object} metadata - Metadata adicional
      */
     army: logArmy,
+
+    /**
+     * Registrar un evento de un agente IA en su log individual (logs/bots/bot_id{id}.log)
+     * @param {number|string} botId - player_id del agente IA
+     * @param {string} message - Mensaje
+     * @param {Object} [metadata] - Metadata adicional
+     */
+    bot: logBot,
 
     /**
      * Registrar error con stack trace

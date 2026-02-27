@@ -143,6 +143,9 @@ class AIManagerService {
                 `[ACTION][${aiName}]: Agente ${LABEL[profile]} fundado en ${spawnHex} (${neighbors.length + 1} hexes)`,
                 { player_id: aiPlayerId, h3_index: spawnHex }
             );
+            Logger.bot(aiPlayerId,
+                `========== AGENTE CREADO: ${aiName} (${LABEL[profile]}) | Capital: ${spawnHex} | Hexes: ${neighbors.length + 1} ==========`
+            );
             return { success: true, player_id: aiPlayerId, name: aiName,
                      h3_index: spawnHex, hexes_claimed: neighbors.length + 1 };
         } catch (error) {
@@ -223,7 +226,7 @@ class AIManagerService {
             if (state.totalTroops < FARMER.MIN_TROOPS_DEFEND) {
                 await this._farmerThreatResponse(state, playerId, botName, turn);
             } else {
-                Logger.engine(`[TURN ${turn}] 🛡️ AI Agricultor (${playerId}) amenazado pero con tropas suficientes (${state.totalTroops})`);
+                Logger.bot(playerId, `[TURN ${turn}] 🛡️ Amenazado pero con tropas suficientes (${state.totalTroops})`);
             }
             return;
         }
@@ -370,10 +373,10 @@ class AIManagerService {
         try {
             await executeConstruction(client, playerId, { h3_index: target.h3_index, building_id: building.id }, { actorName: botName });
             const emoji = building.type_name === 'economic' ? '🏪' : '⛪';
-            Logger.engine(`[TURN ${turn}] ${emoji} AI Agricultor (${playerId}) inició construcción de "${building.name}" en ${target.h3_index}`);
+            Logger.bot(playerId, `[TURN ${turn}] ${emoji} Inició construcción de "${building.name}" en ${target.h3_index}`);
         } catch (err) {
             if (err instanceof GameActionError) {
-                Logger.engine(`[TURN ${turn}] ⚠️ AI Agricultor (${playerId}) construcción rechazada: ${err.message}`);
+                Logger.bot(playerId, `[TURN ${turn}] ⚠️ Construcción rechazada: ${err.message}`);
             } else { throw err; }
         }
     }
@@ -425,8 +428,8 @@ class AIManagerService {
         const emoji = terrainLower.includes('bosque') ? '🌲'
                     : terrainLower.includes('llanura') || terrainLower.includes('cultivo') ? '🌾'
                     : '🗺️';
-        Logger.engine(
-            `[TURN ${turn}] ${emoji} AI Agricultor (${playerId}) expandió a ${target.h3_index} (${target.terrain_name}, food=${target.food_output})`
+        Logger.bot(playerId,
+            `[TURN ${turn}] ${emoji} Expandió a ${target.h3_index} (${target.terrain_name}, food=${target.food_output})`
         );
     }
 
@@ -495,7 +498,7 @@ class AIManagerService {
 
             if (!recruitH3) {
                 await client.query('ROLLBACK');
-                Logger.engine(`[TURN ${turn}] 🛡️ AI Agricultor (${playerId}) amenazado pero sin población suficiente para reclutar`);
+                Logger.bot(playerId, `[TURN ${turn}] 🛡️ Amenazado pero sin población suficiente para reclutar`);
                 return;
             }
 
@@ -509,8 +512,8 @@ class AIManagerService {
             await client.query('COMMIT');
 
             const isCapital = recruitH3 === state.capitalH3;
-            Logger.engine(
-                `[TURN ${turn}] ⚔️ AI Agricultor (${playerId}) reclutó ${FARMER.RECRUIT_QUANTITY} tropas en ${recruitH3} ` +
+            Logger.bot(playerId,
+                `[TURN ${turn}] ⚔️ Reclutó ${FARMER.RECRUIT_QUANTITY} tropas en ${recruitH3} ` +
                 `(${isCapital ? 'capital' : 'cuartel'}, amenaza detectada)`
             );
         } catch (error) {
@@ -662,8 +665,8 @@ class AIManagerService {
         }
 
         if (colonized > 0) {
-            Logger.engine(
-                `[TURN ${turn}] 🗺️ AI Expansionista (${playerId}) colonizó ${colonized} hex(es) (-${colonized * EXPANSIONIST.CLAIM_COST}💰)`
+            Logger.bot(playerId,
+                `[TURN ${turn}] 🗺️ Colonizó ${colonized} hex(es) (-${colonized * EXPANSIONIST.CLAIM_COST}💰)`
             );
         }
     }
@@ -710,7 +713,7 @@ class AIManagerService {
         }
 
         if (!recruitH3) {
-            Logger.engine(`[TURN ${turn}] ⚔️ AI Expansionista (${playerId}) sin población suficiente para reclutar`);
+            Logger.bot(playerId, `[TURN ${turn}] ⚔️ Sin población suficiente para reclutar`);
             return;
         }
 
@@ -720,7 +723,7 @@ class AIManagerService {
             { actorName: botName }
         );
 
-        Logger.engine(`[TURN ${turn}] ⚔️ AI Expansionista (${playerId}) reclutó ${EXPANSIONIST.RECRUIT_QUANTITY} tropas en ${recruitH3}`);
+        Logger.bot(playerId, `[TURN ${turn}] ⚔️ Reclutó ${EXPANSIONIST.RECRUIT_QUANTITY} tropas en ${recruitH3}`);
     }
 
     /**
@@ -768,10 +771,10 @@ class AIManagerService {
 
         try {
             await executeConstruction(client, playerId, { h3_index: target.h3_index, building_id: building.id }, { actorName: botName });
-            Logger.engine(`[TURN ${turn}] 🏯 AI Expansionista (${playerId}) construyendo "${building.name}" en ${target.h3_index} (frontera)`);
+            Logger.bot(playerId, `[TURN ${turn}] 🏯 Construyendo "${building.name}" en ${target.h3_index} (frontera)`);
         } catch (err) {
             if (err instanceof GameActionError) {
-                Logger.engine(`[TURN ${turn}] ⚠️ AI Expansionista (${playerId}) construcción rechazada: ${err.message}`);
+                Logger.bot(playerId, `[TURN ${turn}] ⚠️ Construcción rechazada: ${err.message}`);
             } else { throw err; }
         }
     }
@@ -962,10 +965,10 @@ class AIManagerService {
         try {
             await executeConstruction(client, playerId, { h3_index: targetH3, building_id: building.id }, { actorName: botName });
             const emoji = { economic: '🏪', religious: '⛪', military: '🏰' }[buildingType] || '🏗️';
-            Logger.engine(`[TURN ${turn}] ${emoji} AI Equilibrado (${playerId}) construyendo "${building.name}" en ${targetH3} (${buildingType})`);
+            Logger.bot(playerId, `[TURN ${turn}] ${emoji} Construyendo "${building.name}" en ${targetH3} (${buildingType})`);
         } catch (err) {
             if (err instanceof GameActionError) {
-                Logger.engine(`[TURN ${turn}] ⚠️ AI Equilibrado (${playerId}) construcción rechazada: ${err.message}`);
+                Logger.bot(playerId, `[TURN ${turn}] ⚠️ Construcción rechazada: ${err.message}`);
             } else { throw err; }
         }
     }
@@ -1007,8 +1010,8 @@ class AIManagerService {
         await KingdomModel.ClaimHex(client, target.h3_index, playerId);
         await KingdomModel.InsertTerritoryDetails(client, target.h3_index, generateInitialEconomy());
 
-        Logger.engine(
-            `[TURN ${turn}] 🌍 AI Equilibrado (${playerId}) expandió a ${target.h3_index} ` +
+        Logger.bot(playerId,
+            `[TURN ${turn}] 🌍 Expandió a ${target.h3_index} ` +
             `(${target.terrain_name}, ${needsFood ? 'prioridad alimentos' : 'balance'}, food=${target.food_output})`
         );
     }
@@ -1056,7 +1059,7 @@ class AIManagerService {
         }
 
         if (!recruitH3) {
-            Logger.engine(`[TURN ${turn}] ⚖️ AI Equilibrado (${playerId}) sin población suficiente para guarnición`);
+            Logger.bot(playerId, `[TURN ${turn}] ⚖️ Sin población suficiente para guarnición`);
             return;
         }
 
@@ -1066,8 +1069,8 @@ class AIManagerService {
             { actorName: botName }
         );
 
-        Logger.engine(
-            `[TURN ${turn}] ⚖️ AI Equilibrado (${playerId}) reclutó ${toRecruit} tropas ` +
+        Logger.bot(playerId,
+            `[TURN ${turn}] ⚖️ Reclutó ${toRecruit} tropas ` +
             `(guarnición: ${state.totalTroops + toRecruit}/${state.garrisonTarget})`
         );
     }
@@ -1174,11 +1177,11 @@ class AIManagerService {
                 break;
 
             case 'idle':
-                Logger.engine(`[TURN ${turn}] 💤 AI ${profile} (${playerId}) decidió descansar (idle) este turno`);
+                Logger.bot(playerId, `[TURN ${turn}] 💤 Decidió descansar (idle) este turno`);
                 break;
 
             default:
-                Logger.engine(`[TURN ${turn}] ⚠️ AI ${profile} (${playerId}) acción desconocida: ${action.action}. Ignorando.`);
+                Logger.bot(playerId, `[TURN ${turn}] ⚠️ Acción desconocida: ${action.action}. Ignorando.`);
         }
     }
 
