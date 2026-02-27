@@ -21,7 +21,7 @@ const { Logger } = require('../utils/logger');
 
 // ── Costes por 1M de tokens (USD) ────────────────────────────────────────────
 const MODEL_COSTS = {
-    'gemini-1.5-flash': { input: 0.075, output: 0.30 },
+    'gemini-2.0-flash': { input: 0.10, output: 0.40 },
     'gpt-4o-mini':      { input: 0.150, output: 0.60 },
 };
 
@@ -355,7 +355,7 @@ Ejemplos: {"action":"expand","params":{}} | {"action":"build","params":{"buildin
         if (!apiKey) throw new Error('GEMINI_API_KEY no configurada en .env');
 
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
             {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -376,7 +376,7 @@ Ejemplos: {"action":"expand","params":{}} | {"action":"build","params":{"buildin
         const inputTokens = data.usageMetadata?.promptTokenCount     || 0;
         const outTokens   = data.usageMetadata?.candidatesTokenCount || 0;
 
-        return { text, inputTokens, outputTokens: outTokens, model: 'gemini-1.5-flash' };
+        return { text, inputTokens, outputTokens: outTokens, model: 'gemini-2.0-flash' };
     }
 
     /**
@@ -420,7 +420,7 @@ Ejemplos: {"action":"expand","params":{}} | {"action":"build","params":{"buildin
 
     async _logUsage(botId, provider, inputTokens, outputTokens) {
         const totalTokens = (inputTokens || 0) + (outputTokens || 0);
-        const modelName   = provider === 'gemini' ? 'gemini-1.5-flash'
+        const modelName   = provider === 'gemini' ? 'gemini-2.0-flash'
                           : provider === 'openai'  ? 'gpt-4o-mini'
                           : provider;
 
