@@ -5,8 +5,12 @@
 
 import axios from 'axios';
 
-// API Base URL from environment or default to localhost
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+// API Base URL:
+//   - Docker / producción: VITE_API_URL no definida → '' (URL relativa, Nginx hace el proxy)
+//   - Dev local con Vite:  VITE_API_URL no definida → '' (Vite proxy reenvía /api a :3000)
+//   - Override explícito:  define VITE_API_URL=http://host:puerto en client/.env
+// Se usa ?? en lugar de || para que '' (vacío) sea un valor válido y no active el fallback.
+const API_URL = import.meta.env.VITE_API_URL ?? '';
 
 // Configure axios to send credentials (cookies) with all requests
 // This is CRITICAL for JWT authentication via HttpOnly cookies

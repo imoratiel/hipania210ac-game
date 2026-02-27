@@ -23,10 +23,17 @@ services:
       - NODE_ENV=development
       - DB_HOST=db
       - DB_PORT=5432
+      - CORS_ORIGINS=http://localhost:8080,http://localhost:5173
     # El servidor no arranca hasta que la base de datos esté lista
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - game-network
 
@@ -55,6 +62,18 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - game-network
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      app:
+        condition: service_healthy
     networks:
       - game-network
 

@@ -27,8 +27,21 @@ const PORT = process.env.PORT || 3000;
 // Initialize Logger
 initializeLogger();
 
+// Orígenes CORS permitidos: configurables desde el entorno para soportar
+// tanto el servidor Vite de desarrollo (5173) como el contenedor Docker (8080).
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173')
+    .split(',')
+    .map(o => o.trim());
+
 // Middleware
-app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
+app.use(cors({
+    origin: (origin, callback) => {
+        // Sin origin = petición same-origin, Postman o curl → permitir
+        if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+        callback(new Error(`CORS: origen no permitido: ${origin}`));
+    },
+    credentials: true,
+}));
 app.use(express.json());
 app.use(cookieParser()); // Parse cookies for JWT extraction
 
