@@ -23,6 +23,7 @@ const KingdomModel    = require('../models/KingdomModel');
 const ArmyModel       = require('../models/ArmyModel');
 const recruitmentNetwork = require('../logic/recruitmentNetwork');
 const GAME_CONFIG     = require('../config/constants');
+const { getArmyLimit } = require('../config/gameFunctions');
 const { Logger }      = require('../utils/logger');
 
 // ─── Error class ─────────────────────────────────────────────────────────────
@@ -133,10 +134,21 @@ async function executeRecruitment(client, playerId, { h3_index, unit_type_id, qu
     await recruitmentNetwork.deductFromNetwork(client, connectedH3s, fiefPops, quantity);
 
     // ── 7. Find or create army ────────────────────────────────────────────────
+    // ARMY_RATIO: no player (human or bot) may have more armies than floor(fiefs / RATIO).
+    // The check only fires when a *new* army would be created; reinforcing an existing one is free.
     const finalArmyName = army_name || `Ejército de ${playerId}`;
     const existingArmy  = await ArmyModel.FindArmy(client, h3_index, finalArmyName, playerId);
     let army_id;
     if (existingArmy.rows.length === 0) {
+        const capacity  = await ArmyModel.GetPlayerArmyCapacity(client, playerId);
+        const armyLimit = getArmyLimit(capacity.fief_count);
+        if (capacity.army_count >= armyLimit) {
+            throw new GameActionError(
+                `Límite de ejércitos alcanzado (${capacity.army_count}/${armyLimit}). ` +
+                `Se necesita 1 feudo adicional por cada ${GAME_CONFIG.ARMY_LIMITS.RATIO} feudos para comandar más ejércitos.`,
+                'ARMY_LIMIT_REACHED'
+            );
+        }
         const newArmy = await ArmyModel.CreateArmy(client, finalArmyName, playerId, h3_index);
         army_id = newArmy.rows[0].army_id;
     } else {

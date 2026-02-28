@@ -23,8 +23,8 @@ function getPopulationCap(terrainName, isCapital) {
  * @returns {number} Límite de ejércitos
  */
 function getArmyLimit(numFiefs) {
-    const { BASE, FIEFS_PER_SLOT } = GAME_CONFIG.ARMY_LIMITS;
-    return BASE + Math.floor((numFiefs || 0) / FIEFS_PER_SLOT);
+    const { BASE, RATIO } = GAME_CONFIG.ARMY_LIMITS;
+    return Math.max(BASE, Math.floor((numFiefs || 0) / RATIO));
 }
 
 module.exports = { getPopulationCap, getArmyLimit };

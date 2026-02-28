@@ -47,9 +47,11 @@ const GAME_CONFIG = {
     },
 
     // 🏰 Límite de Ejércitos por Jugador
+    // Regla: max(BASE, floor(feudos / RATIO))
+    // Ej: 0 feudos → 1 ejército, 3 → 1, 6 → 2, 30 → 10, 170 → 56
     ARMY_LIMITS: {
-        BASE: 2,            // Ejércitos garantizados sin importar los feudos
-        FIEFS_PER_SLOT: 10, // Feudos adicionales necesarios para desbloquear cada ejército extra
+        BASE:  1,  // Mínimo garantizado (aunque no tengas feudos)
+        RATIO: 3,  // Un slot de ejército por cada 3 feudos
     },
 
     // 👥 Límites de Población por Tipo de Terreno

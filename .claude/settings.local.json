@@ -43,7 +43,8 @@
       "Bash(python3 -c \"from PIL import Image; print\\(''PIL ok''\\)\")",
       "Bash(where ffmpeg)",
       "Bash(ffmpeg -version)",
-      "Bash(python -m pip install pillow -q)"
+      "Bash(python -m pip install pillow -q)",
+      "Bash(find \"d:/claude/mediev-h3-game/server/src\" -name \"*.js\" -type f -exec grep -l \"armies\\\\|army\" {} ;)"
     ]
   }
 }
