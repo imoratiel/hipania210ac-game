@@ -16,6 +16,20 @@ const API_URL = import.meta.env.VITE_API_URL ?? '';
 // This is CRITICAL for JWT authentication via HttpOnly cookies
 axios.defaults.withCredentials = true;
 
+// Global 401 interceptor: redirect to login on any expired/invalid session
+let _redirectingToLogin = false;
+axios.interceptors.response.use(
+  res => res,
+  err => {
+    if (err.response?.status === 401 && !_redirectingToLogin) {
+      _redirectingToLogin = true;
+      localStorage.removeItem('user');
+      window.location.replace('/login.html');
+    }
+    return Promise.reject(err);
+  }
+);
+
 // ============================================
 // MAP ENDPOINTS
 // ============================================

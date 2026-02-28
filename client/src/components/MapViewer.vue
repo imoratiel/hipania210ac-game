@@ -4297,26 +4297,21 @@ const checkAuth = async () => {
       localStorage.setItem('user', JSON.stringify(response.user));
       console.log(`[Auth] ✓ Session verified: ${currentUser.value.username} (${currentUser.value.role})`);
     } else {
-      // No session, clear user data
+      // No session, clear user data and redirect immediately
       currentUser.value = null;
       localStorage.removeItem('user');
       console.log('[Auth] ⚠️ No active session');
-
-      // Redirect to login
-      showToast('Por favor inicia sesión', 'error');
-      setTimeout(() => {
-        window.location.href = '/login.html';
-      }, 2000);
+      window.location.replace('/login.html');
     }
   } catch (err) {
-    console.error('[Auth] Error checking authentication (GET /api/auth/me):', err);
-    currentUser.value = null;
-    localStorage.removeItem('user');
-
-    // Redirect to login
-    setTimeout(() => {
-      window.location.href = '/login.html';
-    }, 2000);
+    // 401 is handled by the global axios interceptor in mapApi.js
+    // Only redirect here for non-401 errors (network failures, etc.)
+    if (err.response?.status !== 401) {
+      console.error('[Auth] Error checking authentication:', err);
+      currentUser.value = null;
+      localStorage.removeItem('user');
+      window.location.replace('/login.html');
+    }
   }
 };
 
