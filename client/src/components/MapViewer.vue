@@ -319,6 +319,7 @@
               </div>
               <div class="worker-card-info">
                 <span title="Ubicación actual">📍 {{ worker.h3_index }}</span>
+                <span v-if="worker.terrain_type" class="worker-terrain">🌍 {{ worker.terrain_type }}</span>
                 <span v-if="worker.destination_h3" class="worker-en-route" title="Destino">
                   ➡️ {{ worker.destination_h3 }}
                 </span>
@@ -329,9 +330,11 @@
               </div>
               <div class="worker-card-actions">
                 <button
-                  class="worker-btn worker-btn-build"
-                  disabled
-                  title="Próximamente"
+                  class="worker-btn"
+                  :class="['Río','Agua'].includes(worker.terrain_type) ? 'worker-btn-build-active' : 'worker-btn-build'"
+                  :disabled="!['Río','Agua'].includes(worker.terrain_type)"
+                  :title="['Río','Agua'].includes(worker.terrain_type) ? 'Construir puente (consume trabajadores)' : 'Solo disponible en Río o Agua'"
+                  @click="['Río','Agua'].includes(worker.terrain_type) && buildBridgeFromPanel(worker.h3_index)"
                 >🏗️ Construir</button>
                 <button
                   class="worker-btn worker-btn-move"
@@ -1288,8 +1291,9 @@ let settlementMarkersMap = {}; // Map: settlement name -> marker
 let buildingMarkersLayer = null; // Layer for capital crown markers
 let fiefIconsLayer = null;       // Layer for fief building icons (API-driven)
 let armyMarkersLayer = null;    // Layer for army/troop icons
-let workersMarkersLayer = null; // Layer for worker icons
-let hexStackerLayer = null;     // Layer for combined HexStacker markers (owner+building+troops)
+let workersMarkersLayer = null;       // Layer for worker icons
+let constructionMarkersLayer = null;  // Layer for in-progress bridge constructions
+let hexStackerLayer = null;           // Layer for combined HexStacker markers (owner+building+troops)
 let highlightLayer = null; // Temporary highlight polygon for navigation
 let debounceTimer = null;
 
@@ -1450,6 +1454,10 @@ const initMap = () => {
   map.createPane('workerPane');
   map.getPane('workerPane').style.zIndex = 665;
 
+  // Construction Pane (in-progress bridges) - above workers
+  map.createPane('constructionPane');
+  map.getPane('constructionPane').style.zIndex = 668;
+
   // Army Pane (Troop Icons) - Below popupPane (700) so popups always render on top
   map.createPane('armyPane');
   map.getPane('armyPane').style.zIndex = 680;
@@ -1513,6 +1521,7 @@ const initMap = () => {
   fiefIconsLayer = L.layerGroup().addTo(map);
   armyMarkersLayer = L.layerGroup().addTo(map);
   workersMarkersLayer = L.layerGroup().addTo(map);
+  constructionMarkersLayer = L.layerGroup().addTo(map);
   hexStackerLayer = L.layerGroup().addTo(map);
 
   // Track zoom level
@@ -1616,6 +1625,7 @@ const loadHexagonsIfZoomValid = () => {
     clearHexagons();
     clearArmyMarkers();
     clearWorkerMarkers();
+    clearConstructionMarkers();
     clearFiefIcons();
     clearHexStackers();
     if (currentZoom < MIN_ZOOM_H3) {
@@ -1671,11 +1681,12 @@ const fetchHexagonData = async () => {
     // Draw movement routes (always, regardless of zoom)
     await fetchAndDrawRoutes();
 
-    // Fetch buildings, armies and workers in parallel for rendering
-    const [buildingData, armyData, workerData] = await Promise.allSettled([
+    // Fetch buildings, armies, workers and constructions in parallel
+    const [buildingData, armyData, workerData, constructionData] = await Promise.allSettled([
       mapApi.getMapBuildings(params),
       mapApi.getMapArmies(params),
       mapApi.getMapWorkers(params),
+      mapApi.getMapConstructions(params),
     ]);
 
     const buildings = buildingData.status === 'fulfilled' && buildingData.value.success
@@ -1690,12 +1701,18 @@ const fetchHexagonData = async () => {
     const workers = workerData.status === 'fulfilled' && workerData.value.success
       ? workerData.value.workers
       : [];
+    const constructions = constructionData.status === 'fulfilled' && constructionData.value.success
+      ? constructionData.value.constructions
+      : [];
 
     // Render combined HexStacker icons (replaces separate army + building markers)
     renderHexStackers(buildings, armies, currentPlayerId, ownerMap);
 
     // Render worker markers on separate layer
     renderWorkerMarkers(workers, currentPlayerId);
+
+    // Render in-progress construction markers
+    renderConstructionMarkers(constructions, currentPlayerId);
 
     loading.value = false;
   } catch (err) {
@@ -1720,6 +1737,75 @@ const clearArmyMarkers = () => {
 const clearWorkerMarkers = () => {
   if (workersMarkersLayer) {
     workersMarkersLayer.clearLayers();
+  }
+};
+
+/**
+ * Clear all construction markers from the map
+ */
+const clearConstructionMarkers = () => {
+  if (constructionMarkersLayer) {
+    constructionMarkersLayer.clearLayers();
+  }
+};
+
+/**
+ * Render in-progress bridge construction markers.
+ * Shows a 🏗️ icon with the remaining turns counter.
+ * Own constructions: orange-amber. Foreign: muted teal.
+ * @param {Array} constructions - [{ h3_index, type, progress_turns, total_turns, remaining_turns, player_id, player_name }]
+ * @param {number} currentPlayerId
+ */
+const renderConstructionMarkers = (constructions, currentPlayerId) => {
+  clearConstructionMarkers();
+  if (!constructions || constructions.length === 0) return;
+
+  for (const c of constructions) {
+    try {
+      const [lat, lng] = cellToLatLng(c.h3_index);
+      const isOwn = c.player_id === currentPlayerId;
+      const bg = isOwn ? '#f97316' : '#4b5563';
+      const border = isOwn ? '#c2410c' : '#374151';
+      const pct = Math.round((c.progress_turns / c.total_turns) * 100);
+
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="
+            position:relative;
+            width:36px;height:36px;
+            display:flex;flex-direction:column;align-items:center;justify-content:center;
+            background:${bg};border:2px solid ${border};border-radius:6px;
+            box-shadow:0 2px 6px rgba(0,0,0,0.5);cursor:default;"
+            title="${c.player_name} · Puente ${pct}% · ${c.remaining_turns} turnos restantes">
+          <span style="font-size:14px;line-height:1;">🏗️</span>
+          <span style="font-size:9px;font-weight:700;color:#fff;line-height:1.1;margin-top:1px;">${c.remaining_turns}t</span>
+        </div>`,
+        iconSize: [36, 36],
+        iconAnchor: [18, 18],
+        pane: 'constructionPane',
+      });
+
+      const progressBar = `<div style="background:#374151;border-radius:3px;height:6px;margin-top:6px;overflow:hidden;">
+        <div style="background:${isOwn ? '#f97316' : '#6b7280'};width:${pct}%;height:100%;border-radius:3px;"></div>
+      </div>`;
+
+      const marker = L.marker([lat, lng], { icon, pane: 'constructionPane', interactive: true });
+      marker.bindPopup(
+        `<div style="font-family:sans-serif;font-size:13px;min-width:160px;">
+          <strong>🏗️ Puente en construcción</strong><br>
+          <span style="color:#6b7280;">👤 ${c.player_name}</span><br>
+          <span style="color:#6b7280;font-size:11px;">📍 ${c.h3_index}</span><br>
+          <div style="margin-top:6px;">
+            <span style="color:#d1d5db;">Progreso: ${c.progress_turns} / ${c.total_turns} turnos</span>
+            ${progressBar}
+            <span style="color:#f97316;font-weight:600;">${c.remaining_turns} turnos restantes</span>
+          </div>
+        </div>`,
+        { maxWidth: 220 }
+      );
+
+      constructionMarkersLayer.addLayer(marker);
+    } catch { /* continue silently */ }
   }
 };
 
@@ -1767,13 +1853,29 @@ const renderWorkerMarkers = (workers, currentPlayerId) => {
         pane: 'workerPane',
       });
 
+      // "Construir" is only active on Río or Agua terrain
+      const BRIDGE_TERRAINS = ['Río', 'Agua'];
+      const canBuild = isOwn && BRIDGE_TERRAINS.includes(data.terrain_type);
+
+      const terrainLabel = data.terrain_type
+        ? `<span style="color:#6b7280;font-size:11px;">🌍 ${data.terrain_type}</span><br>`
+        : '';
+
+      const buildBtn = isOwn
+        ? canBuild
+          ? `<button id="worker-build-btn-${h3_index}"
+               style="flex:1;padding:4px 6px;border:none;border-radius:4px;
+                      background:#22c55e;color:#14532d;font-size:12px;font-weight:600;cursor:pointer;"
+               title="Construir puente (consume trabajadores)">🏗️ Construir</button>`
+          : `<button disabled
+               style="flex:1;padding:4px 6px;border:1px solid #6b7280;border-radius:4px;
+                      background:#374151;color:#9ca3af;font-size:12px;cursor:not-allowed;"
+               title="Solo disponible en Río o Agua">🏗️ Construir</button>`
+        : '';
+
       const ownActions = isOwn ? `
         <div style="display:flex;gap:6px;margin-top:8px;">
-          <button
-            disabled
-            style="flex:1;padding:4px 6px;border:1px solid #6b7280;border-radius:4px;
-                   background:#374151;color:#9ca3af;font-size:12px;cursor:not-allowed;"
-            title="Próximamente">🏗️ Construir</button>
+          ${buildBtn}
           <button
             id="worker-move-btn-${h3_index}"
             style="flex:1;padding:4px 6px;border:none;border-radius:4px;
@@ -1787,22 +1889,32 @@ const renderWorkerMarkers = (workers, currentPlayerId) => {
           <strong>⛏️ Trabajadores</strong><br>
           <span style="color:#d1d5db;">${data.worker_count} ${data.worker_type}(s)</span><br>
           <span style="color:#6b7280;">👤 ${data.player_name}</span><br>
-          <span style="color:#6b7280;font-size:11px;">📍 ${h3_index}</span>
+          <span style="color:#6b7280;font-size:11px;">📍 ${h3_index}</span><br>
+          ${terrainLabel}
           ${ownActions}
         </div>`,
         { maxWidth: 220 }
       );
 
-      // Wire up the Move button after popup opens
+      // Wire up popup buttons after it opens
       if (isOwn) {
         marker.on('popupopen', () => {
           setTimeout(() => {
-            const btn = document.getElementById(`worker-move-btn-${h3_index}`);
-            if (btn) {
-              btn.addEventListener('click', () => {
+            const moveBtn = document.getElementById(`worker-move-btn-${h3_index}`);
+            if (moveBtn) {
+              moveBtn.addEventListener('click', () => {
                 marker.closePopup();
                 window.startWorkerMovement(h3_index);
               });
+            }
+            if (canBuild) {
+              const buildBtnEl = document.getElementById(`worker-build-btn-${h3_index}`);
+              if (buildBtnEl) {
+                buildBtnEl.addEventListener('click', () => {
+                  marker.closePopup();
+                  buildBridgeFromPopup(h3_index);
+                });
+              }
             }
           }, 50);
         });
@@ -4505,6 +4617,26 @@ const startWorkerMoveFromPanel = (fromH3) => {
 };
 
 /**
+ * Start bridge construction from the market panel.
+ * @param {string} h3_index
+ */
+const buildBridgeFromPanel = async (h3_index) => {
+  try {
+    const result = await mapApi.startBridgeConstruction(h3_index);
+    if (result.success) {
+      showToast(`🌉 ${result.message}`, 'success');
+      await fetchHexagonData();
+      await fetchMyWorkers(); // workers consumed — refresh panel list
+    } else {
+      showToast(`⚠️ ${result.message}`, 'warning');
+    }
+  } catch (err) {
+    const msg = err?.response?.data?.message || 'Error al iniciar la construcción';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
+/**
  * Load worker type definitions once on mount.
  * Stored in workerTypes ref and passed into popup config for the hire form.
  */
@@ -4520,6 +4652,26 @@ const loadWorkerTypes = async () => {
 /**
  * Hire a worker from the cell popup.
  */
+/**
+ * Start a bridge construction from the worker map popup.
+ * Workers at h3_index are consumed. Only valid on Río / Agua terrain.
+ */
+const buildBridgeFromPopup = async (h3_index) => {
+  try {
+    const result = await mapApi.startBridgeConstruction(h3_index);
+    if (result.success) {
+      showToast(`🌉 ${result.message}`, 'success');
+      await fetchHexagonData();
+      fetchMyWorkers(); // remove consumed workers from market panel
+    } else {
+      showToast(`⚠️ ${result.message}`, 'warning');
+    }
+  } catch (err) {
+    const msg = err?.response?.data?.message || 'Error al iniciar la construcción';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
 const buyWorkerFromPopup = async (h3_index, worker_type_id) => {
   try {
     const result = await mapApi.buyWorker({ h3_index, worker_type_id });
@@ -5586,9 +5738,19 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
+.worker-btn-build-active {
+  background: #22c55e;
+  color: #14532d;
+}
+
 .worker-btn-move {
   background: #f59e0b;
   color: #1c1917;
+}
+
+.worker-terrain {
+  font-size: 10px;
+  color: #60a5fa;
 }
 
 /* Layers Panel Sections */

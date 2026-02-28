@@ -574,6 +574,117 @@ async function processConstructionTicks(client, turn) {
 }
 
 /**
+ * Process worker-initiated constructions (bridges, etc.).
+ *
+ * Each turn: increments progress_turns on every active_constructions row.
+ * When progress_turns >= total_turns the construction is finished:
+ *   1) DELETE from active_constructions  (remove the work order)
+ *   2) INSERT into bridges               (permanent record)
+ *   3) UPDATE h3_map.terrain_type_id     (change hex to 'Puente')
+ *
+ * Each completion runs inside its own SAVEPOINT so a failure on one bridge
+ * does not abort the entire turn.
+ *
+ * @param {import('pg').PoolClient} client - active transaction client
+ * @param {number} turn
+ */
+async function processWorkerConstructions(client, turn) {
+    try {
+        // Tick all active constructions and return updated rows in one round-trip
+        const tickResult = await client.query(`
+            UPDATE active_constructions
+            SET progress_turns = progress_turns + 1
+            RETURNING h3_index, type, progress_turns, total_turns, player_id
+        `);
+
+        if (tickResult.rows.length === 0) return;
+
+        const completed = tickResult.rows.filter(r => r.progress_turns >= r.total_turns);
+        const inProgress = tickResult.rows.length - completed.length;
+
+        if (completed.length === 0) {
+            Logger.engine(`[TURN ${turn}] Worker constructions: ${inProgress} en curso`);
+            return;
+        }
+
+        // Complete each finished construction atomically (SAVEPOINT per bridge)
+        for (const construction of completed) {
+            const { h3_index, type, player_id } = construction;
+
+            await client.query('SAVEPOINT worker_construction_complete');
+            try {
+                // Step 1: Remove the work order
+                const deleteResult = await client.query(
+                    'DELETE FROM active_constructions WHERE h3_index = $1',
+                    [h3_index]
+                );
+                if (deleteResult.rowCount === 0) {
+                    // Concurrent deletion (race guard) — skip silently
+                    await client.query('RELEASE SAVEPOINT worker_construction_complete');
+                    continue;
+                }
+
+                // Step 2: Persist in bridges table (idempotent)
+                await client.query(
+                    'INSERT INTO bridges (h3_index) VALUES ($1) ON CONFLICT (h3_index) DO NOTHING',
+                    [h3_index]
+                );
+
+                // Step 3: Change terrain to Puente
+                //   Uses name-based lookup so it works even if terrain_type_id changes.
+                const updateResult = await client.query(`
+                    UPDATE h3_map
+                    SET terrain_type_id = (
+                        SELECT terrain_type_id FROM terrain_types WHERE name = 'Puente' LIMIT 1
+                    )
+                    WHERE h3_index = $1
+                `, [h3_index]);
+
+                if (updateResult.rowCount === 0) {
+                    // h3_index not in h3_map — data inconsistency, abort this bridge
+                    throw new Error(`h3_index ${h3_index} no encontrado en h3_map — puente no aplicado`);
+                }
+
+                await client.query('RELEASE SAVEPOINT worker_construction_complete');
+
+                // Notify the owning player (skip bots)
+                try {
+                    const playerResult = await client.query(
+                        'SELECT is_ai FROM players WHERE player_id = $1',
+                        [player_id]
+                    );
+                    if (playerResult.rows.length > 0 && !playerResult.rows[0].is_ai) {
+                        await NotificationService.createSystemNotification(
+                            player_id,
+                            'PRODUCTION',
+                            `🌉 Puente completado\n\nTus trabajadores han terminado la construcción del puente en ${h3_index}. El hexágono es ahora transitable.`,
+                            turn
+                        );
+                    }
+                } catch (notifErr) {
+                    Logger.error(notifErr, { context: 'processWorkerConstructions.notify', h3_index });
+                }
+
+                Logger.engine(
+                    `[TURN ${turn}] Puente completado: ${h3_index} (tipo ${type}, player ${player_id})`
+                );
+
+            } catch (bridgeErr) {
+                await client.query('ROLLBACK TO SAVEPOINT worker_construction_complete');
+                Logger.error(bridgeErr, { context: 'processWorkerConstructions', h3_index, turn });
+            }
+        }
+
+        Logger.engine(
+            `[TURN ${turn}] Worker constructions: ${inProgress} en curso, ${completed.length} completados`
+        );
+    } catch (err) {
+        Logger.error(err, { context: 'processWorkerConstructions', turn });
+        // Don't throw — allow turn to continue
+    }
+}
+
+/**
  * Process passive stamina recovery for all armies
  * Also handles decrementing recovering counter and regenerating movement points
  * @param {Object} client - PostgreSQL client (within transaction)
@@ -866,8 +977,11 @@ async function processGameTurn(pool, config) {
         // Grace turns decay: decrement occupation counters (every turn)
         await processGraceTurns(client, newTurn);
 
-        // Building construction ticks (every turn)
+        // Building construction ticks (fief buildings: Cuartel, Mercado, etc.)
         await processConstructionTicks(client, newTurn);
+
+        // Worker-initiated constructions (bridges, etc.)
+        await processWorkerConstructions(client, newTurn);
 
         // Process completed explorations (every turn)
         await processExplorations(client, newTurn, config);

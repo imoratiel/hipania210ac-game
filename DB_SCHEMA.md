@@ -149,3 +149,14 @@
 - speed (INT)
 - detection_range (INT)
 - created_at (TIMESTAMP)
+
+## Tabla: active_constructions
+- h3_index (VARCHAR 15 PK)
+- type (VARCHAR 20) - Ej: 'BRIDGE'
+- progress_turns (INT)
+- total_turns (INT)
+- player_id (INT FK -> players.player_id)
+
+## Tabla: bridges
+- h3_index (VARCHAR 15 PK)
+- constructed_at (TIMESTAMP)

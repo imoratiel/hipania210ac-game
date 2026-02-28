@@ -125,8 +125,10 @@ module.exports = function () {
     router.get('/workers/types', (req, res) => WorkerService.GetTypes(req, res));
     router.post('/workers/buy', authenticateToken, (req, res) => WorkerService.Buy(req, res));
     router.get('/map/workers', authenticateToken, (req, res) => WorkerService.GetInRegion(req, res));
+    router.get('/map/constructions', authenticateToken, (req, res) => WorkerService.GetConstructionsInRegion(req, res));
     router.get('/workers/my', authenticateToken, (req, res) => WorkerService.GetMyWorkers(req, res));
     router.post('/workers/set-hex-destination', authenticateToken, (req, res) => WorkerService.SetHexDestination(req, res));
+    router.post('/workers/start-construction', authenticateToken, (req, res) => WorkerService.StartConstruction(req, res));
 
     // ============================================
     // NOTIFICATIONS

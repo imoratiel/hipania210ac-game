@@ -62,6 +62,15 @@ export async function getMapWorkers(params) {
 }
 
 /**
+ * Get active construction markers (bridges in progress) for map rendering
+ * @param {Object} params - { minLat, maxLat, minLng, maxLng }
+ */
+export async function getMapConstructions(params) {
+  const response = await axios.get(`${API_URL}/api/map/constructions`, { params });
+  return response.data;
+}
+
+/**
  * Get all worker type definitions (cost, stats)
  */
 export async function getWorkerTypes() {
@@ -83,6 +92,16 @@ export async function buyWorker({ h3_index, worker_type_id }) {
  */
 export async function getMyWorkers() {
   const response = await axios.get(`${API_URL}/api/workers/my`);
+  return response.data;
+}
+
+/**
+ * Start a bridge construction at h3_index.
+ * Terrain must be Río or Agua. Workers at the hex are consumed.
+ * @param {string} h3_index
+ */
+export async function startBridgeConstruction(h3_index) {
+  const response = await axios.post(`${API_URL}/api/workers/start-construction`, { h3_index });
   return response.data;
 }
 

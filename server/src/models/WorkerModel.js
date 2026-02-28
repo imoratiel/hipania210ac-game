@@ -66,12 +66,15 @@ class WorkerModel {
                     p.username   AS player_name,
                     p.color      AS player_color,
                     wt.name      AS worker_type,
-                    COUNT(w.id)::int AS worker_count
+                    COUNT(w.id)::int AS worker_count,
+                    tt.name      AS terrain_type
              FROM workers w
              JOIN players p       ON w.player_id = p.player_id
              JOIN workers_types wt ON w.type_id   = wt.id
+             LEFT JOIN h3_map m   ON w.h3_index  = m.h3_index
+             LEFT JOIN terrain_types tt ON m.terrain_type_id = tt.terrain_type_id
              WHERE w.h3_index = ANY($1::text[])
-             GROUP BY w.h3_index, w.player_id, p.username, p.color, wt.name
+             GROUP BY w.h3_index, w.player_id, p.username, p.color, wt.name, tt.name
              ORDER BY w.h3_index`,
             [h3CellsArray]
         );
@@ -84,14 +87,69 @@ class WorkerModel {
     async GetMyWorkers(player_id) {
         const result = await pool.query(
             `SELECT w.id, w.h3_index, w.destination_h3, w.type_id, w.hp, w.speed, w.detection_range, w.created_at,
-                    wt.name AS type_name, wt.cost
+                    wt.name AS type_name, wt.cost,
+                    tt.name AS terrain_type
              FROM workers w
              JOIN workers_types wt ON w.type_id = wt.id
+             LEFT JOIN h3_map m    ON w.h3_index = m.h3_index
+             LEFT JOIN terrain_types tt ON m.terrain_type_id = tt.terrain_type_id
              WHERE w.player_id = $1
              ORDER BY w.created_at DESC`,
             [player_id]
         );
         return result;
+    }
+
+    // ─── Construction ────────────────────────────────────────────────────────
+
+    /**
+     * Get all active constructions within a set of H3 cells (for map rendering).
+     */
+    async GetConstructionsInBounds(h3CellsArray) {
+        const result = await pool.query(
+            `SELECT ac.h3_index, ac.type, ac.progress_turns, ac.total_turns, ac.player_id,
+                    (ac.total_turns - ac.progress_turns) AS remaining_turns,
+                    p.username AS player_name,
+                    p.color    AS player_color
+             FROM active_constructions ac
+             JOIN players p ON ac.player_id = p.player_id
+             WHERE ac.h3_index = ANY($1::text[])`,
+            [h3CellsArray]
+        );
+        return result;
+    }
+
+    /**
+     * Check whether there is already an active construction at h3_index.
+     * Returns the row or null.
+     */
+    async GetActiveConstruction(client, h3_index) {
+        const result = await client.query(
+            'SELECT h3_index, type, progress_turns, total_turns FROM active_constructions WHERE h3_index = $1',
+            [h3_index]
+        );
+        return result.rows[0] || null;
+    }
+
+    /**
+     * Start a bridge construction at h3_index.
+     * Atomically:
+     *   1. INSERT into active_constructions (fails on conflict — duplicate guard).
+     *   2. DELETE all workers owned by player_id at h3_index (consumed by the work site).
+     *
+     * Returns the number of workers consumed.
+     */
+    async StartBridgeConstruction(client, player_id, h3_index, total_turns) {
+        await client.query(
+            `INSERT INTO active_constructions (h3_index, type, progress_turns, total_turns, player_id)
+             VALUES ($1, 'BRIDGE', 0, $2, $3)`,
+            [h3_index, total_turns, player_id]
+        );
+        const del = await client.query(
+            'DELETE FROM workers WHERE player_id = $1 AND h3_index = $2 RETURNING id',
+            [player_id, h3_index]
+        );
+        return del.rowCount;
     }
 
     // ─── Movement ────────────────────────────────────────────────────────────
