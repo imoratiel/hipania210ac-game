@@ -140,7 +140,9 @@ class TurnService {
             if (isEngineActive()) {
                 return res.json({ success: true, message: 'El motor ya está en ejecución.' });
             }
-            restartEngine();
+            // Use startTimeEngine directly so it works even after a cold start
+            // where _enginePool/_engineConfig were never set (engine_auto_start=false).
+            startTimeEngine(pool, CONFIG);
             // Persist so the engine auto-starts on next container restart
             await AdminModel.UpsertConfig('system', 'engine_auto_start', 'true');
             if (!CONFIG.system) CONFIG.system = {};
