@@ -21,20 +21,24 @@ class TerrainService {
 
             const result = await TerrainModel.GetRegion(h3CellsArray);
 
-            const hexagons = result.rows.map(row => ({
-                h3_index: row.h3_index,
-                terrain_type_id: row.terrain_type_id,
-                terrain_color: row.terrain_color || '#9e9e9e',
-                //has_road: row.has_road || false,
-                is_capital: row.is_capital || false,
-                player_id: row.player_id || null,
-                //player_color: row.player_color || null,
-                location_name: row.location_name || null,
-                settlement_type: row.settlement_type || null,
-                coord_x: row.coord_x,
-                coord_y: row.coord_y,
-                is_bridge: row.terrain_type_id === 15 //constants.MAP.BRIDGE_TERRAIN_TYPE_ID
-            }));
+            const hexagons = result.rows.map(row => {
+                // Campos siempre presentes (terrain + coordenadas)
+                const hex = {
+                    h3_index:        row.h3_index,
+                    terrain_type_id: row.terrain_type_id,
+                    terrain_color:   row.terrain_color || '#9e9e9e',
+                    coord_x:         row.coord_x,
+                    coord_y:         row.coord_y,
+                };
+                // Campos opcionales: solo se incluyen cuando tienen valor real
+                if (row.player_id)               hex.player_id       = row.player_id;
+                if (row.player_color)            hex.player_color    = row.player_color;
+                if (row.is_capital)              hex.is_capital      = true;
+                if (row.location_name)           hex.location_name   = row.location_name;
+                if (row.settlement_type)         hex.settlement_type = row.settlement_type;
+                if (row.terrain_type_id === 15)  hex.is_bridge       = true;
+                return hex;
+            });
 
             res.setHeader('Content-Type', 'application/json; charset=utf-8');
             res.json(hexagons);

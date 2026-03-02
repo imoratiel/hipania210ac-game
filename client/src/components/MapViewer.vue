@@ -1673,7 +1673,7 @@ const fetchHexagonData = async () => {
     // Build owner map from hexagon data: h3_index → { color, player_id }
     const ownerMap = new Map();
     for (const h of hexagons) {
-      if (h.player_color) {
+      if (h.player_id) {
         ownerMap.set(h.h3_index, { color: h.player_color, player_id: h.player_id });
       }
     }
