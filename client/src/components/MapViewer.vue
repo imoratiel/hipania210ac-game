@@ -2827,7 +2827,7 @@ const renderHexagons = (hexagons) => {
         const bridgeHtml = `<div style="
           background:#1a3a5c;
           border:2px solid #64b5f6;
-          border-radius:50%;
+          border-radius:6px;
           width:30px;height:30px;
           display:flex;align-items:center;justify-content:center;
           font-size:16px;
