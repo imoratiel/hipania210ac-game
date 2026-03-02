@@ -338,8 +338,8 @@
                 >🏗️ Construir</button>
                 <button
                   class="worker-btn worker-btn-move"
-                  @click="startWorkerMoveFromPanel(worker.h3_index)"
-                  title="Mover trabajadores de este hex"
+                  @click="startWorkerMoveFromPanel(worker.id, worker.h3_index)"
+                  title="Mover este trabajador"
                 >➡️ Mover</button>
               </div>
             </div>
@@ -1821,13 +1821,18 @@ const renderWorkerMarkers = (workers, currentPlayerId) => {
   if (!workers || workers.length === 0) return;
 
   // Group by hex: one icon per hex, sum counts across types if mixed
+  // Keep first_worker_id from the lowest-id row so the popup can move a single worker
   const byHex = new Map();
   for (const w of workers) {
     const key = w.h3_index;
     if (!byHex.has(key)) {
       byHex.set(key, { ...w });
     } else {
-      byHex.get(key).worker_count += w.worker_count;
+      const existing = byHex.get(key);
+      existing.worker_count += w.worker_count;
+      if (w.first_worker_id < existing.first_worker_id) {
+        existing.first_worker_id = w.first_worker_id;
+      }
     }
   }
 
@@ -1878,6 +1883,7 @@ const renderWorkerMarkers = (workers, currentPlayerId) => {
           ${buildBtn}
           <button
             id="worker-move-btn-${h3_index}"
+            data-worker-id="${data.first_worker_id}"
             style="flex:1;padding:4px 6px;border:none;border-radius:4px;
                    background:#f59e0b;color:#1c1917;font-size:12px;font-weight:600;cursor:pointer;"
             >➡️ Mover</button>
@@ -1903,8 +1909,9 @@ const renderWorkerMarkers = (workers, currentPlayerId) => {
             const moveBtn = document.getElementById(`worker-move-btn-${h3_index}`);
             if (moveBtn) {
               moveBtn.addEventListener('click', () => {
+                const workerId = parseInt(moveBtn.dataset.workerId, 10);
                 marker.closePopup();
-                window.startWorkerMovement(h3_index);
+                window.startWorkerMovement(h3_index, workerId);
               });
             }
             if (canBuild) {
@@ -2086,8 +2093,8 @@ const renderHexStackers = (buildings, armyEntries, currentPlayerId, ownerMap) =>
             onSelectDestination: async (armyId, targetH3, armyName) => {
               await processArmyMovement(armyId, targetH3, armyName);
             },
-            onSelectWorkerDestination: async (fromH3, targetH3) => {
-              await processWorkerMovement(fromH3, targetH3);
+            onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
+              await processWorkerMovement(workerId, fromH3, targetH3);
             },
           });
         } else {
@@ -2097,8 +2104,8 @@ const renderHexStackers = (buildings, armyEntries, currentPlayerId, ownerMap) =>
             onSelectDestination: async (armyId, targetH3, armyName) => {
               await processArmyMovement(armyId, targetH3, armyName);
             },
-            onSelectWorkerDestination: async (fromH3, targetH3) => {
-              await processWorkerMovement(fromH3, targetH3);
+            onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
+              await processWorkerMovement(workerId, fromH3, targetH3);
             },
           });
         }
@@ -2251,8 +2258,8 @@ const renderArmyMarkers = (armies, currentPlayerId) => {
           onSelectDestination: async (armyId, targetH3, armyName) => {
             await processArmyMovement(armyId, targetH3, armyName);
           },
-          onSelectWorkerDestination: async (fromH3, targetH3) => {
-            await processWorkerMovement(fromH3, targetH3);
+          onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
+            await processWorkerMovement(workerId, fromH3, targetH3);
           },
         });
       });
@@ -2755,8 +2762,8 @@ const renderHexagons = (hexagons) => {
             await processArmyMovement(armyId, targetH3, armyName);
           },
           // Modo selección: procesar movimiento de trabajadores
-          onSelectWorkerDestination: async (fromH3, targetH3) => {
-            await processWorkerMovement(fromH3, targetH3);
+          onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
+            await processWorkerMovement(workerId, fromH3, targetH3);
           },
         });
       });
@@ -4638,11 +4645,12 @@ const fetchMyWorkers = async () => {
 
 /**
  * Start worker movement from the market panel (closes panel, activates crosshair).
- * @param {string} fromH3 - Hex where the workers to move are located
+ * @param {number} workerId - ID of the specific worker to move
+ * @param {string} fromH3   - Hex where the worker is currently located
  */
-const startWorkerMoveFromPanel = (fromH3) => {
+const startWorkerMoveFromPanel = (workerId, fromH3) => {
   activePanel.value = null; // Close panel so the map is clickable
-  window.startWorkerMovement(fromH3);
+  window.startWorkerMovement(fromH3, workerId);
 };
 
 /**
@@ -4892,10 +4900,10 @@ const setupMapInteractionController = () => {
     showToast('Movimiento cancelado', 'info');
   };
 
-  // Exponer función global para iniciar movimiento de trabajadores
-  window.startWorkerMovement = (fromH3) => {
-    console.log(`[MapViewer] Iniciando movimiento de trabajadores desde ${fromH3}`);
-    MapInteractionController.startWorkerMovement(fromH3);
+  // Exponer función global para iniciar movimiento de un trabajador individual
+  window.startWorkerMovement = (fromH3, workerId) => {
+    console.log(`[MapViewer] Iniciando movimiento trabajador #${workerId} desde ${fromH3}`);
+    MapInteractionController.startWorkerMovement(fromH3, workerId);
     if (map) {
       map.getContainer().style.cursor = 'crosshair';
     }
@@ -4954,10 +4962,16 @@ const processArmyMovement = async (armyId, targetH3, armyName) => {
  * @param {string} fromH3 - Hex origen donde están los trabajadores
  * @param {string} targetH3 - Hex destino seleccionado por el jugador
  */
-const processWorkerMovement = async (fromH3, targetH3) => {
+const processWorkerMovement = async (workerId, fromH3, targetH3) => {
   try {
-    console.log(`[MapViewer] Movimiento de trabajadores: ${fromH3} → ${targetH3}`);
-    const response = await mapApi.setWorkerHexDestination(fromH3, targetH3);
+    const parsedId = Number(workerId);
+    if (!parsedId || !Number.isFinite(parsedId)) {
+      console.error(`[MapViewer] workerId inválido: ${workerId}. Recarga la página e inténtalo de nuevo.`);
+      showToast('Error: ID de trabajador no disponible. Recarga la página.', 'error');
+      return;
+    }
+    console.log(`[MapViewer] Movimiento trabajador #${parsedId}: ${fromH3} → ${targetH3}`);
+    const response = await mapApi.setWorkerHexDestination(parsedId, targetH3);
 
     if (response.success) {
       showToast(`✅ ${response.message || `Trabajadores en ruta hacia ${targetH3}`}`, 'success');

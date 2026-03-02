@@ -63,15 +63,16 @@ class WorkerModel {
     async GetWorkersInBounds(h3CellsArray) {
         const result = await pool.query(
             `SELECT w.h3_index, w.player_id,
-                    p.username   AS player_name,
-                    p.color      AS player_color,
-                    wt.name      AS worker_type,
-                    COUNT(w.id)::int AS worker_count,
-                    tt.name      AS terrain_type
+                    p.username        AS player_name,
+                    p.color           AS player_color,
+                    wt.name           AS worker_type,
+                    COUNT(w.id)::int  AS worker_count,
+                    MIN(w.id)::int    AS first_worker_id,
+                    tt.name           AS terrain_type
              FROM workers w
-             JOIN players p       ON w.player_id = p.player_id
+             JOIN players p        ON w.player_id = p.player_id
              JOIN workers_types wt ON w.type_id   = wt.id
-             LEFT JOIN h3_map m   ON w.h3_index  = m.h3_index
+             LEFT JOIN h3_map m    ON w.h3_index  = m.h3_index
              LEFT JOIN terrain_types tt ON m.terrain_type_id = tt.terrain_type_id
              WHERE w.h3_index = ANY($1::text[])
              GROUP BY w.h3_index, w.player_id, p.username, p.color, wt.name, tt.name
@@ -169,12 +170,17 @@ class WorkerModel {
      * Set the same destination for every worker owned by player at from_h3.
      * Returns the pg result so callers can inspect rowCount.
      */
-    async SetHexDestination(client, player_id, from_h3, destination_h3) {
+    async GetWorkerById(client, player_id, worker_id) {
+        const result = await client.query(
+            'SELECT id, h3_index, destination_h3 FROM workers WHERE id = $1 AND player_id = $2',
+            [worker_id, player_id]
+        );
+        return result.rows[0] || null;
+    }
+    async SetHexDestination(client, player_id, worker_id, destination_h3) {
         return client.query(
-            `UPDATE workers
-             SET destination_h3 = $1
-             WHERE player_id = $2 AND h3_index = $3`,
-            [destination_h3, player_id, from_h3]
+            `UPDATE workers SET destination_h3 = $1 WHERE id = $2 AND player_id = $3`,
+            [destination_h3, worker_id, player_id]
         );
     }
 

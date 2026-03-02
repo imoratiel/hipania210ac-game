@@ -118,9 +118,9 @@ class MapInteractionController {
       case InteractionMode.SELECT_WORKER_DESTINATION:
         // Modo selección: procesar movimiento de trabajadores
         if (callbacks.onSelectWorkerDestination && this.contextData) {
-          const { workerH3 } = this.contextData;
-          console.log(`[MapInteraction] Procesando movimiento de trabajadores desde ${workerH3} → ${h3Index}`);
-          callbacks.onSelectWorkerDestination(workerH3, h3Index);
+          const { workerH3, workerId } = this.contextData;
+          console.log(`[MapInteraction] Procesando movimiento trabajador #${workerId} desde ${workerH3} → ${h3Index}`);
+          callbacks.onSelectWorkerDestination(workerId, workerH3, h3Index);
         }
         // Resetear al modo normal después de procesar
         this.resetMode();
@@ -146,12 +146,13 @@ class MapInteractionController {
   }
 
   /**
-   * Inicia el proceso de movimiento de trabajadores desde un hexágono
-   * @param {string} workerH3 - Hex origen donde están los trabajadores
+   * Inicia el proceso de movimiento de un trabajador individual
+   * @param {string} workerH3 - Hex origen del trabajador
+   * @param {number} workerId - ID del trabajador a mover
    */
-  startWorkerMovement(workerH3) {
-    console.log(`[MapInteraction] Iniciando movimiento de trabajadores desde ${workerH3}`);
-    this.setMode(InteractionMode.SELECT_WORKER_DESTINATION, { workerH3 });
+  startWorkerMovement(workerH3, workerId) {
+    console.log(`[MapInteraction] Iniciando movimiento trabajador #${workerId} desde ${workerH3}`);
+    this.setMode(InteractionMode.SELECT_WORKER_DESTINATION, { workerH3, workerId });
   }
 
   /**

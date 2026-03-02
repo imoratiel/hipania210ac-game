@@ -102,42 +102,48 @@ class WorkerService {
 
     /**
      * POST /api/workers/set-hex-destination
-     * Body: { from_h3, destination_h3 }
+     * Body: { worker_id, destination_h3 }
      *
-     * Sets the same destination for all workers the player owns at from_h3.
-     * The turn engine will then advance them straight-line toward destination_h3
+     * Sets the destination for a single worker identified by worker_id.
+     * The turn engine will advance it straight-line toward destination_h3
      * each turn, skipping sea / out-of-map hexes.
      */
     async SetHexDestination(req, res) {
         const client = await pool.connect();
         try {
             const player_id = req.user.player_id;
-            const { from_h3, destination_h3 } = req.body;
+            const { worker_id, destination_h3 } = req.body;
 
-            if (!from_h3 || !destination_h3) {
-                return res.status(400).json({ success: false, message: 'from_h3 y destination_h3 son requeridos' });
-            }
-
-            // Basic sanity: reject same-hex orders
-            if (from_h3 === destination_h3) {
-                return res.status(400).json({ success: false, message: 'El destino debe ser diferente al origen' });
+            if (!worker_id || !destination_h3) {
+                return res.status(400).json({ success: false, message: 'worker_id y destination_h3 son requeridos' });
             }
 
             await client.query('BEGIN');
-            const result = await WorkerModel.SetHexDestination(client, player_id, from_h3, destination_h3);
+
+            // Verify ownership and get current position for same-hex check
+            const worker = await WorkerModel.GetWorkerById(client, player_id, worker_id);
+            if (!worker) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Trabajador no encontrado o no te pertenece' });
+            }
+            if (worker.h3_index === destination_h3) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'El destino debe ser diferente al origen' });
+            }
+
+            const result = await WorkerModel.SetHexDestination(client, player_id, worker_id, destination_h3);
             await client.query('COMMIT');
 
-            const count = result.rowCount;
-            if (count === 0) {
-                return res.json({ success: false, message: 'No tienes trabajadores en ese hexágono' });
+            if (result.rowCount === 0) {
+                return res.json({ success: false, message: 'No se pudo establecer el destino' });
             }
 
             Logger.action(
-                `[ACTION][Jugador ${player_id}]: ${count} trabajador(es) en ${from_h3} → destino ${destination_h3}`,
-                { player_id, from_h3, destination_h3, workers_updated: count }
+                `[ACTION][Jugador ${player_id}]: Trabajador #${worker_id} (${worker.h3_index}) → destino ${destination_h3}`,
+                { player_id, worker_id, from_h3: worker.h3_index, destination_h3 }
             );
 
-            res.json({ success: true, message: `${count} trabajador(es) en ruta`, workers_updated: count });
+            res.json({ success: true, message: `Trabajador en ruta hacia ${destination_h3}` });
         } catch (error) {
             await client.query('ROLLBACK');
             Logger.error(error, { endpoint: '/workers/set-hex-destination', method: 'POST', userId: req.user?.player_id });

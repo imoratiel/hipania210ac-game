@@ -111,9 +111,9 @@ export async function startBridgeConstruction(h3_index) {
  * @param {string} fromH3 - Current hex of the workers
  * @param {string} destinationH3 - Target hex
  */
-export async function setWorkerHexDestination(fromH3, destinationH3) {
+export async function setWorkerHexDestination(workerId, destinationH3) {
   const response = await axios.post(`${API_URL}/api/workers/set-hex-destination`, {
-    from_h3: fromH3,
+    worker_id: workerId,
     destination_h3: destinationH3,
   });
   return response.data;
