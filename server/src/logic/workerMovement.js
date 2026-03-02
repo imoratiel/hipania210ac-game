@@ -60,17 +60,18 @@ async function processWorkerMovements(client, turn) {
                 for (const nextH3 of steps) {
                     if (stepsRemaining <= 0) break;
 
-                    // Check terrain: must be in h3_map and not sea (movement_cost < 0)
+                    // Workers are construction units: they only stop at hexes that
+                    // don't exist in h3_map (true voids / out-of-bounds).
+                    // Unlike armies, they can cross any mapped terrain including
+                    // rivers (Río/Agua) and sea (Mar) — they're the ones who build
+                    // the infrastructure that lets armies cross.
                     const terrainResult = await client.query(
-                        `SELECT tt.movement_cost
-                         FROM h3_map m
-                         JOIN terrain_types tt ON m.terrain_type_id = tt.terrain_type_id
-                         WHERE m.h3_index = $1`,
+                        'SELECT 1 FROM h3_map WHERE h3_index = $1',
                         [nextH3]
                     );
 
-                    if (terrainResult.rows.length === 0 || terrainResult.rows[0].movement_cost < 0) {
-                        break; // Sea or unmapped — stop here
+                    if (terrainResult.rows.length === 0) {
+                        break; // Hex not in map — stop here
                     }
 
                     newH3 = nextH3;
