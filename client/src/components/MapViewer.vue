@@ -2820,6 +2820,35 @@ const renderHexagons = (hexagons) => {
         }).addTo(hexagonLayer);
       }
 
+      // --- LAYER 3b: BRIDGE MARKER (starPane) ---
+      if (hex.is_bridge) {
+        const [bLat, bLng] = cellToLatLng(hex.h3_index);
+
+        const bridgeHtml = `<div style="
+          background:#1a3a5c;
+          border:2px solid #64b5f6;
+          border-radius:50%;
+          width:30px;height:30px;
+          display:flex;align-items:center;justify-content:center;
+          font-size:16px;
+          box-shadow:0 0 8px 2px rgba(100,181,246,0.45),0 2px 6px rgba(0,0,0,0.7);
+          user-select:none;">🌉</div>`;
+
+        const bridgeIcon = L.divIcon({
+          html:       bridgeHtml,
+          className:  '',
+          iconSize:   [30, 30],
+          iconAnchor: [15, 15],
+        });
+
+        L.marker([bLat, bLng], {
+          icon:        bridgeIcon,
+          pane:        'starPane',
+          interactive: false,
+          zIndexOffset: 999,
+        }).addTo(hexagonLayer);
+      }
+
     } catch (err) {
       console.error(`Error rendering hexagon ${hex.h3_index}:`, err);
     }

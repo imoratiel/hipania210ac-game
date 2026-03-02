@@ -2,6 +2,7 @@ const { Logger } = require('../utils/logger');
 const TerrainModel = require('../models/TerrainModel.js');
 const h3 = require('h3-js');
 const { getTerrainColor } = require('../logic/territory.js');
+const { constants } = require('node:buffer');
 
 class TerrainService {
     async GetRegion(req,res){
@@ -24,14 +25,15 @@ class TerrainService {
                 h3_index: row.h3_index,
                 terrain_type_id: row.terrain_type_id,
                 terrain_color: row.terrain_color || '#9e9e9e',
-                has_road: row.has_road || false,
+                //has_road: row.has_road || false,
                 is_capital: row.is_capital || false,
                 player_id: row.player_id || null,
-                player_color: row.player_color || null,
+                //player_color: row.player_color || null,
                 location_name: row.location_name || null,
                 settlement_type: row.settlement_type || null,
                 coord_x: row.coord_x,
-                coord_y: row.coord_y
+                coord_y: row.coord_y,
+                is_bridge: row.terrain_type_id === 15 //constants.MAP.BRIDGE_TERRAIN_TYPE_ID
             }));
 
             res.setHeader('Content-Type', 'application/json; charset=utf-8');

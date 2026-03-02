@@ -3,8 +3,11 @@ const pool = require('../../db.js');
 class TerrainModel {    
     async GetRegion(h3CellsArray) {
         const query = `
-            SELECT h3_index, terrain_type_id, terrain_color, has_road, is_capital, player_id, player_color, location_name, settlement_type, coord_x, coord_y
-            FROM v_map_display WHERE h3_index = ANY($1::text[])
+            SELECT v.h3_index, v.terrain_type_id, v.terrain_color, v.has_road, v.is_capital,
+                   v.player_id, v.player_color, v.location_name, v.settlement_type, v.coord_x, v.coord_y
+            FROM v_map_display v
+            LEFT JOIN terrain_types tt ON tt.terrain_type_id = v.terrain_type_id
+            WHERE v.h3_index = ANY($1::text[])
         `;
         const result = await pool.query(query, [h3CellsArray]);
         return result;
