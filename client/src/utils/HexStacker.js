@@ -107,21 +107,24 @@ function formatCount(n) {
 
 /**
  * Returns the HTML for a single troop badge at the given position.
- * @param {number} count    - troop count
+ * @param {number} count         - troop count
  * @param {'own'|'enemy'} side
- * @param {Object} pos      - { left, top } percentage values
+ * @param {Object} pos           - { left, top } percentage values
  * @param {boolean} isConflict
+ * @param {boolean} isGarrison   - render as garrison (square) badge
  * @returns {string}
  */
-function _troopBadge(count, side, pos, isConflict) {
+function _troopBadge(count, side, pos, isConflict, isGarrison = false) {
   const isEnemy = side === 'enemy';
-  const bg      = isEnemy ? '#b71c1c' : '#1565C0';
-  const border  = isEnemy ? '#ef5350' : '#42a5f5';
-  const glyph   = count > 1 ? '⚔️' : '🗡️';
-  const shadow  = isConflict
+  // Garrison own: muted slate-blue; field army colors unchanged
+  const bg     = isGarrison && !isEnemy ? '#2a3f5f'  : (isEnemy ? '#b71c1c' : '#1565C0');
+  const border = isGarrison && !isEnemy ? '#607d9e'  : (isEnemy ? '#ef5350' : '#42a5f5');
+  const glyph  = isGarrison ? '🏰' : (count > 1 ? '⚔️' : '🗡️');
+  const radius = isGarrison ? '4px' : '50%';
+  const shadow = isConflict
     ? '0 0 8px 2px rgba(255,23,68,0.8)'
     : '0 2px 5px rgba(0,0,0,0.5)';
-  const badge   = formatCount(count);
+  const badge  = formatCount(count);
 
   return `
     <div class="hs-troops" style="
@@ -135,7 +138,7 @@ function _troopBadge(count, side, pos, isConflict) {
       <div style="
         background:${bg};
         border:2px solid ${border};
-        border-radius:50%;
+        border-radius:${radius};
         width:22px;height:22px;
         display:flex;align-items:center;justify-content:center;
         font-size:11px;
@@ -174,13 +177,14 @@ function _troopBadge(count, side, pos, isConflict) {
  * @returns {string} HTML string for L.divIcon
  */
 export function createStackerHTML({ building = null, units = null } = {}) {
-  const hasBuilding = !!building;
-  const ownCount    = units?.own_troops   ?? 0;
-  const enemyCount  = units?.enemy_troops ?? 0;
-  const hasOwn      = ownCount   > 0;
-  const hasEnemy    = enemyCount > 0;
-  const hasTroops   = hasOwn || hasEnemy;
-  const isConflict  = !!(units?.is_conflict);
+  const hasBuilding     = !!building;
+  const ownCount        = units?.own_troops        ?? 0;
+  const enemyCount      = units?.enemy_troops      ?? 0;
+  const ownGarrisonOnly = !!(units?.own_garrison_only);   // true = only garrison troops (no field army)
+  const hasOwn          = ownCount   > 0;
+  const hasEnemy        = enemyCount > 0;
+  const hasTroops       = hasOwn || hasEnemy;
+  const isConflict      = !!(units?.is_conflict);
 
   if (!hasBuilding && !hasTroops) return '';
 
@@ -226,21 +230,21 @@ export function createStackerHTML({ building = null, units = null } = {}) {
   if (hasTroops) {
     if (hasOwn && hasEnemy) {
       // Ambos → posiciones fijas de la base del triángulo
-      parts.push(_troopBadge(ownCount,   'own',   POS.ownTroops,   isConflict));
-      parts.push(_troopBadge(enemyCount, 'enemy', POS.enemyTroops, isConflict));
+      parts.push(_troopBadge(ownCount,   'own',   POS.ownTroops,   isConflict, ownGarrisonOnly));
+      parts.push(_troopBadge(enemyCount, 'enemy', POS.enemyTroops, isConflict, false));
     } else if (hasBuilding) {
       // Solo un tipo con edificio → posición base correspondiente
-      if (hasOwn)   parts.push(_troopBadge(ownCount,   'own',   POS.ownTroops,   isConflict));
-      if (hasEnemy) parts.push(_troopBadge(enemyCount, 'enemy', POS.enemyTroops, isConflict));
+      if (hasOwn)   parts.push(_troopBadge(ownCount,   'own',   POS.ownTroops,   isConflict, ownGarrisonOnly));
+      if (hasEnemy) parts.push(_troopBadge(enemyCount, 'enemy', POS.enemyTroops, isConflict, false));
     } else {
       // Sin edificio → tropos centradas o ligeramente desplazadas
       if (hasOwn && !hasEnemy) {
-        parts.push(_troopBadge(ownCount, 'own', POS.troopsOnlyCenter, isConflict));
+        parts.push(_troopBadge(ownCount, 'own', POS.troopsOnlyCenter, isConflict, ownGarrisonOnly));
       } else if (hasEnemy && !hasOwn) {
-        parts.push(_troopBadge(enemyCount, 'enemy', POS.troopsOnlyCenter, isConflict));
+        parts.push(_troopBadge(enemyCount, 'enemy', POS.troopsOnlyCenter, isConflict, false));
       } else {
-        parts.push(_troopBadge(ownCount,   'own',   POS.troopsSoloLeft,  isConflict));
-        parts.push(_troopBadge(enemyCount, 'enemy', POS.troopsSoloRight, isConflict));
+        parts.push(_troopBadge(ownCount,   'own',   POS.troopsSoloLeft,  isConflict, ownGarrisonOnly));
+        parts.push(_troopBadge(enemyCount, 'enemy', POS.troopsSoloRight, isConflict, false));
       }
     }
   }

@@ -2065,15 +2065,21 @@ const renderHexStackers = (buildings, armyEntries, currentPlayerId, ownerMap) =>
       let units = null;
       const group = armyByHex.get(h3_index);
       if (group && group.length > 0) {
-        let ownTroops   = 0;
-        let enemyTroops = 0;
+        let ownTroops       = 0;
+        let enemyTroops     = 0;
+        let ownHasFieldArmy = false;   // true if own player has at least one non-garrison army here
         for (const e of group) {
           const count = Number(e.total_troops) || 0;
-          if (e.player_id === currentPlayerId) ownTroops   += count;
-          else                                  enemyTroops += count;
+          if (e.player_id === currentPlayerId) {
+            ownTroops += count;
+            if (e.has_field_army) ownHasFieldArmy = true;
+          } else {
+            enemyTroops += count;
+          }
         }
-        const isConflict = ownTroops > 0 && enemyTroops > 0;
-        units = { own_troops: ownTroops, enemy_troops: enemyTroops, is_conflict: isConflict };
+        const isConflict      = ownTroops > 0 && enemyTroops > 0;
+        const ownGarrisonOnly = ownTroops > 0 && !ownHasFieldArmy;
+        units = { own_troops: ownTroops, enemy_troops: enemyTroops, is_conflict: isConflict, own_garrison_only: ownGarrisonOnly };
       }
 
       const divIcon = createStackerDivIcon(L, { building: bld, units });
