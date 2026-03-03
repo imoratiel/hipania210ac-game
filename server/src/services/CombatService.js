@@ -537,6 +537,14 @@ class CombatService {
         const playerId  = armyRow.rows[0]?.player_id;
         const capitalH3 = armyRow.rows[0]?.capital_h3 ?? null;
 
+        // Si el ejército está en la capital, no puede retirarse más — se queda
+        if (capitalH3 && fromH3 === capitalH3) {
+            await client.query('UPDATE armies SET destination = NULL WHERE army_id = $1', [armyId]);
+            await client.query('DELETE FROM army_routes WHERE army_id = $1', [armyId]);
+            Logger.engine(`[COMBAT] Army ${armyId} at capital ${fromH3} — holds position, no retreat`);
+            return { retreated: false, destroyed: false, newHex: fromH3 };
+        }
+
         // Obtener hexes pasables del mapa
         const passableResult = await client.query(`
             SELECT hm.h3_index
@@ -602,8 +610,12 @@ class CombatService {
         const formatLoot = (l) =>
             `🪙${l.gold} oro, 🍖${l.food} comida, 🌲${l.wood} madera`;
 
-        const retreatLine = (r) =>
-            r ? (r.destroyed ? '\n💀 Sin retirada posible — ejército destruido.' : `\n🏃 Se retira a ${r.newHex}.`) : '';
+        const retreatLine = (r) => {
+            if (!r) return '';
+            if (r.destroyed)  return '\n💀 Sin retirada posible — ejército destruido.';
+            if (!r.retreated) return '\n🏰 El ejército mantiene posición en la capital.';
+            return `\n🏃 Se retira a ${r.newHex}.`;
+        };
 
         let contentA, contentB;
 
