@@ -441,6 +441,78 @@ class ArmyModel {
         return result.rows[0];
     }
 
+    async GetArmiesAtHex(h3_index, player_id) {
+        const result = await db.query(
+            `SELECT army_id, name, is_garrison
+             FROM armies
+             WHERE h3_index = $1 AND player_id = $2 AND destination IS NULL
+             ORDER BY army_id`,
+            [h3_index, player_id]
+        );
+        return result.rows;
+    }
+
+    /**
+     * Returns a single troop row for a specific army + unit type (with stats).
+     */
+    async GetTroopGroup(client, army_id, unit_type_id) {
+        const result = await client.query(
+            `SELECT troop_id, quantity, experience, morale, stamina, force_rest
+             FROM troops WHERE army_id = $1 AND unit_type_id = $2`,
+            [army_id, unit_type_id]
+        );
+        return result.rows[0] || null;
+    }
+
+    /**
+     * Transfers quantity units of unit_type_id from fromArmyId to toArmyId.
+     * Applies weighted average stats. Both armies must be fetched before calling.
+     */
+    async TransferTroops(client, fromArmyId, toArmyId, unitTypeId, quantity) {
+        // Get source troop row
+        const src = await this.GetTroopGroup(client, fromArmyId, unitTypeId);
+        if (!src || parseInt(src.quantity) < quantity) {
+            throw new Error(`Tropas insuficientes para transferir (tipo ${unitTypeId})`);
+        }
+
+        const srcExp     = parseFloat(src.experience);
+        const srcMorale  = parseFloat(src.morale);
+        const srcStamina = parseFloat(src.stamina);
+        const srcRest    = src.force_rest;
+
+        // Get target troop row (may not exist)
+        const dst = await this.GetTroopGroup(client, toArmyId, unitTypeId);
+
+        if (dst) {
+            const dstQty    = parseInt(dst.quantity);
+            const totalQty  = dstQty + quantity;
+            const wExp      = Math.round((parseFloat(dst.experience) * dstQty + srcExp * quantity) / totalQty * 100) / 100;
+            const wMorale   = Math.round((parseFloat(dst.morale)     * dstQty + srcMorale * quantity) / totalQty * 100) / 100;
+            const wStamina  = Math.round((parseFloat(dst.stamina)    * dstQty + srcStamina * quantity) / totalQty * 100) / 100;
+            const newRest   = dst.force_rest || srcRest;
+
+            await client.query(
+                `UPDATE troops SET quantity=$1, experience=$2, morale=$3, stamina=$4, force_rest=$5
+                 WHERE army_id=$6 AND unit_type_id=$7`,
+                [totalQty, wExp, wMorale, wStamina, newRest, toArmyId, unitTypeId]
+            );
+        } else {
+            await client.query(
+                `INSERT INTO troops (army_id, unit_type_id, quantity, experience, morale, stamina, force_rest)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [toArmyId, unitTypeId, quantity, srcExp, srcMorale, srcStamina, srcRest]
+            );
+        }
+
+        // Decrease source
+        const remaining = parseInt(src.quantity) - quantity;
+        if (remaining <= 0) {
+            await client.query('DELETE FROM troops WHERE troop_id = $1', [src.troop_id]);
+        } else {
+            await client.query('UPDATE troops SET quantity=$1 WHERE troop_id=$2', [remaining, src.troop_id]);
+        }
+    }
+
     /**
      * Adds troops to an existing army, merging with existing rows of the same unit type.
      * If no row exists for that unit_type_id, inserts a fresh one (experience=10, morale=50).

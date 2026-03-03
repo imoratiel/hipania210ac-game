@@ -636,6 +636,16 @@ button {
   filter: brightness(1.2);
 }
 
+.btn-recruit {
+  background: linear-gradient(135deg, #4a1a1a 0%, #b03030 100%) !important;
+  color: white !important;
+  margin-top: 6px !important;
+}
+
+.btn-recruit:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+
 .popup-building-status {
   font-size: 12px !important;
   margin: 6px 14px 4px !important;

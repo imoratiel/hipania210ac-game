@@ -805,6 +805,7 @@
             @armyAttacked="handleArmyAttacked"
             @armyAttackFailed="(msg) => showToast(msg, 'error')"
             @armyDismissed="handleArmyDismissed"
+            @armiesTransferred="handleArmiesTransferred"
           />
         </div>
       </div>
@@ -911,6 +912,17 @@
       :battle="battleSummaryData"
       @close="battleSummaryVisible = false"
     />
+
+    <!-- Army Transfer Panel (opened from map popup split button) -->
+    <ArmyTransferPanel
+      :show="showTransferPanel"
+      :armyAId="transferPanelArmyAId"
+      :armyBId="transferPanelArmyBId"
+      :h3_index="transferPanelHex"
+      :fiefName="transferPanelFiefName"
+      @close="showTransferPanel = false"
+      @done="handleArmiesTransferred"
+    />
   </div>
 </template>
 
@@ -938,6 +950,7 @@ import NotificationsPanel from './NotificationsPanel.vue';
 import BattleSummaryModal from './BattleSummaryModal.vue';
 import EconomyPanel from './EconomyPanel.vue';
 import AdminPanel from './AdminPanel.vue';
+import ArmyTransferPanel from './ArmyTransferPanel.vue';
 
 const mapContainer = ref(null);
 const loading = ref(false);
@@ -1110,6 +1123,13 @@ const savingProfile = ref(false);
 // Battle summary modal state
 const battleSummaryVisible = ref(false);
 const battleSummaryData = ref({});
+
+// Transfer panel state (opened from map popup)
+const showTransferPanel      = ref(false);
+const transferPanelArmyAId   = ref(null);
+const transferPanelArmyBId   = ref(null);
+const transferPanelHex       = ref('');
+const transferPanelFiefName  = ref('');
 
 // Legend toggle state
 const legendCollapsed = ref(true); // Collapsed by default
@@ -3730,6 +3750,28 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
       }, 100);
     }
 
+    // Add event listener to recruit button (own fief with completed military building)
+    if (cell.player_id === playerId.value && cell.fief_building &&
+        !cell.fief_building.is_under_construction && cell.fief_building.type_name === 'military') {
+      setTimeout(() => {
+        const recruitBtn = document.getElementById(`recruit-btn-${h3_index}`);
+        if (recruitBtn) {
+          recruitBtn.addEventListener('click', () => {
+            map.closePopup();
+            const fief = {
+              h3_index,
+              name: cell.settlement_name || h3_index,
+              wood:  cell.territory?.wood  || 0,
+              stone: cell.territory?.stone || 0,
+              iron:  cell.territory?.iron  || 0,
+            };
+            openOverlay('reino');
+            openRecruitmentForFief(fief);
+          });
+        }
+      }, 100);
+    }
+
     // Add event listener to hire-worker button (own Capital or fief with Mercado)
     const isOwnFief = cell.player_id === playerId.value;
     const hasMarket = isOwnFief && cell.fief_building &&
@@ -3764,8 +3806,22 @@ const handleArmyMove = (army) => {
   window.startArmyMovement(army.army_id, army.name, army.h3_index);
 };
 
-// Stubs para acciones de ejército aún no implementadas
-const handleArmySplit  = (_army) => showToast('⚙️ Función "Separar" próximamente', 'info');
+// Open transfer panel from map popup
+const handleArmySplit = (army) => {
+  const ownArmiesAtHex = _pp_armies.filter(
+    a => a.player_id === playerId.value && a.army_id !== army.army_id && !a.destination
+  );
+  if (ownArmiesAtHex.length === 0) {
+    showToast('No hay otros ejércitos propios en esta casilla', 'info');
+    return;
+  }
+  map.closePopup();
+  transferPanelArmyAId.value  = army.army_id;
+  transferPanelArmyBId.value  = ownArmiesAtHex.length === 1 ? ownArmiesAtHex[0].army_id : null;
+  transferPanelHex.value      = _pp_h3;
+  transferPanelFiefName.value = army.location_name || _pp_h3;
+  showTransferPanel.value     = true;
+};
 const handleArmyMerge = async (army) => {
   try {
     const result = await mapApi.mergeArmies(army.army_id, _pp_h3);
@@ -3799,7 +3855,7 @@ const attachArmyListeners = (army, h3_index) => {
   if (splitBtn) splitBtn.addEventListener('click', () => handleArmySplit(army));
 
   const mergeBtn = document.getElementById(`army-merge-${army.army_id}`);
-  if (mergeBtn && !mergeBtn.disabled) mergeBtn.addEventListener('click', () => handleArmyMerge(army, _pp_armies));
+  if (mergeBtn && !mergeBtn.disabled) mergeBtn.addEventListener('click', () => handleArmySplit(army));
 
   const supplyBtn = document.getElementById(`army-supply-${army.army_id}`);
   if (supplyBtn) supplyBtn.addEventListener('click', () => handleArmySupply(army));
@@ -4283,6 +4339,10 @@ const handleArmyDismissed = async ({ message, armyDissolved }) => {
   await Promise.all([fetchTroops(), fetchArmyData(), fetchHexagonData()]);
   showToast(message || '✅ Tropas licenciadas', 'success');
   if (armyDissolved) RouteVisualizer.clearAll?.();
+};
+
+const handleArmiesTransferred = async () => {
+  await Promise.all([fetchTroops(), fetchArmyData()]);
 };
 
 /**

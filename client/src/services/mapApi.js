@@ -349,6 +349,11 @@ export async function getArmies() {
   return response.data;
 }
 
+export async function getArmyDetail(armyId) {
+  const response = await axios.get(`${API_URL}/api/military/armies/${armyId}`);
+  return response.data;
+}
+
 export async function getNotifications() {
   const response = await axios.get(`${API_URL}/api/notifications`);
   return response.data;
@@ -442,6 +447,21 @@ export async function conquerFief(armyId, h3_index) {
 
 export async function mergeArmies(armyId, h3_index) {
   const response = await axios.post(`${API_URL}/api/military/merge`, { army_id: armyId, h3_index });
+  return response.data;
+}
+
+export async function getArmiesAtHex(h3_index) {
+  const response = await axios.get(`${API_URL}/api/military/armies-at-hex/${h3_index}`);
+  return response.data;
+}
+
+export async function transferArmy(fromArmyId, toArmyId, troops, provisions) {
+  const response = await axios.post(`${API_URL}/api/military/transfer`, {
+    from_army_id: fromArmyId,
+    to_army_id: toArmyId,
+    troops,
+    provisions,
+  });
   return response.data;
 }
 

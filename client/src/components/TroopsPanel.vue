@@ -138,6 +138,12 @@
                     :title="getReinforceTooltip(army)"
                     @click="openReinforce(army)"
                   >➕</button>
+                  <button
+                    v-if="coLocatedCount(army) > 0 && !army.destination"
+                    class="btn-icon btn-icon-transfer"
+                    :title="`Unir con ${coLocatedCount(army)} ejército(s) co-ubicado(s)`"
+                    @click="openTransfer(army)"
+                  >🔗</button>
                 </div>
               </td>
             </tr>
@@ -155,12 +161,24 @@
     @close="inspectModalVisible = false; inspectAutoReinforce = false"
     @dismissed="(payload) => emit('armyDismissed', payload)"
   />
+
+  <!-- Army Transfer Panel -->
+  <ArmyTransferPanel
+    :show="transferPanelVisible"
+    :armyAId="transferArmyA?.army_id"
+    :armyBId="transferArmyB"
+    :h3_index="transferArmyA?.h3_index"
+    :fiefName="transferArmyA?.location_name"
+    @close="transferPanelVisible = false"
+    @done="emit('armiesTransferred')"
+  />
 </template>
 
 <script setup>
 import { ref, computed } from 'vue';
 import { stopArmy, attackArmy } from '../services/mapApi.js';
 import ArmyDetailModal from './ArmyDetailModal.vue';
+import ArmyTransferPanel from './ArmyTransferPanel.vue';
 
 const props = defineProps({
   armies: {
@@ -173,7 +191,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['locate', 'armyStopped', 'armyStopFailed', 'armyAttacked', 'armyAttackFailed', 'armyDismissed']);
+const emit = defineEmits(['locate', 'armyStopped', 'armyStopFailed', 'armyAttacked', 'armyAttackFailed', 'armyDismissed', 'armiesTransferred']);
 
 const stoppingArmies = ref(new Set());
 const attackingArmies = ref(new Set());
@@ -184,6 +202,34 @@ const inspectArmy           = ref(null);
 const inspectAutoReinforce  = ref(false);
 const openInspect   = (army) => { inspectArmy.value = army; inspectAutoReinforce.value = false; inspectModalVisible.value = true; };
 const openReinforce = (army) => { inspectArmy.value = army; inspectAutoReinforce.value = true;  inspectModalVisible.value = true; };
+
+// Transfer panel
+const transferPanelVisible = ref(false);
+const transferArmyA        = ref(null);
+const transferArmyB        = ref(null);
+
+// Group armies by h3_index for co-location detection
+const armiesByHex = computed(() => {
+  const map = {};
+  for (const a of props.armies) {
+    if (!map[a.h3_index]) map[a.h3_index] = [];
+    map[a.h3_index].push(a);
+  }
+  return map;
+});
+
+const coLocatedCount = (army) => {
+  const group = armiesByHex.value[army.h3_index] || [];
+  return group.filter(a => a.army_id !== army.army_id && !a.destination).length;
+};
+
+const openTransfer = (army) => {
+  const group = armiesByHex.value[army.h3_index] || [];
+  const others = group.filter(a => a.army_id !== army.army_id && !a.destination);
+  transferArmyA.value = army;
+  transferArmyB.value = others.length === 1 ? others[0].army_id : null;
+  transferPanelVisible.value = true;
+};
 
 const getReinforceTooltip = (army) => {
   if (!army.is_own_fief)       return 'El ejército no está estacionado en un feudo propio';
@@ -713,5 +759,13 @@ const handleAttack = async (army) => {
   cursor: not-allowed;
   border-color: #444;
   color: #555;
+}
+.btn-icon-transfer {
+  border: 1px solid #4a3f6b;
+  color: #c8b8f0;
+}
+.btn-icon-transfer:hover {
+  background: rgba(200, 184, 240, 0.2);
+  border-color: #c8b8f0;
 }
 </style>

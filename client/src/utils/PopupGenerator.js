@@ -166,6 +166,11 @@ export function generateCellPopupContent(cell, config) {
     popupContent += `<button id="upgrade-btn-${h3_index}" class="btn-popup btn-upgrade" data-upgrade='${JSON.stringify(upg)}' title="Ampliar a ${upg.name} (${upg.gold_cost}💰, ${upg.turns}t)">🏰 Ampliar → ${upg.name}</button>`;
   }
 
+  // Recruit button - for own fief with a completed military building
+  if (cell.player_id === playerId && cell.fief_building && !cell.fief_building.is_under_construction && cell.fief_building.type_name === 'military') {
+    popupContent += `<button id="recruit-btn-${h3_index}" class="btn-popup btn-recruit" title="Reclutar tropas en este feudo">⚔️ Reclutar</button>`;
+  }
+
   // "Fundar Capital" button:
   // - Normal players: only when hex is unclaimed AND player has no capital yet
   // - Exiled players: shown on any unclaimed hex (no adjacency restriction)

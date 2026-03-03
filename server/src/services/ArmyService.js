@@ -576,6 +576,113 @@ class ArmyService {
         }
     }
 
+    async GetArmiesAtHex(req, res) {
+        try {
+            const player_id = req.user.player_id;
+            const { h3_index } = req.params;
+            if (!h3_index) return res.status(400).json({ success: false, message: 'Falta h3_index' });
+            const armies = await ArmyModel.GetArmiesAtHex(h3_index, player_id);
+            res.json({ success: true, armies });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/military/armies-at-hex', method: 'GET', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al obtener ejércitos' });
+        }
+    }
+
+    async TransferArmy(req, res) {
+        const client = await pool.connect();
+        try {
+            const player_id = req.user.player_id;
+            const { from_army_id, to_army_id, troops = [], provisions = {} } = req.body;
+
+            if (!from_army_id || !to_army_id) {
+                return res.status(400).json({ success: false, message: 'Faltan parámetros: from_army_id, to_army_id' });
+            }
+            if (from_army_id === to_army_id) {
+                return res.status(400).json({ success: false, message: 'Los ejércitos de origen y destino deben ser distintos' });
+            }
+
+            await client.query('BEGIN');
+
+            // Validate both armies belong to player and share same h3_index
+            const armiesResult = await client.query(
+                `SELECT army_id, name, h3_index, destination,
+                        gold_provisions, food_provisions, wood_provisions, stone_provisions, iron_provisions
+                 FROM armies
+                 WHERE army_id = ANY($1::int[]) AND player_id = $2`,
+                [[from_army_id, to_army_id], player_id]
+            );
+
+            if (armiesResult.rows.length !== 2) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Uno o ambos ejércitos no encontrados o no te pertenecen' });
+            }
+
+            const fromArmy = armiesResult.rows.find(a => parseInt(a.army_id) === from_army_id);
+            const toArmy   = armiesResult.rows.find(a => parseInt(a.army_id) === to_army_id);
+
+            if (!fromArmy || !toArmy) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Ejércitos no encontrados' });
+            }
+            if (fromArmy.h3_index !== toArmy.h3_index) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'Los ejércitos deben estar en la misma casilla' });
+            }
+            if (fromArmy.destination || toArmy.destination) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'No se puede transferir entre ejércitos en movimiento' });
+            }
+
+            // Transfer troops
+            for (const { unit_type_id, quantity } of troops) {
+                if (!unit_type_id || !quantity || quantity <= 0) continue;
+                await ArmyModel.TransferTroops(client, from_army_id, to_army_id, unit_type_id, quantity);
+            }
+
+            // Transfer provisions
+            const PROV_FIELDS = ['gold', 'food', 'wood', 'stone', 'iron'];
+            for (const field of PROV_FIELDS) {
+                const amount = parseFloat(provisions[field] || 0);
+                if (amount <= 0) continue;
+                const col = `${field}_provisions`;
+                const available = parseFloat(fromArmy[col] || 0);
+                if (amount > available) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({ success: false, message: `Suministros de ${field} insuficientes en ejército origen` });
+                }
+                await client.query(
+                    `UPDATE armies SET ${col} = ${col} - $1 WHERE army_id = $2`,
+                    [amount, from_army_id]
+                );
+                await client.query(
+                    `UPDATE armies SET ${col} = ${col} + $1 WHERE army_id = $2`,
+                    [amount, to_army_id]
+                );
+            }
+
+            // Refresh detection ranges
+            await ArmyModel.refreshDetectionRange(client, from_army_id);
+            await ArmyModel.refreshDetectionRange(client, to_army_id);
+
+            await client.query('COMMIT');
+
+            Logger.action(
+                `Transferencia entre ejércitos "${fromArmy.name}" → "${toArmy.name}" (${fromArmy.h3_index})`,
+                player_id,
+                { from_army_id, to_army_id, troop_types: troops.length, provisions }
+            );
+
+            res.json({ success: true, message: 'Transferencia realizada correctamente' });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            Logger.error(error, { endpoint: '/military/transfer', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            res.status(500).json({ success: false, message: error.message || 'Error al transferir tropas' });
+        } finally {
+            client.release();
+        }
+    }
+
     async GetArmiesInRegion(req, res) {
         try {
             const { minLat, maxLat, minLng, maxLng } = req.query;
