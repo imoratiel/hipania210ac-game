@@ -86,6 +86,7 @@ module.exports = function () {
     router.post('/military/merge', authenticateToken, (req, res) => ArmyService.MergeArmies(req, res));
     router.post('/military/transfer', authenticateToken, (req, res) => ArmyService.TransferArmy(req, res));
     router.get('/military/armies-at-hex/:h3_index', authenticateToken, (req, res) => ArmyService.GetArmiesAtHex(req, res));
+    router.get('/military/recruitable-pool', authenticateToken, (req, res) => ArmyService.GetRecruitablePool(req, res));
     router.post('/military/scout', authenticateToken, (req, res) => ScoutingService.scoutArmy(req, res));
     router.post('/military/dismiss', authenticateToken, (req, res) => ArmyService.DismissTroops(req, res));
     router.post('/military/reinforce', authenticateToken, (req, res) => ArmyService.ReinforceArmy(req, res));

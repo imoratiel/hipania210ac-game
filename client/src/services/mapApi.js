@@ -455,6 +455,11 @@ export async function getArmiesAtHex(h3_index) {
   return response.data;
 }
 
+export async function getRecruitablePool(h3_index) {
+  const response = await axios.get(`${API_URL}/api/military/recruitable-pool?h3_index=${h3_index}`);
+  return response.data;
+}
+
 export async function transferArmy(fromArmyId, toArmyId, troops, provisions) {
   const response = await axios.post(`${API_URL}/api/military/transfer`, {
     from_army_id: fromArmyId,

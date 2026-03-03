@@ -777,6 +777,7 @@
               :isRecruiting="isRecruiting"
               :armyCount="armyCount"
               :armyLimit="armyLimit"
+              :recruitablePool="recruitablePool"
               @bulkRecruit="handleRecruitmentEmit"
               @back="activeKingdomTab = 'fiefs'"
             />
@@ -1080,6 +1081,7 @@ const activeKingdomTab = ref('fiefs'); // 'fiefs' or 'military'
 const unitTypes = ref([]);
 const loadingUnitTypes = ref(false);
 const selectedRecruitmentFief = ref(null);
+const recruitablePool = ref(null);
 const selectedUnitType = ref(null);
 const recruitmentQuantity = ref(1);
 const recruitmentArmyName = ref('');
@@ -4539,10 +4541,13 @@ const handleNotificationsReadAll = () => {
 const openRecruitmentForFief = async (fief) => {
   activeKingdomTab.value = 'military';
   selectedRecruitmentFief.value = fief;
-  
-  if (unitTypes.value.length === 0) {
-    await fetchUnitTypes();
-  }
+  recruitablePool.value = null;
+
+  const [, poolData] = await Promise.all([
+    unitTypes.value.length === 0 ? fetchUnitTypes() : Promise.resolve(),
+    mapApi.getRecruitablePool(fief.h3_index).catch(() => null),
+  ]);
+  if (poolData?.success) recruitablePool.value = poolData.recruitable;
 };
 
 /**
@@ -4570,6 +4575,7 @@ const handleRecruitmentEmit = async ({ fief, army_name, units, mode = 'field' })
       await updateFiefsUI();
       activeKingdomTab.value = 'fiefs';
       selectedRecruitmentFief.value = null;
+      recruitablePool.value = null;
     } else {
       showToast(response.message, 'error');
     }

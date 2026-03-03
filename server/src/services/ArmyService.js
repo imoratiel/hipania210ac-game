@@ -589,6 +589,30 @@ class ArmyService {
         }
     }
 
+    async GetRecruitablePool(req, res) {
+        const client = await pool.connect();
+        try {
+            const player_id = req.user.player_id;
+            const { h3_index } = req.query;
+            if (!h3_index) return res.status(400).json({ success: false, message: 'Falta h3_index' });
+
+            const connectedH3s = await recruitmentNetwork.getConnectedNetwork(client, h3_index, player_id);
+            // Read-only query (no FOR UPDATE) — just for display
+            const popResult = connectedH3s.length > 0
+                ? await client.query('SELECT h3_index, population FROM territory_details WHERE h3_index = ANY($1::text[])', [connectedH3s])
+                : { rows: [] };
+            const recruitable  = recruitmentNetwork.calcRecruitablePool(popResult.rows);
+            const min_pop      = GAME_CONFIG.ECONOMY.MIN_FIEF_POPULATION;
+
+            res.json({ success: true, recruitable, fiefs: connectedH3s.length, min_pop });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/military/recruitable-pool', method: 'GET', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al calcular población reclutable' });
+        } finally {
+            client.release();
+        }
+    }
+
     async TransferArmy(req, res) {
         const client = await pool.connect();
         try {

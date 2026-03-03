@@ -7,6 +7,15 @@
       </p>
       <p v-else class="recruitment-subtitle">Selecciona un feudo desde la tabla para reclutar</p>
 
+      <!-- Recruitable pool indicator -->
+      <div v-if="fief" class="recruitable-pool-bar">
+        <span class="pool-label">👥 Reclutas disponibles:</span>
+        <span v-if="recruitablePool === null" class="pool-value pool-loading">calculando...</span>
+        <span v-else class="pool-value" :class="{ 'pool-zero': recruitablePool === 0 }">
+          {{ formatNumber(recruitablePool) }}
+        </span>
+      </div>
+
       <!-- Mode toggle -->
       <div v-if="fief" class="recruit-mode-toggle">
         <button
@@ -177,6 +186,7 @@ const props = defineProps({
   isRecruiting: Boolean,
   armyCount: { type: Number, default: 0 },
   armyLimit: { type: Number, default: 2 },
+  recruitablePool: { type: Number, default: null },
 });
 
 const emit = defineEmits(['bulkRecruit', 'back']);
@@ -292,6 +302,23 @@ const handleBulkRecruit = () => {
 
 .recruitment-header h3 { font-family: 'Cinzel', serif; font-size: 1.8rem; color: #ffd700; margin: 0; }
 .recruitment-subtitle { color: #a89875; margin-top: 5px; }
+
+.recruitable-pool-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 14px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 215, 0, 0.25);
+  border-radius: 20px;
+  font-size: 0.9rem;
+}
+
+.pool-label { color: #a89875; }
+.pool-value { color: #ffd700; font-weight: bold; }
+.pool-value.pool-zero { color: #ff6b6b; }
+.pool-loading { color: #a89875; font-style: italic; }
 
 .recruit-mode-toggle {
   display: flex;
