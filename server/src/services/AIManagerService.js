@@ -1259,7 +1259,7 @@ class AIManagerService {
             const worldRow = await client.query('SELECT current_turn FROM world_state LIMIT 1');
             const currentTurn = worldRow.rows[0]?.current_turn ?? turn;
             await NotificationService.createSystemNotification(
-                prevOwner, 'COMBAT',
+                prevOwner, 'Militar',
                 `🏴 TERRITORIO PERDIDO\nEl feudo ${hex.fief_name} ha sido conquistado (Turno ${currentTurn})`,
                 currentTurn
             );

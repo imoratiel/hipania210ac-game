@@ -102,7 +102,7 @@ export function generateCellPopupContent(cell, config) {
         }
         if (cell.territory.discovered_resource === 'gold') {
           const gold = Number(cell.territory.gold || 0);
-          popupContent += `<span class="resource-item resource-gold">🪙 Oro: ${gold.toFixed(2)}</span>`;
+          popupContent += `<span class="resource-item resource-gold">💛 Oro: ${gold.toFixed(2)}</span>`;
         }
       } else {
         popupContent += '<span class="resource-item" style="opacity: 0.5;">⛏️ Sin recursos mineros</span>';
@@ -123,7 +123,7 @@ export function generateCellPopupContent(cell, config) {
       const resourceIcon = {
         'stone': '⛰️ Piedra',
         'iron': '⛏️ Hierro',
-        'gold': '🪙 Oro',
+        'gold': '💛 Oro',
         'none': '❌ Sin recursos'
       };
       const resourceName = resourceIcon[cell.territory.discovered_resource] || '✅ Explorado';

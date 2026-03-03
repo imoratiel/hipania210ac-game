@@ -1209,7 +1209,7 @@ const filteredAndSortedFiefs = computed(() => {
       const resourceNames = {
         'stone': '⛰️ Piedra',
         'iron': '⛏️ Hierro',
-        'gold': '🪙 Oro',
+        'gold': '💛 Oro',
         'none': '❌'
       };
       explorationStatusShort = resourceNames[fief.discovered_resource] || '✅';

@@ -420,7 +420,7 @@ class KingdomService {
             if (currentOwner !== null) {
                 const NotificationService = require('./NotificationService.js');
                 await NotificationService.createSystemNotification(
-                    currentOwner, 'COMBAT',
+                    currentOwner, 'Militar',
                     `🏴 TERRITORIO PERDIDO\nEl feudo ${hex.fief_name} ha sido conquistado por un enemigo (Turno ${turn})`,
                     turn
                 );
@@ -646,7 +646,7 @@ class KingdomService {
                 if (previousOwner !== null) {
                     const NotificationService = require('./NotificationService.js');
                     await NotificationService.createSystemNotification(
-                        previousOwner, 'COMBAT',
+                        previousOwner, 'Militar',
                         `🏴 TERRITORIO PERDIDO\nEl feudo ${hex.fief_name} ha sido conquistado (Turno ${turn})`,
                         turn
                     );

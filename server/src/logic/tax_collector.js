@@ -108,7 +108,7 @@ async function processTaxCollection(client, turn, config, gameDate) {
 
                 await NotificationService.createSystemNotification(
                     player.player_id,
-                    'TAX',
+                    'Impuestos',
                     messageBody,
                     turn
                 );

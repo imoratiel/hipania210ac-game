@@ -168,7 +168,7 @@ async function processHarvest(client, turn, config) {
 ${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.length}` : '⚠️ No tienes territorios productivos este turno'}${miracleSection}
                 `.trim();
 
-                await NotificationService.createSystemNotification(player.player_id, 'HARVEST', messageBody, turn);
+                await NotificationService.createSystemNotification(player.player_id, 'Económico', messageBody, turn);
 
                 Logger.engine(`[TURN ${turn}] Harvest processed for player ${player.player_id} (${player.username}): Food ${netFood}, Gold ${netGold}, Wood ${totalWoodProduced}`);
             } catch (playerError) {
@@ -404,7 +404,7 @@ async function processMonthlyProduction(client, turn, config) {
 ${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.length}` : '⚠️ No tienes territorios productivos este turno'}
                 `.trim();
 
-                await NotificationService.createSystemNotification(player.player_id, 'PRODUCTION', messageBody, turn);
+                await NotificationService.createSystemNotification(player.player_id, 'Económico', messageBody, turn);
 
                 Logger.engine(`[TURN ${turn}] Monthly production for player ${player.player_id} (${player.username}): Wood ${totalWoodProduced}, Stone ${totalStoneProduced}, Iron ${totalIronProduced}, Fishing ${totalFishingProduced}`);
             } catch (playerError) {
@@ -476,7 +476,7 @@ async function processExplorations(client, turn, config) {
                     ? `La exploración del territorio ${exploration.h3_index} ha finalizado.\n\n❌ No se encontraron recursos especiales en este territorio.`
                     : `¡La exploración del territorio ${exploration.h3_index} ha finalizado con éxito!\n\n✨ **Recurso descubierto**: ${discoveredResource.toUpperCase()}\n\nEste recurso estará disponible para su explotación.`;
 
-                await NotificationService.createSystemNotification(exploration.player_id, 'EXPLORATION', messageBody, turn);
+                await NotificationService.createSystemNotification(exploration.player_id, 'Económico', messageBody, turn);
 
                 Logger.engine(`[TURN ${turn}] Exploration completed for player ${exploration.player_id} (${exploration.username}) at ${exploration.h3_index}: discovered ${discoveredResource}`);
                 successCount++;
@@ -554,7 +554,7 @@ async function processConstructionTicks(client, turn) {
                     if (!is_ai) {
                         await NotificationService.createSystemNotification(
                             player_id,
-                            'PRODUCTION',
+                            'Económico',
                             `🏗️ Construcción completada\n\n"${building_name}" ha sido construido en el feudo ${building.h3_index} y ya está operativo.`,
                             turn
                         );
@@ -656,7 +656,7 @@ async function processWorkerConstructions(client, turn) {
                     if (playerResult.rows.length > 0 && !playerResult.rows[0].is_ai) {
                         await NotificationService.createSystemNotification(
                             player_id,
-                            'PRODUCTION',
+                            'Económico',
                             `🌉 Puente completado\n\nTus trabajadores han terminado la construcción del puente en ${h3_index}. El hexágono es ahora transitable.`,
                             turn
                         );
@@ -957,7 +957,7 @@ async function processGameTurn(pool, config) {
                                 const noun = deaths === 1 ? 'habitante' : 'habitantes';
                                 await NotificationService.createSystemNotification(
                                     t.player_id,
-                                    'FAMINE',
+                                    'Hambre',
                                     `🚨 HAMBRUNA en ${t.h3_index}\n\nSin reservas de comida, la población ha descendido en ${deaths} ${noun} debido a la falta de suministros.\n\nAbastece el territorio urgentemente para detener la crisis.`,
                                     newTurn
                                 );

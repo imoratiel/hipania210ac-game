@@ -242,7 +242,7 @@ class CombatService {
 
             // 10. Mensaje de resultado
             const lootLine = battle.loot
-                ? ` · Botín: 🪙${battle.loot.gold} 🍖${battle.loot.food} 🌲${battle.loot.wood}`
+                ? ` · Botín: 💰${battle.loot.gold} 🍖${battle.loot.food} 🌲${battle.loot.wood}`
                 : '';
 
             let message;
@@ -635,7 +635,7 @@ class CombatService {
         const { armyA, armyB, isDraw, winner, loot, h3Index, turn } = battle;
 
         const formatLoot = (l) =>
-            `🪙${l.gold} oro, 🍖${l.food} comida, 🌲${l.wood} madera`;
+            `💰${l.gold} oro, 🍖${l.food} comida, 🌲${l.wood} madera`;
 
         const retreatLine = (r) => {
             if (!r) return '';
@@ -685,8 +685,8 @@ class CombatService {
                 (armyA.destroyed ? '\n🏳️ Ejército enemigo aniquilado.' : retreatLine(armyA.retreat));
         }
 
-        await NotificationService.createSystemNotification(armyA.playerId, 'COMBAT', contentA, turn);
-        await NotificationService.createSystemNotification(armyB.playerId, 'COMBAT', contentB, turn);
+        await NotificationService.createSystemNotification(armyA.playerId, 'Militar', contentA, turn);
+        await NotificationService.createSystemNotification(armyB.playerId, 'Militar', contentB, turn);
     }
 }
 

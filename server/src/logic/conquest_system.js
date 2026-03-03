@@ -125,7 +125,7 @@ async function processCapitalCollapse(client, capitalH3, newOwnerId, defeatedPla
     const fiefList = toConquer.slice(0, 5).join(', ') + (toConquer.length > 5 ? ` … y ${toConquer.length - 5} más` : '');
     await NotificationService.createSystemNotification(
         defeatedPlayerId,
-        'COMBAT',
+        'Militar',
         [
             `🏚️ **COLAPSO TERRITORIAL — Tu capital ha caído**`,
             ``,
@@ -178,7 +178,7 @@ async function processCapitalSuccession(client, defeatedPlayerId, turn) {
 
         await NotificationService.createSystemNotification(
             defeatedPlayerId,
-            'COMBAT',
+            'Militar',
             [
                 `🏛️ **NUEVA CAPITAL ESTABLECIDA**`,
                 ``,
@@ -200,7 +200,7 @@ async function processCapitalSuccession(client, defeatedPlayerId, turn) {
 
         await NotificationService.createSystemNotification(
             defeatedPlayerId,
-            'COMBAT',
+            'Militar',
             [
                 `⛓️ **HAS PERDIDO TODOS TUS TERRITORIOS**`,
                 ``,

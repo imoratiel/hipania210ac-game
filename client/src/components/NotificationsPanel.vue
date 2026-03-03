@@ -1,51 +1,60 @@
 <template>
   <div class="notifications-panel">
 
-    <!-- Barra de filtro -->
-    <div class="notif-filter-bar">
-      <div class="notif-filter-toggle">
-        <button
-          class="filter-pill"
-          :class="{ active: !showOnlyUnread }"
-          @click="showOnlyUnread = false"
-        >Todas <span class="filter-count">{{ notifications.length }}</span></button>
-        <button
-          class="filter-pill"
-          :class="{ active: showOnlyUnread }"
-          @click="showOnlyUnread = true"
-        >No leídas <span class="filter-count unread-count">{{ unreadCount }}</span></button>
-      </div>
+    <!-- Barra superior: contador de no leídas + acción -->
+    <div v-if="!loading && notifications.length > 0" class="notif-topbar">
+      <span class="notif-summary">
+        <template v-if="unreadCount > 0">
+          <span class="unread-badge">{{ unreadCount }}</span> sin leer
+        </template>
+        <template v-else>✅ Todo al día</template>
+      </span>
       <button
         class="mark-all-btn"
         :disabled="unreadCount === 0 || markingAll"
         @click="handleMarkAll"
-        title="Marcar todas como leídas"
       >{{ markingAll ? '⏳' : '✓ Marcar todas' }}</button>
     </div>
 
-    <div v-if="loading" class="notif-loading">Cargando notificaciones...</div>
+    <!-- Estados globales -->
+    <div v-if="loading" class="notif-empty">Cargando notificaciones...</div>
+    <div v-else-if="notifications.length === 0" class="notif-empty">No tienes notificaciones.</div>
 
-    <div v-else-if="filteredNotifications.length === 0" class="notif-empty">
-      <p v-if="showOnlyUnread && notifications.length > 0">✅ Todo al día — sin notificaciones sin leer.</p>
-      <p v-else>No tienes notificaciones.</p>
-    </div>
-
-    <div v-else class="notif-list">
-      <div
-        v-for="notif in filteredNotifications"
-        :key="notif.id"
-        class="notif-card"
-        :class="{ 'notif-unread': !notif.is_read, [`notif-type-${notif.type?.toLowerCase()}`]: true }"
-        @click="handleRead(notif)"
+    <!-- Secciones agrupadas -->
+    <template v-else>
+      <section
+        v-for="cat in CATEGORIES"
+        :key="cat.key"
+        v-show="grouped[cat.key]?.length"
+        class="notif-category"
+        :class="{ 'cat-critical': cat.critical }"
       >
-        <div class="notif-header">
-          <span class="notif-type-badge">{{ typeLabel(notif.type) }}</span>
-          <span class="notif-turn">{{ turnToGameDate(notif.turn_number) }}</span>
+        <!-- Cabecera de sección -->
+        <header class="cat-header" :style="{ '--cat-color': cat.color, '--cat-border': cat.border }">
+          <span class="cat-icon">{{ cat.icon }}</span>
+          <span class="cat-label">{{ cat.label }}</span>
+          <span class="cat-count">{{ grouped[cat.key]?.length }}</span>
+        </header>
+
+        <!-- Tarjetas -->
+        <div class="notif-list">
+          <article
+            v-for="notif in grouped[cat.key]"
+            :key="notif.id"
+            class="notif-card"
+            :class="{ 'notif-unread': !notif.is_read }"
+            :style="{ '--cat-color': cat.color }"
+            @click="handleRead(notif)"
+          >
+            <div class="notif-meta">
+              <span class="notif-turn">{{ turnToGameDate(notif.turn_number) }}</span>
+              <span v-if="!notif.is_read" class="notif-unread-dot"></span>
+            </div>
+            <p class="notif-content">{{ notif.content }}</p>
+          </article>
         </div>
-        <div class="notif-content">{{ notif.content }}</div>
-        <div v-if="!notif.is_read" class="notif-unread-dot"></div>
-      </div>
-    </div>
+      </section>
+    </template>
   </div>
 </template>
 
@@ -57,54 +66,43 @@ const props = defineProps({
   notifications: { type: Array, default: () => [] },
   loading:       { type: Boolean, default: false },
   currentTurn:   { type: Number, default: 0 },
-  gameDate:      { type: Date,   default: null }
+  gameDate:      { type: Date,   default: null },
 });
 
-const MONTHS = [
-  'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-  'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
+// ── Categorías — orden fijo: críticas primero ─────────────────────────────────
+const CATEGORIES = [
+  { key: 'Militar',   icon: '⚔️', label: 'Militar',   color: '#e57373', border: 'rgba(229,115,115,0.55)', critical: true  },
+  { key: 'Hambre',    icon: '🚨', label: 'Hambre',    color: '#ff8a65', border: 'rgba(255,138,101,0.55)', critical: true  },
+  { key: 'Económico', icon: '💰', label: 'Económico', color: '#81c784', border: 'rgba(129,199,132,0.45)', critical: false },
+  { key: 'Impuestos', icon: '📜', label: 'Impuestos', color: '#ffd700', border: 'rgba(255,215,0,  0.45)', critical: false },
+  { key: 'General',   icon: '📢', label: 'General',   color: '#a89875', border: 'rgba(168,152,117,0.35)', critical: false },
 ];
 
-/**
- * Converts a game turn number into the corresponding game calendar date.
- * Formula: notifDate = currentGameDate − (currentTurn − notifTurn) days
- * Falls back to "Turno N" if world state is not yet loaded.
- */
-const turnToGameDate = (turnNumber) => {
-  if (!props.currentTurn || !props.gameDate || !turnNumber) {
-    return turnNumber ? `Turno ${turnNumber}` : '';
-  }
-  const date = new Date(props.gameDate);
-  date.setDate(date.getDate() - (props.currentTurn - turnNumber));
-  return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+const MONTHS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+const turnToGameDate = (n) => {
+  if (!props.currentTurn || !props.gameDate || !n) return n ? `Turno ${n}` : '';
+  const d = new Date(props.gameDate);
+  d.setDate(d.getDate() - (props.currentTurn - n));
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 };
 
 const emit = defineEmits(['read', 'readAll']);
-
-const showOnlyUnread = ref(false);
 const markingAll = ref(false);
 
 const unreadCount = computed(() => props.notifications.filter(n => !n.is_read).length);
 
-const filteredNotifications = computed(() =>
-  showOnlyUnread.value
-    ? props.notifications.filter(n => !n.is_read)
-    : props.notifications
+// ── Agrupación client-side ────────────────────────────────────────────────────
+const validKeys = new Set(CATEGORIES.map(c => c.key));
+const grouped = computed(() =>
+  props.notifications.reduce((acc, n) => {
+    const key = validKeys.has(n.type) ? n.type : 'General';
+    (acc[key] ??= []).push(n);
+    return acc;
+  }, {})
 );
 
-const TYPE_LABELS = {
-  HARVEST: '🌾 Cosecha',
-  PRODUCTION: '🏭 Producción',
-  EXPLORATION: '🔍 Exploración',
-  COMBAT: '⚔️ Combate',
-  MOVEMENT: '🚶 Movimiento',
-};
-
-const typeLabel = (type) => TYPE_LABELS[type] || `📢 ${type || 'Sistema'}`;
-
-const handleRead = (notif) => {
-  emit('read', notif);
-};
+const handleRead = (notif) => emit('read', notif);
 
 const handleMarkAll = async () => {
   if (unreadCount.value === 0 || markingAll.value) return;
@@ -113,7 +111,7 @@ const handleMarkAll = async () => {
     await markAllNotificationsRead();
     emit('readAll');
   } catch (err) {
-    console.error('❌ Error al marcar todas como leídas:', err);
+    console.error('Error al marcar notificaciones:', err);
   } finally {
     markingAll.value = false;
   }
@@ -127,162 +125,172 @@ const handleMarkAll = async () => {
   height: 100%;
   overflow-y: auto;
   padding: 12px 16px;
-  gap: 10px;
-  color: #e8d5b5;
+  gap: 14px;
+  color: #e8d5b7;
 }
 
-/* ── Barra de filtro ─────────────────────────── */
-.notif-filter-bar {
-  flex-shrink: 0;
-  padding-bottom: 4px;
-  border-bottom: 1px solid rgba(197, 160, 89, 0.18);
-}
-
-.notif-filter-toggle {
+/* ── Barra superior ──────────────────────────── */
+.notif-topbar {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(197, 160, 89, 0.15);
+  flex-shrink: 0;
+}
+
+.notif-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.82rem;
+  color: #a89875;
+}
+
+.unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: rgba(255, 215, 0, 0.2);
+  color: #ffd700;
+  font-size: 0.75rem;
+  font-weight: 700;
 }
 
 .mark-all-btn {
-  margin-top: 6px;
-  width: 100%;
-  padding: 5px 10px;
+  padding: 4px 12px;
   border-radius: 6px;
   border: 1px solid rgba(197, 160, 89, 0.3);
-  background: rgba(197, 160, 89, 0.08);
+  background: rgba(197, 160, 89, 0.07);
   color: #a89875;
   font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
 }
-
 .mark-all-btn:hover:not(:disabled) {
   background: rgba(197, 160, 89, 0.18);
   border-color: rgba(197, 160, 89, 0.6);
   color: #ffd700;
 }
+.mark-all-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
-.mark-all-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.filter-pill {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 20px;
-  border: 1px solid rgba(197, 160, 89, 0.25);
-  background: rgba(0, 0, 0, 0.25);
-  color: #a89875;
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.filter-pill:hover {
-  border-color: rgba(197, 160, 89, 0.5);
-  color: #d4c4a0;
-}
-
-.filter-pill.active {
-  background: rgba(197, 160, 89, 0.15);
-  border-color: rgba(197, 160, 89, 0.6);
-  color: #ffd700;
-}
-
-.filter-count {
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  color: inherit;
-  min-width: 18px;
-  text-align: center;
-}
-
-.unread-count {
-  background: rgba(255, 215, 0, 0.18);
-  color: #ffd700;
-}
-
-/* ── Estados vacíos y carga ──────────────────── */
-.notif-loading,
+/* ── Estado vacío / carga ────────────────────── */
 .notif-empty {
   text-align: center;
-  padding: 40px 20px;
+  padding: 50px 20px;
   color: #a89875;
-  font-size: 1rem;
+  font-size: 0.95rem;
 }
 
-/* ── Lista ───────────────────────────────────── */
+/* ── Sección de categoría ────────────────────── */
+.notif-category {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* Secciones críticas tienen leve glow de fondo */
+.cat-critical .cat-header {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.cat-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.3);
+  border-left: 3px solid var(--cat-border);
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.cat-icon { font-size: 1rem; line-height: 1; flex-shrink: 0; }
+
+.cat-label {
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--cat-color);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  flex: 1;
+}
+
+.cat-count {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--cat-color);
+  min-width: 20px;
+  text-align: center;
+}
+
+/* ── Tarjetas ────────────────────────────────── */
 .notif-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
+  padding-left: 10px;
 }
 
 .notif-card {
-  position: relative;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(197, 160, 89, 0.25);
-  border-radius: 8px;
-  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(197, 160, 89, 0.14);
+  border-left: 2px solid transparent;
+  border-radius: 5px;
+  padding: 9px 13px;
   cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
+  transition: background 0.18s, border-color 0.18s;
 }
-
 .notif-card:hover {
-  background: rgba(197, 160, 89, 0.12);
-  border-color: rgba(197, 160, 89, 0.5);
+  background: rgba(197, 160, 89, 0.07);
+  border-color: rgba(197, 160, 89, 0.3);
 }
 
+/* No leída: acento de color izquierdo más prominente */
 .notif-unread {
-  border-left: 3px solid #ffd700;
-  background: rgba(255, 215, 0, 0.06);
+  border-left-color: var(--cat-color);
+  background: rgba(0, 0, 0, 0.42);
 }
 
-.notif-header {
+.notif-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
-}
-
-.notif-type-badge {
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: #ffd700;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
+  margin-bottom: 4px;
 }
 
 .notif-turn {
-  font-size: 0.75rem;
-  color: #a89875;
+  font-size: 0.7rem;
+  color: #7a6a55;
   font-family: monospace;
-}
-
-.notif-content {
-  font-size: 0.88rem;
-  color: #d4c4a0;
-  white-space: pre-line;
-  line-height: 1.5;
+  letter-spacing: 0.3px;
 }
 
 .notif-unread-dot {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: #ffd700;
+  background: var(--cat-color);
+  flex-shrink: 0;
+}
+
+.notif-content {
+  margin: 0;
+  font-size: 0.86rem;
+  color: #d0c0a0;
+  white-space: pre-line;
+  line-height: 1.55;
 }
 </style>

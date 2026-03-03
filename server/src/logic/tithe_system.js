@@ -149,7 +149,7 @@ async function processTithe(client, turn, config, gameDate) {
 
                 await NotificationService.createSystemNotification(
                     player.player_id,
-                    'TITHE',
+                    'Impuestos',
                     lines.join('\n'),
                     turn
                 );
