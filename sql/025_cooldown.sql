@@ -1,0 +1,16 @@
+-- Tabla para gestionar los bloqueos de acciones
+CREATE TABLE IF NOT EXISTS army_actions_cooldowns (
+    id SERIAL PRIMARY KEY,
+    army_id INT NOT NULL REFERENCES armies(army_id) ON DELETE CASCADE,
+    action_type VARCHAR(50) NOT NULL, -- Ej: 'attack', 'conquer', 'special_ability'
+    turns_remaining INT NOT NULL DEFAULT 1 CHECK (turns_remaining >= 0),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índice único para evitar duplicados y acelerar búsquedas
+-- Un ejército no puede tener dos registros de 'attack' al mismo tiempo
+CREATE UNIQUE INDEX IF NOT EXISTS idx_army_action_cooldown 
+ON army_actions_cooldowns(army_id, action_type);
+
+INSERT INTO schema_migrations (script_name)
+VALUES ('025_cooldown.sql');

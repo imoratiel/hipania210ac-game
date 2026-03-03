@@ -2089,12 +2089,14 @@ const renderHexStackers = (buildings, armyEntries, currentPlayerId, ownerMap) =>
         let enemyTroops     = 0;
         let ownHasFieldArmy = false;   // true if own player has at least one non-garrison army here
         for (const e of group) {
-          const count = Number(e.total_troops) || 0;
           if (e.player_id === currentPlayerId) {
+            const count = Number(e.total_troops) || 0;
             ownTroops += count;
             if (!e.has_garrison || Number(e.army_count) > 1) ownHasFieldArmy = true;
           } else {
-            enemyTroops += count;
+            // Enemy entries only expose {h3_index, player_id} — no troop count.
+            // Use 1 as sentinel so the stacker icon shows enemy presence.
+            enemyTroops += 1;
           }
         }
         const isConflict      = ownTroops > 0 && enemyTroops > 0;
