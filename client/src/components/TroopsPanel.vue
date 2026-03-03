@@ -9,12 +9,19 @@
 
     <div v-else class="troops-content">
       <!-- Summary Row -->
-      <div class="troops-summary" style="grid-template-columns: repeat(5, 1fr)">
+      <div class="troops-summary" style="grid-template-columns: repeat(6, 1fr)">
+        <div class="summary-card">
+          <div class="card-icon">⚔️</div>
+          <div class="card-content">
+            <span class="card-label">Ejércitos</span>
+            <span class="card-value">{{ fieldArmiesCount }}</span>
+          </div>
+        </div>
         <div class="summary-card">
           <div class="card-icon">🏰</div>
           <div class="card-content">
-            <span class="card-label">Ejércitos</span>
-            <span class="card-value">{{ armies.length }}</span>
+            <span class="card-label">Guarniciones</span>
+            <span class="card-value">{{ garrisonCount }}</span>
           </div>
         </div>
         <div class="summary-card">
@@ -63,7 +70,10 @@
           <tbody>
             <tr v-for="army in armies" :key="army.army_id" class="troop-row">
               <td class="unit-cell">
-                <div class="unit-name">{{ army.name }}</div>
+                <div class="unit-name">
+                  <span v-if="army.is_garrison" class="garrison-badge" title="Tropas acuarteladas — no pueden moverse">🏰</span>
+                  {{ army.name }}
+                </div>
               </td>
               <td class="quantity-cell">
                 <span class="quantity-badge">{{ army.total_troops }}</span>
@@ -180,6 +190,9 @@ const getReinforceTooltip = (army) => {
   if (army.fief_grace_turns > 0) return `Feudo en período de ocupación (${army.fief_grace_turns} turnos restantes)`;
   return 'Reforzar ejército con nuevas tropas';
 };
+
+const fieldArmiesCount = computed(() => props.armies.filter(a => !a.is_garrison).length);
+const garrisonCount    = computed(() => props.armies.filter(a =>  a.is_garrison).length);
 
 const totalUnits = computed(() => {
   return props.armies.reduce((sum, a) => sum + (a.total_troops || 0), 0);
@@ -414,6 +427,13 @@ const handleAttack = async (army) => {
 .unit-name {
   font-size: 1.2rem;
   font-family: 'Cinzel', serif;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.garrison-badge {
+  font-size: 1rem;
+  line-height: 1;
 }
 
 /* Quantity Column */

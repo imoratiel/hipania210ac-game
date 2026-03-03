@@ -86,7 +86,8 @@ class ArmyModel {
                 a.h3_index,
                 a.player_id,
                 COUNT(DISTINCT a.army_id) AS army_count,
-                SUM(t.quantity) AS total_troops
+                SUM(t.quantity) AS total_troops,
+                BOOL_OR(a.is_garrison) AS has_garrison
             FROM armies a
             LEFT JOIN troops t ON a.army_id = t.army_id
             WHERE a.h3_index = ANY($1::text[])
@@ -217,14 +218,22 @@ class ArmyModel {
         );
         return result;
     }
-    async CreateArmy(client, army_name, player_id, h3_index) {
+    async CreateArmy(client, army_name, player_id, h3_index, is_garrison = false) {
         const result = await client.query(
-            `INSERT INTO armies (name, player_id, h3_index)
-             VALUES ($1, $2, $3)
+            `INSERT INTO armies (name, player_id, h3_index, is_garrison)
+             VALUES ($1, $2, $3, $4)
              RETURNING army_id`,
-            [army_name, player_id, h3_index]
+            [army_name, player_id, h3_index, is_garrison]
         );
         return result;
+    }
+
+    async GetGarrisonAtHex(client, h3_index, player_id) {
+        const result = await client.query(
+            `SELECT army_id FROM armies WHERE h3_index = $1 AND player_id = $2 AND is_garrison = TRUE LIMIT 1`,
+            [h3_index, player_id]
+        );
+        return result.rows[0] || null;
     }
     async AddTroops(client, army_id, unit_type_id, quantity) {
         await client.query(
@@ -298,7 +307,8 @@ class ArmyModel {
                     WHERE ea.h3_index = a.h3_index AND ea.player_id != a.player_id
                 ) AS enemy_count,
                 COALESCE(td.grace_turns, 0)::int AS fief_grace_turns,
-                (m.player_id = a.player_id) AS is_own_fief
+                (m.player_id = a.player_id) AS is_own_fief,
+                a.is_garrison
             FROM armies a
             LEFT JOIN h3_map m ON a.h3_index = m.h3_index
             LEFT JOIN territory_details td ON a.h3_index = td.h3_index
@@ -306,7 +316,7 @@ class ArmyModel {
             LEFT JOIN troops t ON t.army_id = a.army_id
             LEFT JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
             WHERE a.player_id = $1
-            GROUP BY a.army_id, a.name, a.h3_index, a.destination, m.coord_x, m.coord_y, td.custom_name, s.name, td.grace_turns, m.player_id
+            GROUP BY a.army_id, a.name, a.h3_index, a.destination, m.coord_x, m.coord_y, td.custom_name, s.name, td.grace_turns, m.player_id, a.is_garrison
             ORDER BY a.name
         `;
         const result = await db.query(query, [player_id]);
@@ -314,7 +324,7 @@ class ArmyModel {
     }
     async GetArmyWithPlayer(army_id) {
         const result = await db.query(
-            'SELECT army_id, name, h3_index, player_id FROM armies WHERE army_id = $1',
+            'SELECT army_id, name, h3_index, player_id, is_garrison FROM armies WHERE army_id = $1',
             [army_id]
         );
         return result;
@@ -347,6 +357,7 @@ class ArmyModel {
                     COALESCE(td.stone_stored, 0) AS fief_stone,
                     COALESCE(td.iron_stored, 0) AS fief_iron,
                     (m.player_id = a.player_id) AS is_own_fief,
+                    a.is_garrison,
                     t.name AS terrain_name,
                     pl.capital_h3,
                     EXISTS (
@@ -408,7 +419,7 @@ class ArmyModel {
     async GetPlayerArmyCapacity(client, player_id) {
         const result = await client.query(`
             SELECT
-                (SELECT COUNT(*) FROM armies WHERE player_id = $1)::int AS army_count,
+                (SELECT COUNT(*) FROM armies WHERE player_id = $1 AND NOT is_garrison)::int AS army_count,
                 (SELECT COUNT(*) FROM h3_map  WHERE player_id = $1)::int AS fief_count
         `, [player_id]);
         return result.rows[0];

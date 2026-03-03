@@ -176,6 +176,10 @@ class ArmyService {
                 return res.status(403).json({ success: false, message: 'No tienes permiso para mover este ejército' });
             }
 
+            if (army.is_garrison) {
+                return res.status(400).json({ success: false, message: 'Las tropas acuarteladas no pueden moverse. Forman parte de la guarnición del feudo.' });
+            }
+
             const distance = h3.gridDistance(army.h3_index, target_h3);
             const MAX_DISTANCE = GAME_CONFIG.MAP.MAX_MOVEMENT_DISTANCE;
             if (distance > MAX_DISTANCE) {
@@ -227,7 +231,8 @@ class ArmyService {
         const client = await pool.connect();
         try {
             const player_id = req.user.player_id;
-            const { h3_index, army_name, units } = req.body;
+            const { h3_index, army_name, units, mode = 'field' } = req.body;
+            const is_garrison = mode === 'garrison';
             // units: [{ unit_type_id, quantity }, ...]
 
             if (!h3_index || !Array.isArray(units) || units.length === 0) {
@@ -323,7 +328,30 @@ class ArmyService {
             // Deduct population from network (recruiting fief first, then neighbors in BFS order)
             await recruitmentNetwork.deductFromNetwork(client, connectedH3s, fiefPops, totalTroops);
 
-            // ── Army limit check (server-side, cannot be bypassed from client) ──
+            let army_id;
+            let resolvedName;
+
+            if (is_garrison) {
+                // ── Garrison mode: add to existing garrison or create a new one ──
+                const existingGarrison = await ArmyModel.GetGarrisonAtHex(client, h3_index, player_id);
+                if (existingGarrison) {
+                    army_id = existingGarrison.army_id;
+                } else {
+                    resolvedName = 'Guarnición';
+                    const armyResult = await ArmyModel.CreateArmy(client, resolvedName, player_id, h3_index, true);
+                    army_id = armyResult.rows[0].army_id;
+                }
+                for (const u of units) {
+                    await ArmyModel.AddTroops(client, army_id, u.unit_type_id, u.quantity);
+                }
+                await ArmyModel.refreshDetectionRange(client, army_id);
+                await client.query('COMMIT');
+                Logger.action(`Acuarteló lote: ${totalTroops} tropas en ${h3_index}`, player_id);
+                return res.json({ success: true, army_id, mode: 'garrison', total_troops: totalTroops });
+            }
+
+            // ── Field army mode ───────────────────────────────────────────────────
+            // Army limit check (server-side, cannot be bypassed from client)
             const capacity = await ArmyModel.GetPlayerArmyCapacity(client, player_id);
             const armyLimit = getArmyLimit(capacity.fief_count);
             if (capacity.army_count >= armyLimit) {
@@ -335,9 +363,9 @@ class ArmyService {
             }
 
             // Create army
-            const resolvedName = (army_name || '').trim() || NameGenerator.generate();
+            resolvedName = (army_name || '').trim() || NameGenerator.generate();
             const armyResult = await ArmyModel.CreateArmy(client, resolvedName, player_id, h3_index);
-            const army_id = armyResult.rows[0].army_id;
+            army_id = armyResult.rows[0].army_id;
 
             // Add troops
             for (const u of units) {
@@ -348,7 +376,7 @@ class ArmyService {
             await client.query('COMMIT');
 
             Logger.action(`Reclutó lote: ${totalTroops} tropas en ${h3_index}`, player_id);
-            res.json({ success: true, army_id, army_name: resolvedName, total_troops: totalTroops });
+            res.json({ success: true, army_id, army_name: resolvedName, total_troops: totalTroops, mode: 'field' });
         } catch (error) {
             await client.query('ROLLBACK');
             Logger.error(error, { endpoint: '/military/bulk-recruit', method: 'POST', userId: req.user?.player_id });

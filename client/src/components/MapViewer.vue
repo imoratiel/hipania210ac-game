@@ -4480,20 +4480,25 @@ const openRecruitmentForFief = async (fief) => {
 /**
  * Handle recruitment event from MilitaryPanel
  */
-const handleRecruitmentEmit = async ({ fief, army_name, units }) => {
+const handleRecruitmentEmit = async ({ fief, army_name, units, mode = 'field' }) => {
   try {
     isRecruiting.value = true;
     const response = await mapApi.bulkRecruit({
       h3_index: fief.h3_index,
       army_name,
       units,
+      mode,
     });
 
     if (response.success) {
       const totalTroops = units.reduce((s, u) => s + u.quantity, 0);
-      showToast(`✅ Batallón "${response.army_name}" reclutado con ${totalTroops} tropas en ${fief.name}`, 'success');
+      if (mode === 'garrison') {
+        showToast(`🏰 ${totalTroops} tropas acuarteladas en ${fief.name}`, 'success');
+      } else {
+        showToast(`✅ Batallón "${response.army_name}" reclutado con ${totalTroops} tropas en ${fief.name}`, 'success');
+      }
       await fetchPlayerData();
-      await fetchArmyCapacity();
+      if (mode === 'field') await fetchArmyCapacity();
       await updateFiefsUI();
       activeKingdomTab.value = 'fiefs';
       selectedRecruitmentFief.value = null;

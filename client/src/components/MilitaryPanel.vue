@@ -6,6 +6,19 @@
         Reclutando en <strong>{{ fief.name }}</strong>
       </p>
       <p v-else class="recruitment-subtitle">Selecciona un feudo desde la tabla para reclutar</p>
+
+      <!-- Mode toggle -->
+      <div v-if="fief" class="recruit-mode-toggle">
+        <button
+          :class="['mode-btn', { 'mode-active': recruitMode === 'field' }]"
+          @click="recruitMode = 'field'"
+        >⚔️ Incorporar al Ejército</button>
+        <button
+          :class="['mode-btn', { 'mode-active': recruitMode === 'garrison' }]"
+          @click="recruitMode = 'garrison'"
+        >🏰 Acuartelar</button>
+      </div>
+
       <div class="army-capacity-bar">
         <span class="army-capacity-label">Capacidad de Ejércitos:</span>
         <span class="army-capacity-value" :class="{ 'at-limit': armyCount >= armyLimit }">
@@ -87,8 +100,8 @@
         </div>
       </div>
 
-      <!-- Army name -->
-      <div class="recruitment-section army-name-section">
+      <!-- Army name (field mode only) -->
+      <div v-if="recruitMode === 'field'" class="recruitment-section army-name-section">
         <h4>2. Nombre del Ejército <span class="optional-hint">(opcional)</span></h4>
         <input
           v-model="armyName"
@@ -97,6 +110,15 @@
           maxlength="100"
           class="recruitment-input"
         />
+      </div>
+      <!-- Garrison info -->
+      <div v-else class="recruitment-section garrison-info">
+        <h4>2. Acuartelamiento</h4>
+        <p class="garrison-desc">
+          Las tropas quedarán guarnecidas en este feudo. No podrán moverse pero defenderán el territorio
+          y se beneficiarán de los bonus del edificio militar.
+          Si ya existe una guarnición, las nuevas tropas se incorporarán a ella.
+        </p>
       </div>
     </div>
 
@@ -132,11 +154,13 @@
       </div>
       <button
         class="btn-recruit"
-        :disabled="!canBulkRecruit || isRecruiting || armyCount >= armyLimit"
-        :title="armyCount >= armyLimit ? 'Necesitas más feudos para comandar más ejércitos' : ''"
+        :disabled="!canBulkRecruit || isRecruiting || (recruitMode === 'field' && armyCount >= armyLimit)"
+        :title="recruitMode === 'field' && armyCount >= armyLimit ? 'Necesitas más feudos para comandar más ejércitos' : ''"
         @click="handleBulkRecruit"
       >
-        {{ isRecruiting ? 'Reclutando...' : `⚔️ Reclutar Lote (${totalSelectedTroops} tropas)` }}
+        <template v-if="isRecruiting">Procesando...</template>
+        <template v-else-if="recruitMode === 'garrison'">🏰 Acuartelar ({{ totalSelectedTroops }} tropas)</template>
+        <template v-else>⚔️ Reclutar Lote ({{ totalSelectedTroops }} tropas)</template>
       </button>
     </div>
   </div>
@@ -158,6 +182,7 @@ const props = defineProps({
 const emit = defineEmits(['bulkRecruit', 'back']);
 
 const armyName = ref('');
+const recruitMode = ref('field');  // 'field' | 'garrison'
 const unitQuantities = reactive({});
 
 const formatNumber = (val) => {
@@ -243,6 +268,7 @@ const handleBulkRecruit = () => {
     fief: props.fief,
     army_name: armyName.value.trim(),
     units,
+    mode: recruitMode.value,
   });
 
   Object.keys(unitQuantities).forEach(k => { unitQuantities[k] = 0; });
@@ -266,6 +292,30 @@ const handleBulkRecruit = () => {
 
 .recruitment-header h3 { font-family: 'Cinzel', serif; font-size: 1.8rem; color: #ffd700; margin: 0; }
 .recruitment-subtitle { color: #a89875; margin-top: 5px; }
+
+.recruit-mode-toggle {
+  display: flex;
+  margin: 12px 0 0;
+  border: 1px solid rgba(197, 160, 89, 0.4);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.mode-btn {
+  flex: 1;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: none;
+  color: #a89875;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.mode-btn:first-child { border-right: 1px solid rgba(197, 160, 89, 0.4); }
+.mode-btn.mode-active { background: rgba(197, 160, 89, 0.25); color: #ffd700; font-weight: bold; }
+.mode-btn:not(.mode-active):hover { background: rgba(197, 160, 89, 0.1); color: #c5a059; }
+
+.garrison-info { background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(197, 160, 89, 0.2); border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+.garrison-desc { color: #a89875; font-size: 0.9rem; line-height: 1.6; margin: 0; }
 
 .fief-resources-compact {
   display: flex;

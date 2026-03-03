@@ -7,8 +7,9 @@
           <!-- Header -->
           <div class="adm-header">
             <div class="adm-title-row">
-              <span class="adm-icon">⚔️</span>
+              <span class="adm-icon">{{ armyDetail?.is_garrison ? '🏰' : '⚔️' }}</span>
               <h2 class="adm-title">{{ army?.name ?? '—' }}</h2>
+              <span v-if="armyDetail?.is_garrison" class="adm-garrison-badge">GUARNICIÓN</span>
             </div>
             <button class="adm-close" @click="$emit('close')" title="Cerrar (Escape)">✕</button>
           </div>
@@ -428,8 +429,19 @@ onUnmounted(() => document.removeEventListener('keydown', handleEsc));
   background: #0d1117;
   flex-shrink: 0;
 }
-.adm-title-row { display: flex; align-items: center; gap: 10px; }
+.adm-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .adm-icon { font-size: 1.4rem; }
+.adm-garrison-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  padding: 2px 8px;
+  background: rgba(100, 160, 255, 0.15);
+  border: 1px solid rgba(100, 160, 255, 0.4);
+  border-radius: 4px;
+  color: #90b8ff;
+  text-transform: uppercase;
+}
 .adm-title {
   margin: 0;
   font-size: 1.1rem;
