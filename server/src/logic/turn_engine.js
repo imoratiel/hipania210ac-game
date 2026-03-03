@@ -852,6 +852,27 @@ async function processArmyMovements(client, turn, config) {
 }
 
 /**
+ * Tick all action cooldowns: decrement by 1 and remove expired rows.
+ * Runs inside the main turn transaction so the update is atomic.
+ * @param {import('pg').PoolClient} client
+ * @param {number} turn
+ */
+async function processActionCooldowns(client, turn) {
+    try {
+        await client.query(
+            'UPDATE army_actions_cooldowns SET turns_remaining = turns_remaining - 1'
+        );
+        const { rowCount } = await client.query(
+            'DELETE FROM army_actions_cooldowns WHERE turns_remaining <= 0'
+        );
+        Logger.engine(`[TURN ${turn}] Action cooldowns ticked: ${rowCount} expired and removed`);
+    } catch (error) {
+        Logger.error(error, { context: 'turn_engine.processActionCooldowns', turn });
+        // Non-fatal: do not abort the turn for a cooldown failure
+    }
+}
+
+/**
  * Process a single game turn
  * @param {Object} pool - PostgreSQL pool
  * @param {Object} config - Game configuration
@@ -1000,6 +1021,9 @@ async function processGameTurn(pool, config) {
         // Ejecutar DESPUÉS del movimiento para que el esfuerzo extra de este turno
         // no sea inmediatamente cancelado por la recuperación del mismo turno.
         await processArmyRecovery(client, newTurn, config);
+
+        // Action cooldowns tick (every turn)
+        await processActionCooldowns(client, newTurn);
 
         // Military food consumption (every turn, after movements so no lock conflict)
         await processMilitaryConsumption(client, newTurn, config);

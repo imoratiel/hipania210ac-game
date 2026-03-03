@@ -20,11 +20,12 @@
 
 const pool = require('../../db.js');
 const h3   = require('h3-js');
-const { Logger }            = require('../utils/logger');
-const CombatModel           = require('../models/CombatModel.js');
-const ArmyModel             = require('../models/ArmyModel.js');
-const NotificationService   = require('./NotificationService.js');
-const GAME_CONFIG           = require('../config/constants.js');
+const { Logger }                        = require('../utils/logger');
+const CombatModel                       = require('../models/CombatModel.js');
+const ArmyModel                         = require('../models/ArmyModel.js');
+const NotificationService               = require('./NotificationService.js');
+const GAME_CONFIG                       = require('../config/constants.js');
+const { canPerformAction, applyCooldown } = require('./gameActions.js');
 
 class CombatService {
     // ─────────────────────────────────────────────────────────────────────────
@@ -65,7 +66,17 @@ class CombatService {
             }
             const attacker = attackerResult.rows[0];
 
-            // 2. Buscar el primer ejército enemigo en el mismo hexágono
+            // 2. Cooldown check — el ejército atacante no puede atacar si está en enfriamiento
+            if (!(await canPerformAction(client, armyId, 'attack'))) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: 'Este ejército no puede atacar todavía. Debe esperar a que pase el período de enfriamiento.',
+                    code: 'COOLDOWN_ACTIVE',
+                });
+            }
+
+            // 3. Buscar el primer ejército enemigo en el mismo hexágono
             const defenderResult = await client.query(
                 'SELECT army_id, name, player_id FROM armies WHERE h3_index = $1 AND player_id != $2 LIMIT 1',
                 [attacker.h3_index, player_id]
@@ -79,13 +90,13 @@ class CombatService {
             }
             const defender = defenderResult.rows[0];
 
-            // 3. Obtener turno actual para las notificaciones
+            // 4. Obtener turno actual para las notificaciones
             const worldResult = await client.query(
                 'SELECT current_turn FROM world_state LIMIT 1'
             );
             const turn = worldResult.rows[0]?.current_turn ?? 0;
 
-            // 4. Resolver combate — el atacante NO recibe el bono defensivo
+            // 5. Resolver combate — el atacante NO recibe el bono defensivo
             const battle = await this.resolveCombat(
                 client,
                 attacker.army_id,
@@ -94,6 +105,9 @@ class CombatService {
                 turn,
                 attacker.army_id   // ← identifica al atacante para calcular el bono
             );
+
+            // 6. Registrar cooldown de ataque (dentro de la misma transacción)
+            await applyCooldown(client, armyId, 'attack');
 
             await client.query('COMMIT');
 
@@ -149,7 +163,17 @@ class CombatService {
             }
             const attacker = attackerResult.rows[0];
 
-            // 2. Verificar que el objetivo es enemigo
+            // 2. Cooldown check
+            if (!(await canPerformAction(client, attackerArmyId, 'attack'))) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: 'Este ejército no puede atacar todavía. Debe esperar a que pase el período de enfriamiento.',
+                    code: 'COOLDOWN_ACTIVE',
+                });
+            }
+
+            // 3. Verificar que el objetivo es enemigo
             const defenderResult = await client.query(
                 'SELECT army_id, name, h3_index FROM armies WHERE army_id = $1 AND player_id != $2',
                 [targetArmyId, player_id]
@@ -160,13 +184,13 @@ class CombatService {
             }
             const defender = defenderResult.rows[0];
 
-            // 3. Verificar mismo hexágono
+            // 4. Verificar mismo hexágono
             if (attacker.h3_index !== defender.h3_index) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({ success: false, message: 'El ejército objetivo no está en el mismo hexágono' });
             }
 
-            // 4. Tropas PRE-combate para desglose
+            // 5. Tropas PRE-combate para desglose
             const preTroops = (armyId) => client.query(
                 `SELECT t.quantity, ut.name AS unit_name
                  FROM troops t
@@ -189,6 +213,9 @@ class CombatService {
                 attacker.h3_index, turn,
                 attackerArmyId
             );
+
+            // 7. Registrar cooldown de ataque (dentro de la misma transacción)
+            await applyCooldown(client, attackerArmyId, 'attack');
 
             await client.query('COMMIT');
 

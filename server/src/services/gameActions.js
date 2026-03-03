@@ -38,6 +38,57 @@ class GameActionError extends Error {
     }
 }
 
+// ─── Cooldown defaults (turns) ────────────────────────────────────────────────
+
+const COOLDOWN_TURNS = {
+    attack:  1,
+    conquer: 3,
+};
+
+// ─── canPerformAction ─────────────────────────────────────────────────────────
+
+/**
+ * Returns true if the army has NO active cooldown for the given action.
+ * Uses the unique index on (army_id, action_type) — O(1) lookup.
+ *
+ * @param {import('pg').PoolClient} client
+ * @param {number} armyId
+ * @param {string} actionType  e.g. 'attack' | 'conquer'
+ * @returns {Promise<boolean>}
+ */
+async function canPerformAction(client, armyId, actionType) {
+    const result = await client.query(
+        `SELECT 1 FROM army_actions_cooldowns
+         WHERE army_id = $1 AND action_type = $2 AND turns_remaining > 0`,
+        [armyId, actionType]
+    );
+    return result.rows.length === 0;
+}
+
+// ─── applyCooldown ────────────────────────────────────────────────────────────
+
+/**
+ * Registers (or resets) a cooldown for an army action.
+ * Must be called inside an active transaction so the write is atomic
+ * with whatever action triggered it.
+ *
+ * @param {import('pg').PoolClient} client
+ * @param {number} armyId
+ * @param {string} actionType  e.g. 'attack' | 'conquer'
+ * @param {number} [turns]     overrides the default defined in COOLDOWN_TURNS
+ */
+async function applyCooldown(client, armyId, actionType, turns) {
+    const t = turns ?? COOLDOWN_TURNS[actionType] ?? 1;
+    await client.query(
+        `INSERT INTO army_actions_cooldowns (army_id, action_type, turns_remaining)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (army_id, action_type)
+         DO UPDATE SET turns_remaining = EXCLUDED.turns_remaining,
+                       created_at      = CURRENT_TIMESTAMP`,
+        [armyId, actionType, t]
+    );
+}
+
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
 function _actorLabel(meta, playerId) {
@@ -327,4 +378,8 @@ async function buyWorker(client, playerId, { h3_index, worker_type_id }, meta = 
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
-module.exports = { executeRecruitment, executeConstruction, buyWorker, GameActionError };
+module.exports = {
+    executeRecruitment, executeConstruction, buyWorker,
+    canPerformAction, applyCooldown,
+    GameActionError, COOLDOWN_TURNS,
+};

@@ -9,7 +9,7 @@ const conquest = require('../logic/conquest.js');
 const { calcMilitiaPower, processCapitalCollapse, GRACE_TURNS_DEFAULT } = require('../logic/conquest_system.js');
 const pool = require('../../db.js');
 const h3 = require('h3-js');
-const { executeConstruction, GameActionError } = require('./gameActions.js');
+const { executeConstruction, canPerformAction, applyCooldown, GameActionError } = require('./gameActions.js');
 
 class KingdomService {
     async StartExploration(req, res) {
@@ -292,7 +292,17 @@ class KingdomService {
                 return res.status(404).json({ success: false, message: 'No tienes ningún ejército en ese hexágono' });
             }
 
-            // 2. Verificar que el hex no es propio + cargar datos de milicia y capital
+            // 2. Cooldown check
+            if (!(await canPerformAction(client, armyId, 'conquer'))) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: 'Este ejército no puede conquistar todavía. Debe esperar a que pase el período de enfriamiento.',
+                    code: 'COOLDOWN_ACTIVE',
+                });
+            }
+
+            // 3. Verificar que el hex no es propio + cargar datos de milicia y capital
             const hexResult = await client.query(`
                 SELECT m.player_id,
                        COALESCE(td.custom_name, m.h3_index) AS fief_name,
@@ -381,7 +391,10 @@ class KingdomService {
             const worldResult = await client.query('SELECT current_turn FROM world_state LIMIT 1');
             const turn = worldResult.rows[0]?.current_turn ?? 0;
 
-            // 7. Derrota → el territorio no cambia de dueño
+            // 7. Registrar cooldown de conquista (se aplica siempre, gane o pierda)
+            await applyCooldown(client, armyId, 'conquer');
+
+            // 8. Derrota → el territorio no cambia de dueño
             if (result === 'defeat') {
                 await client.query('COMMIT');
                 Logger.action(`Player ${player_id} failed to conquer ${h3_index} (civil resistance)`, { player_id, h3_index, result });
@@ -638,6 +651,9 @@ class KingdomService {
                     cascadedFiefs = await processCapitalCollapse(client, h3_index, player_id, previousOwner, turn);
                 }
             }
+
+            // Registrar cooldown de conquista (se aplica siempre, gane o pierda)
+            await applyCooldown(client, armyId, 'conquer');
 
             await client.query('COMMIT');
 
