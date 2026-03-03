@@ -362,7 +362,9 @@ export function generateArmyPopup(armyData, config) {
         const exhaustedCount = army.exhausted_units || 0;
         popupContent += `<p class="force-rest-warning">⛔ DESCANSO FORZADO (${exhaustedCount} unidad${exhaustedCount !== 1 ? 'es' : ''})</p>`;
       }
-      if (isRecovering) popupContent += `<p class="status-text">🛌 Recuperando (${Number(army.recovering)}t)</p>`;
+      const isGarrison = army.is_garrison === true;
+      if (isGarrison) popupContent += `<p class="status-text">🏰 Guarnición</p>`;
+      else if (isRecovering) popupContent += `<p class="status-text">🛌 Recuperando (${Number(army.recovering)}t)</p>`;
       else if (isMoving) popupContent += `<p class="status-text">🏃 → ${army.destination}</p>`;
       else popupContent += `<p class="status-text">📍 Estacionado</p>`;
       popupContent += '</div>';
@@ -370,26 +372,29 @@ export function generateArmyPopup(armyData, config) {
       // ── ACTIONS (own army only) ──────────────────────────────────────────
       popupContent += '<div class="army-actions-compact">';
 
-      const canMove = !isRecovering && !hasForceRest;
-      const moveClass = canMove ? 'army-action-icon' : 'army-action-icon army-action-disabled';
-      let moveTitle = 'Mover';
-      if (hasForceRest) moveTitle = '⛔ Unidades agotadas - Descanso forzado';
-      else if (isRecovering) moveTitle = `Recuperándose: ${army.recovering} turno${Number(army.recovering) !== 1 ? 's' : ''}`;
-      popupContent += `<button id="army-move-${army.army_id}" class="${moveClass}" ${!canMove ? 'disabled' : ''} title="${moveTitle}">📍</button>`;
+      if (!isGarrison) {
+        const canMove = !isRecovering && !hasForceRest;
+        const moveClass = canMove ? 'army-action-icon' : 'army-action-icon army-action-disabled';
+        let moveTitle = 'Mover';
+        if (hasForceRest) moveTitle = '⛔ Unidades agotadas - Descanso forzado';
+        else if (isRecovering) moveTitle = `Recuperándose: ${army.recovering} turno${Number(army.recovering) !== 1 ? 's' : ''}`;
+        popupContent += `<button id="army-move-${army.army_id}" class="${moveClass}" ${!canMove ? 'disabled' : ''} title="${moveTitle}">📍</button>`;
 
-      const canStop = isMoving;
-      const stopClass = canStop ? 'army-action-icon' : 'army-action-icon army-action-disabled';
-      popupContent += `<button id="army-stop-${army.army_id}" class="${stopClass}" ${!canStop ? 'disabled' : ''} title="Detener">🛑</button>`;
+        const canStop = isMoving;
+        const stopClass = canStop ? 'army-action-icon' : 'army-action-icon army-action-disabled';
+        popupContent += `<button id="army-stop-${army.army_id}" class="${stopClass}" ${!canStop ? 'disabled' : ''} title="Detener">🛑</button>`;
 
-      const conquerBlocked = hasEnemiesInHex;
-      const conquerClass = conquerBlocked ? 'army-action-icon army-action-disabled' : 'army-action-icon army-action-conquer';
-      const conquerTitle = conquerBlocked ? 'Hay ejércitos enemigos en el hex — derrotalos primero' : 'Conquistar territorio';
-      popupContent += `<button id="army-conquer-${army.army_id}" class="${conquerClass}" ${conquerBlocked ? 'disabled' : ''} title="${conquerTitle}">⚔️</button>`;
-      popupContent += `<button id="army-split-${army.army_id}" class="army-action-icon" title="Separar">👥</button>`;
+        const conquerBlocked = hasEnemiesInHex;
+        const conquerClass = conquerBlocked ? 'army-action-icon army-action-disabled' : 'army-action-icon army-action-conquer';
+        const conquerTitle = conquerBlocked ? 'Hay ejércitos enemigos en el hex — derrotalos primero' : 'Conquistar territorio';
+        popupContent += `<button id="army-conquer-${army.army_id}" class="${conquerClass}" ${conquerBlocked ? 'disabled' : ''} title="${conquerTitle}">⚔️</button>`;
+        popupContent += `<button id="army-split-${army.army_id}" class="army-action-icon" title="Separar">👥</button>`;
+      }
 
       const canMerge = total > 1;
       const mergeClass = canMerge ? 'army-action-icon' : 'army-action-icon army-action-disabled';
-      popupContent += `<button id="army-merge-${army.army_id}" class="${mergeClass}" ${!canMerge ? 'disabled' : ''} title="Unir">🔗</button>`;
+      const mergeTitle = isGarrison ? (canMerge ? 'Transferir tropas con ejército co-ubicado' : 'No hay ejércitos en esta casilla') : 'Unir';
+      popupContent += `<button id="army-merge-${army.army_id}" class="${mergeClass}" ${!canMerge ? 'disabled' : ''} title="${mergeTitle}">🔗</button>`;
 
       popupContent += `<button id="army-supply-${army.army_id}" class="army-action-icon" title="Abastecer">🌾</button>`;
       popupContent += '</div>';
