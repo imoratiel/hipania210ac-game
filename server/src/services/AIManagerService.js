@@ -38,6 +38,9 @@ const EXPANSIONIST = {
     GOLD_RESERVE:        3_000,   // Never go below this
     RECRUIT_QUANTITY:    100,     // Larger batches for aggression
     COLORS: ['#8B0000','#B22222','#DC143C','#800000','#4A0E0E','#C0392B','#922B21','#641E16'],
+    // Cell scoring weights for _loadCandidateHexes
+    // High adjacency weight = aggressively fills gaps; low resource = not picky about terrain
+    SCORE_WEIGHTS: { resource: 0.5, adjacency: 4.0 },
 };
 
 // ── Constantes del perfil Equilibrado ────────────────────────────────────────
@@ -52,6 +55,8 @@ const BALANCED = {
     GARRISON_RATIO:       0.30,    // Maintain 30% of total population as troops
     FOOD_GOLD_RATIO_MIN:  0.30,    // food_stored / gold: below this → prioritize food terrain
     COLORS: ['#1565C0','#1976D2','#283593','#0D47A1','#0288D1','#01579B','#006064','#00695C'],
+    // Cell scoring weights: balanced between resources and contiguity
+    SCORE_WEIGHTS: { resource: 0.8, adjacency: 3.0 },
 };
 
 // ── Constantes del perfil Agricultor ─────────────────────────────────────────
@@ -66,6 +71,8 @@ const FARMER = {
     MIN_TROOPS_EXPAND:   30,      // No expandir sin al menos estas tropas en casa
     RECRUIT_QUANTITY:    50,      // Tropas a reclutar en respuesta a amenaza
     COLORS: ['#8B7355','#6B8E23','#A0522D','#556B2F','#8FBC8F','#BC8F5F','#9ACD32','#DEB887'],
+    // Cell scoring weights: strong resource preference (food focus), moderate gap-fill
+    SCORE_WEIGHTS: { resource: 1.0, adjacency: 2.0 },
 };
 
 class AIManagerService {
@@ -360,7 +367,7 @@ class AIManagerService {
             }
 
             return {
-                gold, capitalH3, territories, territoriesWithoutBuilding,
+                gold, capitalH3, territories, ownedSet, territoriesWithoutBuilding,
                 totalTroops, recruitLocations, isThreatened,
                 candidateSet: [...candidateSet],
             };
@@ -1088,10 +1095,12 @@ class AIManagerService {
      *
      * @param {string[]} candidates - h3_index values to check
      * @param {number}   playerId
-     * @param {boolean}  aggressive - if true, enemy-owned hexes are also included
+     * @param {boolean}  aggressive  - if true, enemy-owned hexes are also included
+     * @param {Set}      ownedSet    - set of h3_index already owned by this bot (for adjacency scoring)
+     * @param {Object}   weights     - { resource: number, adjacency: number }
      * @returns {Object[]}
      */
-    async _loadCandidateHexes(candidates, playerId, aggressive = false) {
+    async _loadCandidateHexes(candidates, playerId, aggressive = false, ownedSet = new Set(), weights = { resource: 1.0, adjacency: 0 }) {
         if (!candidates || candidates.length === 0) return [];
 
         const result = await pool.query(`
@@ -1099,6 +1108,7 @@ class AIManagerService {
                    COALESCE(tt.food_output,   0) AS food_output,
                    COALESCE(tt.wood_output,   0) AS wood_output,
                    COALESCE(tt.stone_output,  0) AS stone_output,
+                   COALESCE(tt.iron_output,   0) AS iron_output,
                    COALESCE(tt.movement_cost, 1) AS movement_cost
             FROM h3_map m
             JOIN terrain_types tt ON tt.terrain_type_id = m.terrain_type_id
@@ -1113,8 +1123,17 @@ class AIManagerService {
         );
 
         return rows.sort((a, b) => {
-            const scoreA = a.food_output * 3 + a.wood_output * 2 + a.stone_output;
-            const scoreB = b.food_output * 3 + b.wood_output * 2 + b.stone_output;
+            const resourceA = a.food_output * 3 + a.wood_output * 2 + a.stone_output + a.iron_output * 1.5;
+            const resourceB = b.food_output * 3 + b.wood_output * 2 + b.stone_output + b.iron_output * 1.5;
+            // Adjacency bonus: count neighbors already owned by this bot (max 6)
+            const adjA = ownedSet.size > 0
+                ? h3.gridDisk(a.h3_index, 1).filter(n => n !== a.h3_index && ownedSet.has(n)).length
+                : 0;
+            const adjB = ownedSet.size > 0
+                ? h3.gridDisk(b.h3_index, 1).filter(n => n !== b.h3_index && ownedSet.has(n)).length
+                : 0;
+            const scoreA = weights.resource * resourceA + weights.adjacency * adjA;
+            const scoreB = weights.resource * resourceB + weights.adjacency * adjB;
             return scoreB - scoreA;
         });
     }
@@ -1291,7 +1310,7 @@ class AIManagerService {
             return;
         }
 
-        const scored = await this._loadCandidateHexes(state.candidateSet, playerId, false);
+        const scored = await this._loadCandidateHexes(state.candidateSet, playerId, false, state.ownedSet, FARMER.SCORE_WEIGHTS);
         if (scored.length === 0) return;
 
         await this._botConquerHex(client, playerId, botName, scored[0].h3_index, turn);
@@ -1307,7 +1326,7 @@ class AIManagerService {
      */
     async _expansionistExpansion(client, playerId, botName, state, turn) {
         // Try unclaimed hexes first, then enemy hexes (aggressive mode)
-        const scored = await this._loadCandidateHexes(state.candidateSet, playerId, true);
+        const scored = await this._loadCandidateHexes(state.candidateSet, playerId, true, state.ownedSet, EXPANSIONIST.SCORE_WEIGHTS);
         if (scored.length === 0) return;
 
         await this._botConquerHex(client, playerId, botName, scored[0].h3_index, turn);
@@ -1325,7 +1344,7 @@ class AIManagerService {
         const currentGold = parseInt(goldRow.rows[0]?.gold) || 0;
         if (currentGold < BALANCED.GOLD_TO_EXPAND) return;
 
-        const scored = await this._loadCandidateHexes(state.candidateSet, playerId, false);
+        const scored = await this._loadCandidateHexes(state.candidateSet, playerId, false, state.ownedSet, BALANCED.SCORE_WEIGHTS);
         if (scored.length === 0) return;
 
         await this._botConquerHex(client, playerId, botName, scored[0].h3_index, turn);
