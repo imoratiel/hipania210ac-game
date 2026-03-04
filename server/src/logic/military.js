@@ -10,6 +10,7 @@ const { Logger } = require('../utils/logger');
  * @param {Pool} pool - Database connection pool
  * @returns {Promise<Array>} Array of unit types with requirements
  */
+// TODO(dead-code): El módulo logic/military.js no tiene imports/referencias en el proyecto; revisar y eliminar si no se reutiliza.
 async function getUnitTypes(pool) {
     const query = `
         SELECT
@@ -50,6 +51,7 @@ async function getUnitTypes(pool) {
  * @param {Array} requirements - Unit requirements
  * @returns {string|null} Error message or null if valid
  */
+// TODO(dead-code): El módulo logic/military.js no tiene imports/referencias en el proyecto; revisar y eliminar si no se reutiliza.
 function validateRecruitment(params, territory, player, requirements) {
     const { quantity } = params;
 
@@ -91,6 +93,7 @@ function validateRecruitment(params, territory, player, requirements) {
  * @param {number} playerId - Player ID
  * @returns {Promise<Object>} Recruitment result
  */
+// TODO(dead-code): El módulo logic/military.js no tiene imports/referencias en el proyecto; revisar y eliminar si no se reutiliza.
 async function recruitUnits(pool, params, playerId) {
     const { h3_index, unit_type_id, quantity, army_name } = params;
     const client = await pool.connect();
@@ -227,6 +230,7 @@ async function recruitUnits(pool, params, playerId) {
  * @param {number} playerId - Player ID
  * @returns {Promise<Array>} Array of troops with details
  */
+// TODO(dead-code): El módulo logic/military.js no tiene imports/referencias en el proyecto; revisar y eliminar si no se reutiliza.
 async function getTroops(pool, playerId) {
     const query = `
         SELECT
