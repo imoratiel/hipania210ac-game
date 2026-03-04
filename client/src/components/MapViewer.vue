@@ -3321,9 +3321,13 @@ const openOverlay = (overlayName) => {
  * Close the active overlay
  */
 const closeOverlay = () => {
+  const wasOverlay = activeOverlay.value;
   activeOverlay.value = null;
   selectedMessage.value = null;
   console.log('✓ Overlay cerrado');
+  if (wasOverlay === 'troops' || wasOverlay === 'reino') {
+    fetchArmyData();
+  }
 };
 
 /**
