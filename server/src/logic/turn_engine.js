@@ -118,6 +118,7 @@ async function processHarvest(client, turn, config) {
                 // Calculate troop consumption
                 const troopsResult = await client.query(`
                     SELECT
+                        SUM(t.quantity) as total_troops,
                         SUM(t.quantity * ut.food_consumption) as total_food_consumption,
                         SUM(t.quantity * ut.gold_upkeep) as total_gold_consumption
                     FROM troops t
@@ -126,6 +127,7 @@ async function processHarvest(client, turn, config) {
                     WHERE a.player_id = $1
                 `, [player.player_id]);
 
+                const totalTroops = parseInt(troopsResult.rows[0]?.total_troops || 0);
                 const totalFoodConsumption = Math.floor(parseFloat(troopsResult.rows[0]?.total_food_consumption || 0));
                 const totalGoldConsumption = Math.floor(parseFloat(troopsResult.rows[0]?.total_gold_consumption || 0));
 
@@ -169,6 +171,12 @@ ${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.len
                 `.trim();
 
                 await NotificationService.createSystemNotification(player.player_id, 'Económico', messageBody, turn);
+
+                // Soldadas notification
+                if (totalGoldConsumption > 0) {
+                    const soldadasBody = `⚔️ **Pago de Soldadas**\n• Tropas en nómina: ${totalTroops}\n• Oro pagado: -${totalGoldConsumption} 💰`;
+                    await NotificationService.createSystemNotification(player.player_id, 'Militar', soldadasBody, turn);
+                }
 
                 Logger.engine(`[TURN ${turn}] Harvest processed for player ${player.player_id} (${player.username}): Food ${netFood}, Gold ${netGold}, Wood ${totalWoodProduced}`);
             } catch (playerError) {
