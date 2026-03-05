@@ -79,15 +79,11 @@ def populate():
 
                 # Los recursos mineros físicos se generan pero permanecen ocultos
                 # El turn engine hará el roll de descubrimiento cuando se complete la exploración
-                if stone > 0 or iron > 0:
-                    # Generar recursos físicos potenciales (se descubrirán al explorar)
-                    rand_resource = random.random()
+                gold_s = getRandomInt(2000, 6000)
+                iron_s = getRandomInt(100, 2000)
 
-                    if rand_resource < 0.02:   # 2% chance for gold vein
-                        gold_s = round(random.uniform(0.5, 2.5), 2)  # Small amounts (High Value/Low Volume)
-                    elif rand_resource < 0.05: # 3% chance for iron (5% total)
-                        iron_s = calculateLoot(500, 2500, iron)
-                    # Stone uses the existing stone_s calculation
+                if stone > 0 or iron > 0:
+                    pass  # iron_s and gold_s already set above
 
                 # discovered_resource permanece NULL - se asignará al completar exploración
                 
