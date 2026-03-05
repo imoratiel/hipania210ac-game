@@ -1,6 +1,7 @@
 const { Logger } = require('../utils/logger');
 const AdminModel = require('../models/AdminModel.js');
 const { CONFIG } = require('../config.js');
+const { resetGame } = require('../logic/resetGame.js');
 
 class AdminService {
     async ResetWorld(req, res) {
@@ -17,7 +18,7 @@ class AdminService {
     async ResetGame(req, res) {
         try {
             Logger.action('⚠️ RESET DE PARTIDA iniciado por administrador', req.user.player_id);
-            await AdminModel.ResetGame();
+            await resetGame();
             Logger.action('✅ RESET DE PARTIDA completado: bots eliminados, territorios liberados, jugadores reiniciados', req.user.player_id);
             res.json({ success: true, message: 'Partida reseteada. Los jugadores pueden iniciar una nueva partida.' });
         } catch (error) {

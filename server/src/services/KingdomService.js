@@ -323,6 +323,7 @@ class KingdomService {
                 food: Math.floor(Math.random() * 2001),
                 wood: Math.floor(Math.random() * 2001),
                 stone: Math.floor(Math.random() * 2001),
+                gold: Math.floor(Math.random() * 501) + 100,
             };
 
             await KingdomModel.ClaimHex(client, h3_index, player_id);

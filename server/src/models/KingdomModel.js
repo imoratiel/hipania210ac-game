@@ -83,7 +83,7 @@ class KingdomModel {
                  food_stored = EXCLUDED.food_stored, wood_stored = EXCLUDED.wood_stored,
                  stone_stored = EXCLUDED.stone_stored, iron_stored = EXCLUDED.iron_stored,
                  gold_stored = EXCLUDED.gold_stored`,
-            [h3_index, eco.population, eco.happiness, eco.food, eco.wood, eco.stone, 0, 0]
+            [h3_index, eco.population, eco.happiness, eco.food, eco.wood, eco.stone, 0, eco.gold ?? 0]
         );
     }
     async DeductGold(client, player_id, amount) {
