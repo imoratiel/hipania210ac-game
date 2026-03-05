@@ -21,6 +21,16 @@ async function resetGame() {
     try {
         await client.query('BEGIN');
 
+        // Adquirir locks exclusivos en todas las tablas afectadas ANTES de cualquier DML.
+        // Esto evita deadlocks: si otra conexión tiene un lock activo, esta transacción
+        // esperará a que termine en lugar de competir por locks en orden diferente.
+        await client.query(`
+            LOCK TABLE armies, troops, workers, active_constructions, bridges,
+                       fief_buildings, territory_details, h3_map,
+                       messages, notifications, players, world_state
+            IN ACCESS EXCLUSIVE MODE
+        `);
+
         // 1. Armies (troops cascade via FK)
         await client.query('DELETE FROM armies');
 
