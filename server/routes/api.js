@@ -104,6 +104,12 @@ module.exports = function () {
     router.post('/admin/reset', authenticateToken, requireAdmin, AdminService.ResetWorld);
     router.post('/admin/reset-game', authenticateToken, requireAdmin, (req, res) => AdminService.ResetGame(req, res));
     router.get('/admin/stats', authenticateToken, requireAdmin, AdminService.GetStats);
+
+    // ── Auditoría Kafka (toggle en caliente, sin reinicio) ───────────────────
+    const { setAuditEnabled, getAuditStatus } = require('../src/infrastructure/kafkaAuditor');
+    router.get('/admin/audit/status',   authenticateToken, requireAdmin, (_req, res) => res.json(getAuditStatus()));
+    router.post('/admin/audit/enable',  authenticateToken, requireAdmin, async (_req, res) => { await setAuditEnabled(true);  res.json({ ok: true, ...getAuditStatus() }); });
+    router.post('/admin/audit/disable', authenticateToken, requireAdmin, async (_req, res) => { await setAuditEnabled(false); res.json({ ok: true, ...getAuditStatus() }); });
     router.post('/admin/reset-explorations', authenticateToken, requireAdmin, AdminService.ResetExplorations);
     router.post('/admin/config', authenticateToken, requireAdmin, AdminService.UpdateConfig);
     router.get('/admin/game-config', authenticateToken, requireAdmin, AdminService.GetGameConfig);
