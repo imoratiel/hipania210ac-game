@@ -640,3 +640,13 @@ export async function resetGame() {
   const response = await axios.post(`${API_URL}/api/admin/reset-game`);
   return response.data;
 }
+
+export async function getAuditStatus() {
+  const response = await axios.get(`${API_URL}/api/admin/audit/status`);
+  return response.data;
+}
+
+export async function testKafkaEvent(channel) {
+  const response = await axios.post(`${API_URL}/api/admin/audit/test`, { channel });
+  return response.data;
+}

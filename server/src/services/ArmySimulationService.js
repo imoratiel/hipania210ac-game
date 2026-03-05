@@ -14,6 +14,7 @@ const config = require('../config/constants.js');
 const pool = require('../../db');
 const { Logger } = require('../../src/utils/logger');
 const h3 = require('h3-js');
+const { auditEvent, TOPICS } = require('../infrastructure/kafkaFacade');
 
 class ArmySimulationService {
   /**
@@ -725,6 +726,19 @@ class ArmySimulationService {
         `Pasos: ${stepsCount}, Llegó: ${arrived}, Agotado: ${forceExhausted}`,
         { steps: stepsCount, arrived, force_exhausted: forceExhausted, final_pos: currentPos }
       );
+
+      if (stepsCount > 0) {
+        auditEvent(arrived ? 'ARMY_ARRIVED' : 'ARMY_MOVED', {
+          army_id:         armyId,
+          player_id:       army.player_id,
+          from:            army.h3_index,
+          to:              currentPos,
+          destination:     army.destination,
+          steps:           stepsCount,
+          force_exhausted: forceExhausted,
+          arrived,
+        }, TOPICS.MILITARY);
+      }
 
       return {
         success: true,

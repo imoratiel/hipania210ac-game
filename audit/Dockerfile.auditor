@@ -1,0 +1,24 @@
+FROM python:3.11-slim
+
+# Evitar ficheros .pyc y forzar stdout sin buffer (logs visibles en docker logs)
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Instalar dependencias primero (capa cacheada mientras requirements no cambie)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar el código fuente
+COPY . .
+
+# Crear directorio de logs con permisos correctos
+RUN mkdir -p /app/logs
+
+# Usuario sin privilegios (buena práctica en contenedores)
+RUN useradd --no-create-home --shell /bin/false auditor \
+    && chown -R auditor:auditor /app
+USER auditor
+
+CMD ["python", "MultiAuditor.py"]

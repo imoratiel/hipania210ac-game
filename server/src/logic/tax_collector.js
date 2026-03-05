@@ -1,5 +1,6 @@
 const { Logger } = require('../utils/logger');
 const NotificationService = require('../services/NotificationService');
+const { auditEvent, TOPICS } = require('../infrastructure/kafkaFacade');
 
 /**
  * Recauda impuestos sobre el oro almacenado en cada feudo de cada jugador activo.
@@ -114,6 +115,12 @@ async function processTaxCollection(client, turn, config, gameDate) {
                 );
 
                 Logger.engine(`[TURN ${turn}] Tax collected from player ${player.player_id} (${player.username}): ${playerGoldCollected} gold (${taxRate}% of fief stocks)`);
+                auditEvent('TAX_COLLECTION', {
+                    player_id: player.player_id,
+                    amount:    playerGoldCollected,
+                    tax_rate:  taxRate,
+                    turn,
+                }, TOPICS.TAX);
                 totalGoldCollected += playerGoldCollected;
                 totalPlayers++;
 

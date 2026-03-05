@@ -134,6 +134,63 @@
           </div>
         </section>
 
+        <!-- ── KAFKA AUDIT ───────────────────────────────────────────────── -->
+        <section class="admin-section">
+          <h3 class="section-title">
+            📨 Auditoría Kafka
+            <span class="ai-count-badge" :class="auditConnected ? 'badge-green' : 'badge-grey'">
+              {{ auditConnected ? 'conectado' : 'desconectado' }}
+            </span>
+          </h3>
+
+          <div class="kafka-status-row">
+            <span class="kafka-meta">Broker: {{ auditBrokers.join(', ') || '—' }}</span>
+            <span class="kafka-meta">Flag: <code>KAFKA_AUDIT_ENABLED={{ auditEnabled ? 'true' : 'false' }}</code></span>
+          </div>
+
+          <div class="controls-row" style="margin-top:8px">
+            <button
+              class="ctrl-btn btn-kafka-test"
+              :disabled="kafkaTesting"
+              @click="handleKafkaTest('tax')"
+              title="Envía TAX_COLLECTION a tax.collection"
+            >{{ kafkaTesting === 'tax' ? '⏳' : '🧪 Test tax.collection' }}</button>
+
+            <button
+              class="ctrl-btn btn-kafka-test"
+              :disabled="kafkaTesting"
+              @click="handleKafkaTest('military')"
+              title="Envía ARMY_MOVED a army.movement"
+            >{{ kafkaTesting === 'military' ? '⏳' : '🧪 Test army.movement' }}</button>
+
+            <button
+              class="ctrl-btn btn-kafka-test"
+              :disabled="kafkaTesting"
+              @click="handleKafkaTest('harvest')"
+              title="Envía HARVEST_COMPLETE a harvest.events"
+            >{{ kafkaTesting === 'harvest' ? '⏳' : '🧪 Test harvest' }}</button>
+
+            <button
+              class="ctrl-btn btn-kafka-test"
+              :disabled="kafkaTesting"
+              @click="handleKafkaTest('production')"
+              title="Envía MONTHLY_PRODUCTION a harvest.events"
+            >{{ kafkaTesting === 'production' ? '⏳' : '🧪 Test producción' }}</button>
+
+            <button
+              class="ctrl-btn btn-kafka-test"
+              :disabled="kafkaTesting"
+              @click="handleKafkaTest('salary')"
+              title="Envía SALARY_PAYMENT a salary.payments"
+            >{{ kafkaTesting === 'salary' ? '⏳' : '🧪 Test salary' }}</button>
+          </div>
+
+          <p class="force-hint" style="margin-top:6px">
+            ⚠️ Dentro de Docker el broker debe ser <code>kafka:9092</code>, no <code>localhost:9092</code>.
+            Revisa la variable <code>KAFKA_BROKERS</code> en tu <code>.env</code>.
+          </p>
+        </section>
+
         <!-- ── AI AGENTS ──────────────────────────────────────────────────── -->
         <section class="admin-section">
           <h3 class="section-title">
@@ -390,6 +447,7 @@ import {
   getAIAgents, spawnAIFarmer, spawnAIAgent, forceAITurn,
   getAISettings, updateAISetting, getAIUsageStats, resetAIUsageStats, testAIConnection,
   deleteAIAgent, resetGame,
+  getAuditStatus, testKafkaEvent,
 } from '../services/mapApi.js';
 
 const emit = defineEmits(['close', 'go-to-hex']);
@@ -421,6 +479,12 @@ const usageRows      = ref([]);
 const usageTotals    = ref({ total_calls: 0, total_tokens: 0, total_cost: 0 });
 const aiLastError    = ref(null);  // { provider, message, timestamp } | null
 const testing        = ref(false);
+
+// Kafka audit state
+const auditEnabled   = ref(false);
+const auditConnected = ref(false);
+const auditBrokers   = ref([]);
+const kafkaTesting   = ref(null); // 'tax' | 'military' | null
 
 let refreshTimer = null;
 
@@ -632,6 +696,29 @@ const handleResetStats = async () => {
   }
 };
 
+// ── Kafka audit ──────────────────────────────────────────────────────────────
+const fetchAuditStatus = async () => {
+  try {
+    const data = await getAuditStatus();
+    auditEnabled.value   = data.enabled   ?? false;
+    auditConnected.value = data.connected ?? false;
+    auditBrokers.value   = data.brokers   ?? [];
+  } catch { /* silencioso */ }
+};
+
+const handleKafkaTest = async (channel) => {
+  if (kafkaTesting.value) return;
+  kafkaTesting.value = channel;
+  try {
+    const data = await testKafkaEvent(channel);
+    showMsg(data.ok ? data.message : (data.message || 'Error al enviar'), data.ok ? 'msg-ok' : 'msg-err');
+  } catch (e) {
+    showMsg(`Error: ${e.response?.data?.message || e.message}`, 'msg-err');
+  } finally {
+    kafkaTesting.value = null;
+  }
+};
+
 // ── Data fetching ───────────────────────────────────────────────────────────
 const fetchStatus = async () => {
   loading.value = true;
@@ -734,10 +821,12 @@ onMounted(() => {
   fetchAgents();
   fetchAISettings();
   fetchUsageStats();
+  fetchAuditStatus();
   refreshTimer = setInterval(() => {
     fetchStatus();
     fetchAgents();
     fetchUsageStats();
+    fetchAuditStatus();
   }, 10000);
 });
 
@@ -1446,5 +1535,31 @@ onUnmounted(() => {
   background: rgba(255,255,255,0.06);
   border-color: rgba(255,255,255,0.4);
   color: #ccc;
+}
+
+/* ── Kafka audit ─────────────────────────────────────────────────────────── */
+.kafka-status-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.kafka-meta {
+  font-size: 11px;
+  color: #a09070;
+}
+.kafka-meta code {
+  background: rgba(255,255,255,0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.btn-kafka-test {
+  background: rgba(33, 150, 243, 0.15);
+  border-color: rgba(33, 150, 243, 0.5);
+  color: #64b5f6;
+}
+.btn-kafka-test:hover:not(:disabled) {
+  background: rgba(33, 150, 243, 0.3);
 }
 </style>

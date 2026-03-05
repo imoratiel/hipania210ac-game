@@ -1,4 +1,5 @@
 const { logEconomyEvent } = require('./economy');
+const { auditEvent, TOPICS } = require('../infrastructure/kafkaFacade');
 const { determineDiscoveredResource } = require('./discovery');
 const { processTaxCollection } = require('./tax_collector');
 const { processTithe } = require('./tithe_system');
@@ -176,9 +177,30 @@ ${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.len
                 if (totalGoldConsumption > 0) {
                     const soldadasBody = `⚔️ **Pago de Soldadas**\n• Tropas en nómina: ${totalTroops}\n• Oro pagado: -${totalGoldConsumption} 💰`;
                     await NotificationService.createSystemNotification(player.player_id, 'Militar', soldadasBody, turn);
+                    auditEvent('SALARY_PAYMENT', {
+                        player_id:    player.player_id,
+                        turn,
+                        total_troops: totalTroops,
+                        gold_paid:    totalGoldConsumption,
+                    }, TOPICS.SALARY);
                 }
 
                 Logger.engine(`[TURN ${turn}] Harvest processed for player ${player.player_id} (${player.username}): Food ${netFood}, Gold ${netGold}, Wood ${totalWoodProduced}`);
+                auditEvent('HARVEST_COMPLETE', {
+                    player_id:          player.player_id,
+                    turn,
+                    territories:        territories.rows.length,
+                    food_produced:      totalFoodProduced,
+                    wood_produced:      totalWoodProduced,
+                    stone_produced:     totalStoneProduced,
+                    iron_produced:      totalIronProduced,
+                    gold_produced:      totalGoldProduced,
+                    food_consumed:      totalFoodConsumption,
+                    gold_consumed:      totalGoldConsumption,
+                    net_food:           netFood,
+                    net_gold:           netGold,
+                    miracle_harvests:   miracleHarvests.length,
+                }, TOPICS.HARVEST);
             } catch (playerError) {
                 Logger.error(playerError, {
                     context: 'turn_engine.processHarvest',
@@ -415,6 +437,15 @@ ${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.len
                 await NotificationService.createSystemNotification(player.player_id, 'Económico', messageBody, turn);
 
                 Logger.engine(`[TURN ${turn}] Monthly production for player ${player.player_id} (${player.username}): Wood ${totalWoodProduced}, Stone ${totalStoneProduced}, Iron ${totalIronProduced}, Fishing ${totalFishingProduced}`);
+                auditEvent('MONTHLY_PRODUCTION', {
+                    player_id:       player.player_id,
+                    turn,
+                    territories:     territories.rows.length,
+                    wood_produced:   totalWoodProduced,
+                    stone_produced:  totalStoneProduced,
+                    iron_produced:   totalIronProduced,
+                    fishing_produced: totalFishingProduced,
+                }, TOPICS.HARVEST);
             } catch (playerError) {
                 Logger.error(playerError, {
                     context: 'turn_engine.processMonthlyProduction',

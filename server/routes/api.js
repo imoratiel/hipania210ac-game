@@ -107,9 +107,39 @@ module.exports = function () {
 
     // ── Auditoría Kafka (toggle en caliente, sin reinicio) ───────────────────
     const { setAuditEnabled, getAuditStatus } = require('../src/infrastructure/kafkaAuditor');
+    const { auditEvent, TOPICS } = require('../src/infrastructure/kafkaFacade');
     router.get('/admin/audit/status',   authenticateToken, requireAdmin, (_req, res) => res.json(getAuditStatus()));
     router.post('/admin/audit/enable',  authenticateToken, requireAdmin, async (_req, res) => { await setAuditEnabled(true);  res.json({ ok: true, ...getAuditStatus() }); });
     router.post('/admin/audit/disable', authenticateToken, requireAdmin, async (_req, res) => { await setAuditEnabled(false); res.json({ ok: true, ...getAuditStatus() }); });
+    router.post('/admin/audit/test', authenticateToken, requireAdmin, async (req, res) => {
+        const { channel } = req.body; // 'tax' | 'military'
+        const now = new Date().toISOString();
+        try {
+            if (channel === 'tax') {
+                await auditEvent('TAX_COLLECTION', { player_id: 0, amount: 999, tax_rate: 5, turn: 0, _test: true }, TOPICS.TAX);
+                return res.json({ ok: true, message: `Mensaje de prueba enviado a ${TOPICS.TAX}` });
+            }
+            if (channel === 'military') {
+                await auditEvent('ARMY_MOVED', { army_id: 0, player_id: 0, from: 'test', to: 'test', steps: 1, force_exhausted: false, arrived: false, _test: true }, TOPICS.MILITARY);
+                return res.json({ ok: true, message: `Mensaje de prueba enviado a ${TOPICS.MILITARY}` });
+            }
+            if (channel === 'harvest') {
+                await auditEvent('HARVEST_COMPLETE', { player_id: 0, turn: 0, territories: 3, food_produced: 500, wood_produced: 120, stone_produced: 80, iron_produced: 40, gold_produced: 200, food_consumed: 50, gold_consumed: 30, net_food: 450, net_gold: 170, miracle_harvests: 0, _test: true }, TOPICS.HARVEST);
+                return res.json({ ok: true, message: `Mensaje de prueba enviado a ${TOPICS.HARVEST}` });
+            }
+            if (channel === 'production') {
+                await auditEvent('MONTHLY_PRODUCTION', { player_id: 0, turn: 0, territories: 3, wood_produced: 90, stone_produced: 60, iron_produced: 25, fishing_produced: 15, _test: true }, TOPICS.HARVEST);
+                return res.json({ ok: true, message: `Mensaje de prueba enviado a ${TOPICS.HARVEST}` });
+            }
+            if (channel === 'salary') {
+                await auditEvent('SALARY_PAYMENT', { player_id: 0, turn: 0, total_troops: 250, gold_paid: 1250, _test: true }, TOPICS.SALARY);
+                return res.json({ ok: true, message: `Mensaje de prueba enviado a ${TOPICS.SALARY}` });
+            }
+            return res.status(400).json({ ok: false, message: 'channel debe ser "tax", "military", "harvest", "production" o "salary"' });
+        } catch (err) {
+            return res.status(500).json({ ok: false, message: err.message });
+        }
+    });
     router.post('/admin/reset-explorations', authenticateToken, requireAdmin, AdminService.ResetExplorations);
     router.post('/admin/config', authenticateToken, requireAdmin, AdminService.UpdateConfig);
     router.get('/admin/game-config', authenticateToken, requireAdmin, AdminService.GetGameConfig);
