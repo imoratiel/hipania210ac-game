@@ -52,7 +52,7 @@
             </div>
             <div class="eco-slider-value">Tasa actual: <strong>{{ localTaxRate }}%</strong></div>
             <div v-if="!loadingSummary && !summaryError" class="eco-estimate">
-              Estimado próximo turno:
+              Tributo esperado:
               <strong class="gold">+{{ fmt(estimatedTax) }} 💰</strong>
             </div>
           </div>
@@ -74,6 +74,25 @@
                 <div class="eco-toggle-thumb"></div>
               </div>
             </label>
+          </div>
+
+          <!-- Terrain Filter -->
+          <div class="eco-card">
+            <h4 class="eco-card-title">🗺️ Filtrar por Terreno</h4>
+            <div class="terrain-filter-list">
+              <button
+                class="terrain-btn"
+                :class="{ active: filterTerrain === null }"
+                @click="filterTerrain = null"
+              >Todos</button>
+              <button
+                v-for="terrain in terrainOptions"
+                :key="terrain"
+                class="terrain-btn"
+                :class="{ active: filterTerrain === terrain }"
+                @click="filterTerrain = filterTerrain === terrain ? null : terrain"
+              >{{ terrain }}</button>
+            </div>
           </div>
 
           <!-- Save Button -->
@@ -128,7 +147,7 @@
                 </thead>
                 <tbody>
                   <tr
-                    v-for="fief in fiefs"
+                    v-for="fief in filteredFiefs"
                     :key="fief.h3_index"
                     :class="{ 'row-capital': fief.h3_index === fief.capital_h3 }"
                   >
@@ -212,6 +231,7 @@ const loadingFiefs  = ref(true);
 const fiefsError    = ref('');
 const fiefs         = ref([]);
 const playerGold    = ref(0);
+const filterTerrain = ref(null);
 
 const upgradingHex  = ref(null);
 const upgradeError  = ref('');
@@ -227,6 +247,16 @@ const sliderPct = computed(() =>
 const isDirty = computed(() =>
   localTaxRate.value !== serverTaxRate.value ||
   localTitheActive.value !== serverTitheActive.value
+);
+const terrainOptions = computed(() => {
+  const seen = new Set();
+  fiefs.value.forEach(f => { if (f.terrain_name) seen.add(f.terrain_name); });
+  return [...seen].sort();
+});
+const filteredFiefs = computed(() =>
+  filterTerrain.value
+    ? fiefs.value.filter(f => f.terrain_name === filterTerrain.value)
+    : fiefs.value
 );
 
 // ── Helpers ───────────────────────────────────────────────
@@ -753,5 +783,32 @@ onMounted(() => {
   text-align: center;
   padding: 40px;
   flex: 1;
+}
+
+/* Terrain filter */
+.terrain-filter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.terrain-btn {
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid #3d2e1a;
+  border-radius: 5px;
+  color: #8b7355;
+  font-family: sans-serif;
+  font-size: 0.80rem;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.terrain-btn:hover { background: rgba(255,255,255,0.04); color: #c8b898; }
+.terrain-btn.active {
+  background: rgba(201,168,76,0.12);
+  border-color: #c9a84c;
+  color: #fbbf24;
+  font-weight: 600;
 }
 </style>
