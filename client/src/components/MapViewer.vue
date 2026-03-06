@@ -700,7 +700,14 @@
                 >
                   🏰 Feudos
                 </button>
-                <button class="kingdom-action-btn-sidebar" title="Próximamente" disabled>📜 Fueros y Leyes</button>
+                <button
+                  class="kingdom-action-btn-sidebar"
+                  :class="{ active: activeKingdomTab === 'divisions' }"
+                  @click="activeKingdomTab = 'divisions'"
+                  title="Gestionar divisiones politicas y rangos nobiliarios"
+                >
+                  📜 Fueros y Leyes
+                </button>
               </div>
             </div>
 
@@ -754,6 +761,11 @@
               @change-page="handleFiefsPageChange"
               @change-limit="handleFiefsLimitChange"
             />
+          </div>
+
+          <!-- Fueros y Leyes Tab -->
+          <div v-if="activeKingdomTab === 'divisions'" class="divisions-panel">
+            <DivisionsTab />
           </div>
 
           <!-- Military Recruitment Tab -->
@@ -926,6 +938,17 @@
       v-if="showWelcomePanel"
       @done="onInitDone"
     />
+
+    <!-- Fueros y Leyes Panel -->
+    <FueroPanel
+      v-if="showFueroPanel"
+      :h3_index="fueroPanelH3"
+      :fiefName="fueroPanelFiefName"
+      @close="showFueroPanel = false; clearDivisionHighlights()"
+      @highlight-fiefs="highlightDivisionFiefs"
+      @clear-highlights="clearDivisionHighlights"
+      @division-proclaimed="onDivisionProclaimed"
+    />
   </div>
 </template>
 
@@ -955,6 +978,8 @@ import EconomyPanel from './EconomyPanel.vue';
 import AdminPanel from './AdminPanel.vue';
 import ArmyTransferPanel from './ArmyTransferPanel.vue';
 import WelcomePanel from './WelcomePanel.vue';
+import FueroPanel from './FueroPanel.vue';
+import DivisionsTab from './DivisionsTab.vue';
 
 const mapContainer = ref(null);
 const loading = ref(false);
@@ -1136,6 +1161,11 @@ const transferPanelArmyAId   = ref(null);
 const transferPanelArmyBId   = ref(null);
 const transferPanelHex       = ref('');
 const transferPanelFiefName  = ref('');
+
+// Fueros y Leyes panel state
+const showFueroPanel    = ref(false);
+const fueroPanelH3      = ref('');
+const fueroPanelFiefName = ref('');
 
 // Legend toggle state
 const legendCollapsed = ref(true); // Collapsed by default
@@ -1321,6 +1351,7 @@ let workersMarkersLayer = null;       // Layer for worker icons
 let constructionMarkersLayer = null;  // Layer for in-progress bridge constructions
 let hexStackerLayer = null;           // Layer for combined HexStacker markers (owner+building+troops)
 let highlightLayer = null; // Temporary highlight polygon for navigation
+let divisionHighlightLayer = null; // Gold overlay for division fief selection
 let debounceTimer = null;
 
 // Configuration
@@ -1549,6 +1580,7 @@ const initMap = () => {
   workersMarkersLayer = L.layerGroup().addTo(map);
   constructionMarkersLayer = L.layerGroup().addTo(map);
   hexStackerLayer = L.layerGroup().addTo(map);
+  divisionHighlightLayer = L.layerGroup().addTo(map);
 
   // Track zoom level
   currentZoom.value = map.getZoom();
@@ -3112,6 +3144,53 @@ const closeActionPanel = () => {
 };
 
 /**
+ * Open the Fueros y Leyes panel for a given fief
+ */
+const openFueroPanel = (h3_index, fiefName = '') => {
+  fueroPanelH3.value = h3_index;
+  fueroPanelFiefName.value = fiefName;
+  showFueroPanel.value = true;
+};
+
+/**
+ * Highlight selected fiefs on the map with a gold overlay (for division selection)
+ * @param {string[]} h3Indices
+ */
+const highlightDivisionFiefs = (h3Indices) => {
+  if (!divisionHighlightLayer) return;
+  divisionHighlightLayer.clearLayers();
+  for (const h3_index of h3Indices) {
+    try {
+      const boundary = cellToBoundary(h3_index, true);
+      L.polygon(boundary, {
+        fillColor:   '#c5a059',
+        fillOpacity: 0.35,
+        color:       '#e8d5b5',
+        weight:      2,
+        opacity:     0.8,
+        interactive: false,
+      }).addTo(divisionHighlightLayer);
+    } catch (_) { /* ignore invalid h3 */ }
+  }
+};
+
+/**
+ * Clear the division highlight layer
+ */
+const clearDivisionHighlights = () => {
+  if (divisionHighlightLayer) divisionHighlightLayer.clearLayers();
+};
+
+/**
+ * Called after a division is successfully proclaimed
+ */
+const onDivisionProclaimed = () => {
+  clearDivisionHighlights();
+  // Refresh hex layer to reflect new division coloring in future
+  fetchHexagonData();
+};
+
+/**
  * Open the action panel at mouse position with hex data
  * @param {Object} hexData - Hexagon data from API
  * @param {Object} event - Leaflet mouse event
@@ -3779,6 +3858,20 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
             };
             openOverlay('reino');
             openRecruitmentForFief(fief);
+          });
+        }
+      }, 100);
+    }
+
+    // Add event listener to Fueros y Leyes button (own fief with completed Fortaleza)
+    if (cell.player_id === playerId.value && cell.fief_building &&
+        !cell.fief_building.is_under_construction && cell.fief_building.name === 'Fortaleza') {
+      setTimeout(() => {
+        const fueroBtn = document.getElementById(`fueros-btn-${h3_index}`);
+        if (fueroBtn) {
+          fueroBtn.addEventListener('click', () => {
+            map.closePopup();
+            openFueroPanel(h3_index, cell.settlement_name || cell.custom_name || h3_index);
           });
         }
       }, 100);
@@ -9190,6 +9283,14 @@ onBeforeUnmount(() => {
 /* ========================================
    MILITARY RECRUITMENT PANEL
    ======================================== */
+.divisions-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: linear-gradient(135deg, #0f0a04 0%, #1a1208 100%);
+}
+
 .military-recruitment-panel {
   flex: 1;
   display: flex;

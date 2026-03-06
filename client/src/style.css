@@ -646,6 +646,16 @@ button {
   filter: brightness(1.2);
 }
 
+.btn-fueros {
+  background: linear-gradient(135deg, #3a2a0a 0%, #8a6020 100%) !important;
+  color: #e8d5b5 !important;
+  margin-top: 6px !important;
+}
+
+.btn-fueros:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+
 .popup-building-status {
   font-size: 12px !important;
   margin: 6px 14px 4px !important;

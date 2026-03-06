@@ -20,6 +20,7 @@ module.exports = function () {
     const ScoutingService = require('../src/services/ScoutingService.js');
     const EconomyService = require('../src/services/EconomyService.js');
     const WorkerService = require('../src/services/WorkerService.js');
+    const DivisionService = require('../src/services/DivisionService.js');
 
     // ============================================
     // AUTHENTICATION ENDPOINTS
@@ -99,6 +100,13 @@ module.exports = function () {
     // ============================================
     router.get('/economy/summary', authenticateToken, (req, res) => EconomyService.GetEconomySummary(req, res));
     router.patch('/economy/settings', authenticateToken, (req, res) => EconomyService.UpdateEconomySettings(req, res));
+
+    // ============================================
+    // DIVISIONES POLITICAS (FUEROS Y LEYES)
+    // ============================================
+    router.get('/territory/:h3_index/laws', authenticateToken, (req, res) => DivisionService.GetTerritoryLaws(req, res));
+    router.post('/divisions/proclaim', authenticateToken, (req, res) => DivisionService.ProclaimDivision(req, res));
+    router.get('/divisions/my', authenticateToken, (req, res) => DivisionService.GetMyDivisions(req, res));
 
     // ============================================
     // ADMIN AND MESSAGES

@@ -35,7 +35,7 @@ UPDATE noble_ranks SET max_fiefs_limit = 400 WHERE title_male = 'Vizconde';
 UPDATE noble_ranks SET max_fiefs_limit = 600 WHERE title_male = 'Conde';
 UPDATE noble_ranks SET max_fiefs_limit = 1000 WHERE title_male = 'Marqués';
 UPDATE noble_ranks SET max_fiefs_limit = 1500 WHERE title_male = 'Duque';
-UPDATE noble_ranks SET max_fiefs_limit = 0 WHERE title_male = 'Rey';
+UPDATE noble_ranks SET max_fiefs_limit = 5000 WHERE title_male = 'Rey';
 
 -- 2. ACTUALIZACIÓN DE JUGADORES (Tabla existente 'players')
 ALTER TABLE players 

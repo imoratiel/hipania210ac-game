@@ -676,3 +676,33 @@ export async function testKafkaEvent(channel) {
   const response = await axios.post(`${API_URL}/api/admin/audit/test`, { channel });
   return response.data;
 }
+
+// ============================================
+// DIVISION ENDPOINTS
+// ============================================
+
+/**
+ * Get laws/division data for a territory
+ * @param {string} h3_index
+ */
+export async function getTerritoryLaws(h3_index) {
+  const response = await axios.get(`${API_URL}/api/territory/${h3_index}/laws`);
+  return response.data;
+}
+
+/**
+ * Proclaim a new political division
+ * @param {Object} payload - { capital_h3, fiefs, name? }
+ */
+export async function proclaimDivision(payload) {
+  const response = await axios.post(`${API_URL}/api/divisions/proclaim`, payload);
+  return response.data;
+}
+
+/**
+ * Get all political divisions of the current player
+ */
+export async function getPlayerDivisions() {
+  const response = await axios.get(`${API_URL}/api/divisions/my`);
+  return response.data;
+}
