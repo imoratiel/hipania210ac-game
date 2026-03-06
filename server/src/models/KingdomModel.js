@@ -23,7 +23,7 @@ class KingdomModel {
     }
     async GetTerritoryForUpgrade(client, h3_index) {
         const query = `
-            SELECT td.*, t.name AS terrain_type, t.food_output, t.wood_output, m.is_coast
+            SELECT td.*, t.name AS terrain_type, t.food_output, t.wood_output
             FROM territory_details td
             JOIN h3_map m ON td.h3_index = m.h3_index
             JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id

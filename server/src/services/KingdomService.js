@@ -204,7 +204,7 @@ class KingdomService {
     async GetMyFiefs(req, res) {
         try {
             const page         = Math.max(1, parseInt(req.query.page)  || 1);
-            const limit        = Math.min(50, Math.max(1, parseInt(req.query.limit) || 10));
+            const limit        = Math.min(500, Math.max(1, parseInt(req.query.limit) || 10));
             const filter_name  = (req.query.filter_name || '').trim();
             const filter_maxpop = req.query.filter_maxpop != null && req.query.filter_maxpop !== ''
                 ? parseInt(req.query.filter_maxpop) : null;
@@ -818,6 +818,61 @@ class KingdomService {
             client.release();
         }
     }
+    async UpgradeFarm(req, res) {
+        const client = await pool.connect();
+        try {
+            const { h3_index } = req.params;
+            const player_id = req.user.player_id;
+
+            await client.query('BEGIN');
+
+            const territory_owner = await KingdomModel.CheckTerritoryOwnership(client, h3_index);
+            if (territory_owner?.player_id !== player_id) {
+                await client.query('ROLLBACK');
+                return res.status(403).json({ success: false, message: 'No posees este territorio' });
+            }
+
+            const territory = await KingdomModel.GetTerritoryForUpgrade(client, h3_index);
+            if (!territory) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Territorio no encontrado' });
+            }
+
+            const validation_error = infrastructure.validateUpgrade('farm', territory);
+            if (validation_error) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: validation_error });
+            }
+
+            const current_level = territory.farm_level || 0;
+            const cost = infrastructure.calculateFarmUpgradeCost(current_level, CONFIG);
+
+            const player = await KingdomModel.GetPlayerGoldForUpdate(client, player_id);
+            if (player.gold < cost) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: `Oro insuficiente. Coste: ${cost.toLocaleString()}, disponible: ${player.gold.toLocaleString()}` });
+            }
+
+            await KingdomModel.ApplyUpgrade(client, h3_index, player_id, 'farm', current_level + 1, cost);
+            await client.query('COMMIT');
+
+            logGameEvent(`[GRANJA] Jugador ${player_id} mejoró granja en ${h3_index} al nivel ${current_level + 1}`);
+            res.json({
+                success: true,
+                message: `Granja mejorada al nivel ${current_level + 1}`,
+                new_level: current_level + 1,
+                gold_spent: cost,
+                new_gold: player.gold - cost
+            });
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            Logger.error(error, { endpoint: `/fiefs/${req.params.h3_index}/upgrade-farm`, method: 'POST', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al mejorar la granja' });
+        } finally {
+            client.release();
+        }
+    }
+
     async InitializePlayer(req, res) {
         const player_id = req.user.player_id;
         try {

@@ -63,6 +63,7 @@ module.exports = function () {
     // ============================================
     router.post('/territory/explore', authenticateToken, KingdomService.StartExploration);
     router.post('/territory/upgrade', authenticateToken, KingdomService.UpgradeBuilding);
+    router.post('/fiefs/:h3_index/upgrade-farm', authenticateToken, (req, res) => KingdomService.UpgradeFarm(req, res));
     router.get('/territory/buildings', authenticateToken, (req, res) => KingdomService.GetBuildings(req, res));
     router.post('/territory/construct', authenticateToken, (req, res) => KingdomService.ConstructBuilding(req, res));
     router.post('/territory/upgrade-building', authenticateToken, (req, res) => KingdomService.UpgradeFiefBuilding(req, res));

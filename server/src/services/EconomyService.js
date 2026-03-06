@@ -25,7 +25,7 @@ class EconomyService {
                     WHERE m.player_id = $1
                 `, [player_id]),
                 pool.query(
-                    'SELECT tax_percentage, tithe_active FROM players WHERE player_id = $1',
+                    'SELECT tax_percentage, tithe_active, gold FROM players WHERE player_id = $1',
                     [player_id]
                 ),
             ]);
@@ -49,6 +49,7 @@ class EconomyService {
                     total_gold:       Number(totals.total_gold),
                     total_population: Number(totals.total_population),
                 },
+                player_gold: Number(player?.gold ?? 0),
                 settings: {
                     tax_rate:            taxRate,
                     tithe_active:        titheActive,

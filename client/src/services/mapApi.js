@@ -231,6 +231,23 @@ export async function initializePlayer() {
 }
 
 /**
+ * Upgrade farm level in a fief
+ * @param {string} h3_index - H3 index of the fief
+ */
+export async function upgradeFarm(h3_index) {
+  const response = await axios.post(`${API_URL}/api/fiefs/${h3_index}/upgrade-farm`);
+  return response.data;
+}
+
+/**
+ * Get fiefs data for economy panel (all fiefs, no pagination)
+ */
+export async function getEconomyFiefs() {
+  const response = await axios.get(`${API_URL}/api/game/my-fiefs`, { params: { page: 1, limit: 999 } });
+  return response.data;
+}
+
+/**
  * Claim/colonize a territory
  * @param {string} h3_index - H3 index to claim
  */

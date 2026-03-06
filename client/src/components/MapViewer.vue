@@ -43,8 +43,8 @@
       <nav class="sidebar-nav">
         <button
           class="nav-button"
-          :class="{ active: activePanel === 'economy' }"
-          @click="togglePanel('economy')"
+          :class="{ active: activeOverlay === 'economy' }"
+          @click="openOverlay('economy')"
           title="Economía"
         >
           <span class="nav-icon">💰</span>
@@ -154,9 +154,6 @@
       </div>
 
       <div class="panel-content">
-        <!-- Economy Panel -->
-        <EconomyPanel v-if="activePanel === 'economy'" />
-
         <!-- Layers Panel -->
         <div v-if="activeOverlay === 'layers'" class="panel-section layers-panel">
           <!-- Legend -->
@@ -907,6 +904,13 @@
       </div>
     </div>
 
+    <!-- Full-Screen Economy Overlay -->
+    <EconomyPanel
+      v-if="activeOverlay === 'economy'"
+      @close="closeOverlay"
+      @gold-updated="onGoldUpdated"
+    />
+
     <!-- Battle Summary Modal -->
     <BattleSummaryModal
       :show="battleSummaryVisible"
@@ -1145,7 +1149,7 @@ const transferPanelFiefName  = ref('');
 const legendCollapsed = ref(true); // Collapsed by default
 
 // Panel system state
-const activePanel = ref(null); // Currently open panel: 'economy', 'layers', 'troops', 'market', 'kingdom', 'messages', 'notifications'
+const activePanel = ref(null); // Currently open panel: 'layers', 'market', 'notifications', 'profile'
 const panelTitle = computed(() => {
   const titles = {
     economy: '💰 Economía',
@@ -4925,6 +4929,17 @@ const onInitDone = ({ capital_h3 } = {}) => {
   mapApi.getCapital().then(r => {
     if (r?.success) { capitalH3Index.value = r.h3_index; isExiled.value = r.is_exiled ?? false; }
   }).catch(() => {});
+};
+
+/**
+ * Called when EconomyPanel reports a gold change (farm upgrade).
+ * Syncs the player gold in local state.
+ */
+const onGoldUpdated = (newGold) => {
+  if (currentUser.value) {
+    currentUser.value.gold = newGold;
+    localStorage.setItem('user', JSON.stringify(currentUser.value));
+  }
 };
 
 const handleLogout = async () => {

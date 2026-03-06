@@ -60,7 +60,7 @@ async function processHarvest(client, turn, config) {
                     let ironProduction = territory.iron_output || 0;
 
                     // Apply building multipliers
-                    const farmMultiplier = 1 + ((territory.farm_level || 0) * (config.infrastructure?.prod_multiplier_per_level || 0.20));
+                    const farmMultiplier = 1 + ((territory.farm_level || 0) * (config.infrastructure?.farm_prod_multiplier || 0.10));
                     const lumberMultiplier = 1 + ((territory.lumber_level || 0) * (config.infrastructure?.prod_multiplier_per_level || 0.20));
                     const mineMultiplier = 1 + ((territory.mine_level || 0) * (config.infrastructure?.prod_multiplier_per_level || 0.20));
 

@@ -44,7 +44,19 @@ function validateUpgrade(buildingType, territory) {
     return null;
 }
 
+/**
+ * Calculate the cost for upgrading a farm
+ * @param {number} currentLevel - Current farm level
+ * @param {Object} config - Game configuration
+ * @returns {number} Upgrade cost
+ */
+function calculateFarmUpgradeCost(currentLevel, config) {
+    const baseCost = config.infrastructure?.farm_upgrade_base_cost || 3000;
+    return baseCost * Math.pow(2, currentLevel);
+}
+
 module.exports = {
     calculateUpgradeCost,
+    calculateFarmUpgradeCost,
     validateUpgrade
 };
