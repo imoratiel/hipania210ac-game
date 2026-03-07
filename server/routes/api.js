@@ -106,6 +106,8 @@ module.exports = function () {
     // DIVISIONES POLITICAS (FUEROS Y LEYES)
     // ============================================
     router.get('/territory/:h3_index/laws', authenticateToken, (req, res) => DivisionService.GetTerritoryLaws(req, res));
+    router.get('/divisions/propose-name', authenticateToken, (req, res) => DivisionService.ProposeName(req, res));
+    router.patch('/divisions/:id/tax', authenticateToken, (req, res) => DivisionService.UpdateDivisionTax(req, res));
     router.post('/divisions/proclaim', authenticateToken, (req, res) => DivisionService.ProclaimDivision(req, res));
     router.get('/divisions/my', authenticateToken, (req, res) => DivisionService.GetMyDivisions(req, res));
     router.get('/divisions/boundaries', authenticateToken, (req, res) => MapService.GetAllBoundaries(req, res));

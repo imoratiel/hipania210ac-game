@@ -7,10 +7,12 @@ from psycopg2.extras import execute_values
 # 1. CARGA DE CONFIGURACIÓN
 try:
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    from extractor import DB_CONFIG, BASE_DATA_DIR
+    from config import DB_CONFIG
+    from pathlib import Path
+    BASE_DATA_DIR = Path(__file__).parent.parent.parent.resolve() / 'data'
     print("✅ Configuración cargada correctamente.")
 except ImportError:
-    print("❌ Error: No se pudo encontrar extractor.py para leer la configuración.")
+    print("❌ Error: No se pudo encontrar config.py para leer la configuración.")
     sys.exit(1)
 
 def getRandomInt(min_val, max_val):

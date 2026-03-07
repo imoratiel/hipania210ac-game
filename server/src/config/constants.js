@@ -52,6 +52,13 @@ const GAME_CONFIG = {
         EXCLUSION_RADIUS: 5,   // Radio (en hexágonos H3) dentro del cual no puede existir otro edificio del mismo tipo
     },
 
+    // 🏛️ Señoríos y Divisiones Políticas
+    DIVISIONS: {
+        HAPPINESS_BONUS:         1.10,  // Multiplicador de felicidad para feudos en un señorío (+10%)
+        MAX_RECRUITS_DIVISION:    200,  // Cap de reclutas por feudo cuando pertenece a un señorío
+        MAX_RECRUITS_INDEPENDENT: 400,  // Cap de reclutas por feudo cuando es independiente
+    },
+
     // 🏰 Límite de Ejércitos por Jugador
     // Regla: max(BASE, floor(feudos / RATIO))
     // Ej: 0 feudos → 1 ejército, 3 → 1, 6 → 2, 30 → 10, 170 → 56

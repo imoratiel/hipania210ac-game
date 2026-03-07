@@ -4,6 +4,7 @@
  *
  * Endpoints:
  *   GET  /territory/:h3_index/laws     → estado de division del feudo + feudos contiguos libres
+ *   GET  /divisions/propose-name       → sugiere nombre unico dado un nombre base
  *   POST /divisions/proclaim           → fundar un Senorio
  */
 
@@ -12,6 +13,7 @@ const { Logger } = require('../utils/logger');
 const DivisionModel = require('../models/DivisionModel.js');
 const MapService = require('./MapService.js');
 const { findContiguousFiefs, suggestDivisionName } = require('../logic/contiguitySearch.js');
+const { getUniqueDivisionName } = require('../logic/NamingService.js');
 
 class DivisionService {
 
@@ -71,6 +73,7 @@ class DivisionService {
                             max_fiefs_limit: existing.max_fiefs_limit,
                         },
                         fief_count: existing.fief_count,
+                        tax_rate:   parseFloat(existing.tax_rate ?? 10),
                     }
                 });
             }
@@ -94,7 +97,8 @@ class DivisionService {
                 terrain_name: terrainMap[h] ?? null
             }));
 
-            const suggestedName = suggestDivisionName(contiguousFiefs, senorioRank.territory_name);
+            const rawName      = suggestDivisionName(contiguousFiefs, senorioRank.territory_name);
+            const suggestedName = await getUniqueDivisionName(client, rawName, player_id);
 
             const minRequired = senorioRank.min_fiefs_required ?? 1;
 
@@ -149,7 +153,7 @@ class DivisionService {
      */
     async ProclaimDivision(req, res) {
         const player_id = req.user.player_id;
-        const { capital_h3, fiefs } = req.body;
+        const { capital_h3, fiefs, name: requestedName } = req.body;
 
         if (!capital_h3 || !Array.isArray(fiefs) || fiefs.length === 0) {
             return res.status(400).json({
@@ -231,15 +235,24 @@ class DivisionService {
                 });
             }
 
-            // 5. Generar nombre automatico a partir del terreno mayoritario
-            const terrainRows = await client.query(`
-                SELECT td.h3_index, t.name AS terrain_name
-                FROM territory_details td
-                JOIN h3_map m ON td.h3_index = m.h3_index
-                JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
-                WHERE td.h3_index = ANY($1::text[])
-            `, [fiefs]);
-            const divisionName = suggestDivisionName(terrainRows.rows, senorioRank.territory_name);
+            // 5. Determinar nombre: usar el del body si existe, si no generar automaticamente
+            let baseName;
+            if (requestedName && requestedName.trim().length > 0) {
+                baseName = requestedName.trim().slice(0, 100);
+            } else {
+                const terrainRows = await client.query(`
+                    SELECT td.h3_index, t.name AS terrain_name
+                    FROM territory_details td
+                    JOIN h3_map m ON td.h3_index = m.h3_index
+                    JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
+                    WHERE td.h3_index = ANY($1::text[])
+                `, [fiefs]);
+                baseName = suggestDivisionName(terrainRows.rows, senorioRank.territory_name);
+            }
+
+            // Garantizar unicidad (resuelve conflictos automaticamente)
+            const divisionName = await getUniqueDivisionName(client, baseName, player_id);
+            const nameChanged  = divisionName !== baseName;
 
             // 6. Crear division
             const division = await DivisionModel.CreateDivision(client, {
@@ -253,7 +266,7 @@ class DivisionService {
                 await client.query('ROLLBACK');
                 return res.status(409).json({
                     success: false,
-                    message: `Ya existe una division tuya llamada "${divisionName}"`
+                    message: `Error al crear la division "${divisionName}"`
                 });
             }
 
@@ -272,6 +285,8 @@ class DivisionService {
 
             res.json({
                 success: true,
+                name_changed: nameChanged,
+                original_name: nameChanged ? baseName : undefined,
                 division: {
                     id:         division.id,
                     name:       division.name,
@@ -300,6 +315,69 @@ class DivisionService {
             client.release();
         }
     }
+    /**
+     * PATCH /divisions/:id/tax
+     *
+     * Actualiza la tasa impositiva (tax_rate) del señorío indicado.
+     * Solo el propietario puede modificarla. Rango válido: 0-100.
+     */
+    async UpdateDivisionTax(req, res) {
+        const player_id  = req.user.player_id;
+        const divisionId = parseInt(req.params.id, 10);
+        const { tax_rate } = req.body;
+
+        if (isNaN(divisionId)) {
+            return res.status(400).json({ success: false, message: 'ID de señorío inválido' });
+        }
+        if (tax_rate === undefined || tax_rate === null) {
+            return res.status(400).json({ success: false, message: 'tax_rate es requerido' });
+        }
+
+        const rate = parseFloat(tax_rate);
+        if (isNaN(rate) || rate < 0 || rate > 100) {
+            return res.status(400).json({ success: false, message: 'tax_rate debe ser un número entre 0 y 100' });
+        }
+
+        const client = await pool.connect();
+        try {
+            const updated = await DivisionModel.UpdateTaxRate(client, divisionId, player_id, Math.round(rate * 100) / 100);
+            if (!updated) {
+                return res.status(404).json({ success: false, message: 'Señorío no encontrado o no te pertenece' });
+            }
+            Logger.action(`División ${updated.name} (id=${divisionId}): tax_rate → ${updated.tax_rate}%`, player_id);
+            return res.json({ success: true, division: updated });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/divisions/:id/tax', method: 'PATCH', userId: player_id });
+            res.status(500).json({ success: false, message: 'Error al actualizar la tasa impositiva' });
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * GET /divisions/propose-name?base_name=...
+     *
+     * Devuelve el primer nombre disponible derivado de base_name para el jugador.
+     * Util para validacion en tiempo real cuando el usuario edita el nombre.
+     */
+    async ProposeName(req, res) {
+        const player_id = req.user.player_id;
+        const baseName  = (req.query.base_name ?? '').trim();
+
+        if (!baseName) {
+            return res.status(400).json({ success: false, message: 'base_name requerido' });
+        }
+
+        try {
+            const name    = await getUniqueDivisionName(pool, baseName, player_id);
+            const changed = name !== baseName;
+            return res.json({ success: true, name, changed });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/divisions/propose-name', userId: player_id });
+            res.status(500).json({ success: false, message: 'Error al proponer nombre' });
+        }
+    }
+
     /**
      * GET /divisions/my
      *

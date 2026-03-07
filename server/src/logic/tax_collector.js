@@ -56,25 +56,29 @@ async function processTaxCollection(client, turn, gameDate) {
         for (const player of playersResult.rows) {
             const taxRate = Math.min(100, Math.max(0, parseFloat(player.tax_percentage)));
             try {
-                // Fetch all territories for this player with their current gold stock
+                // Fetch all territories for this player with gold stock and division tax rate.
+                // Fiefs in a señorío use pd.tax_rate; independent fiefs use the player's global rate.
                 const territoriesResult = await client.query(`
-                    SELECT td.h3_index, td.gold_stored
+                    SELECT td.h3_index, td.gold_stored,
+                           COALESCE(pd.tax_rate, $2) AS effective_tax_rate
                     FROM territory_details td
                     JOIN h3_map m ON td.h3_index = m.h3_index
+                    LEFT JOIN political_divisions pd ON td.division_id = pd.id
                     WHERE m.player_id = $1
-                `, [player.player_id]);
+                `, [player.player_id, taxRate]);
 
                 if (territoriesResult.rows.length === 0) continue;
 
                 let playerGoldCollected = 0;
 
                 for (const territory of territoriesResult.rows) {
-                    const goldStock = parseFloat(territory.gold_stored) || 0;
+                    const goldStock      = parseFloat(territory.gold_stored) || 0;
                     if (goldStock <= 0) continue;
+                    const effectiveRate  = Math.min(100, Math.max(0, parseFloat(territory.effective_tax_rate)));
 
                     // FLOOR to avoid decimal issues in INTEGER columns.
                     // Clamped to goldStock so the fief can never go negative.
-                    const taxAmount = Math.min(goldStock, Math.floor(goldStock * taxRate / 100));
+                    const taxAmount = Math.min(goldStock, Math.floor(goldStock * effectiveRate / 100));
                     if (taxAmount <= 0) continue;
 
                     // Deduct from fief storehouse
@@ -98,7 +102,7 @@ async function processTaxCollection(client, turn, gameDate) {
                 const messageBody = [
                     `💰 **Recaudación Fiscal — Turno ${turn}**`,
                     ``,
-                    `Tasa impositiva aplicada: **${taxRate}%**`,
+                    `Tasa global del jugador: **${taxRate}%** (los señoríos pueden tener tasa propia)`,
                     `Feudos tributarios: ${territoriesResult.rows.length}`,
                     ``,
                     `Oro recaudado e ingresado al tesoro real: **+${playerGoldCollected} 💰**`,

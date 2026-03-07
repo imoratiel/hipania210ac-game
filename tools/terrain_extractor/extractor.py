@@ -504,9 +504,13 @@ def get_river_h3_set(data_dir: Path = BASE_DATA_DIR, h3_resolution: int = 8) -> 
 
         logger.info(f"Rios validos: {len(gdf)} segmentos")
 
-        # Buffer de 800m (aumentado para continuidad) y convertir a H3
+        # Buffer calibrado por resolución H3 (≈ 1.5× longitud de arista de celda)
+        # res 6: arista ~3.2km, res 7: ~1.2km, res 8: ~0.46km
+        BUFFER_BY_RES = {5: 8000, 6: 3500, 7: 1800, 8: 800, 9: 350, 10: 150}
+        buffer_meters = BUFFER_BY_RES.get(h3_resolution, 800)
+        logger.info(f"Buffer de rio: {buffer_meters}m (para resolucion H3={h3_resolution})")
         gdf_metric = gdf.to_crs('EPSG:3857')
-        gdf_buffered = gdf_metric.buffer(800)  # AUMENTADO: 800 metros
+        gdf_buffered = gdf_metric.buffer(buffer_meters)
         gdf_buffered_wgs84 = gdf_buffered.to_crs('EPSG:4326')
 
         river_h3_set = set()
@@ -539,6 +543,20 @@ def get_river_h3_set(data_dir: Path = BASE_DATA_DIR, h3_resolution: int = 8) -> 
                     logger.warning(f"Error convirtiendo rio a H3: {e}")
                 error_count += 1
                 continue
+
+        # Bridge-fill: rellenar celdas intermedias entre dos celdas de río a distancia 2.
+        # Garantiza continuidad cuando el buffer no alcanza a cubrir la celda entre dos segmentos.
+        logger.info("Ejecutando bridge-fill para garantizar continuidad de rios...")
+        bridge_start = time.time()
+        bridged = set()
+        for cell in list(river_h3_set):
+            for k2_cell in h3.grid_ring(cell, 2):
+                if k2_cell in river_h3_set:
+                    path = h3.grid_path_cells(cell, k2_cell)
+                    bridged.update(path)
+        added = bridged - river_h3_set
+        river_h3_set.update(bridged)
+        logger.info(f"Bridge-fill: {len(added):,} celdas intermedias añadidas en {time.time()-bridge_start:.2f}s")
 
         # Liberar memoria
         del gdf, gdf_metric, gdf_buffered, gdf_buffered_wgs84
@@ -1705,6 +1723,8 @@ def fix_isolated_rivers(terrain_data: List[Tuple[str, int, int, int]]) -> List[T
 
     logger.info(f"Rios aislados detectados (sin vecino rio): {len(isolated_rivers)}")
     logger.info(f"Rios validos que permanecen: {len(river_set) - len(isolated_rivers)}")
+    for idx in sorted(isolated_rivers):
+        logger.info(f"  RIO_AISLADO -> PANTANO: {idx}")
 
     # Reclasificar celdas aisladas: ID 4 (Rio) -> ID 5 (Pantanos)
     updated_terrain_data = []

@@ -277,7 +277,7 @@ class ArmyService {
                 await client.query('ROLLBACK');
                 return res.status(400).json({
                     success: false,
-                    message: `Población insuficiente. Tu red de feudos puede aportar ${recruitablePool} reclutas (cada feudo reserva ${GAME_CONFIG.ECONOMY.MIN_FIEF_POPULATION} hab.).`
+                    message: `Población insuficiente. Tu red de feudos puede aportar ${recruitablePool} reclutas (cada feudo reserva ${GAME_CONFIG.ECONOMY.MIN_FIEF_POPULATION} hab. mínimos; los feudos en señorío tienen un límite de ${GAME_CONFIG.DIVISIONS.MAX_RECRUITS_DIVISION} reclutas, los independientes de ${GAME_CONFIG.DIVISIONS.MAX_RECRUITS_INDEPENDENT}).`
                 });
             }
 
@@ -762,7 +762,7 @@ class ArmyService {
             }
 
             const playerId = req.user.player_id;
-            const H3_RESOLUTION = 8;
+            const H3_RESOLUTION = 7;
             const polygon = [
                 [bounds.minLat, bounds.minLng],
                 [bounds.minLat, bounds.maxLng],

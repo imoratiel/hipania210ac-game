@@ -690,6 +690,16 @@ export async function getTerritoryLaws(h3_index) {
   return response.data;
 }
 
+export async function proposeDivisionName(baseName) {
+  const response = await axios.get(`${API_URL}/api/divisions/propose-name`, { params: { base_name: baseName } });
+  return response.data;
+}
+
+export async function updateDivisionTax(divisionId, taxRate) {
+  const response = await axios.patch(`${API_URL}/api/divisions/${divisionId}/tax`, { tax_rate: taxRate });
+  return response.data;
+}
+
 /**
  * Proclaim a new political division
  * @param {Object} payload - { capital_h3, fiefs, name? }

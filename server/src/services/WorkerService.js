@@ -71,7 +71,7 @@ class WorkerService {
                 [parseFloat(maxLat), parseFloat(maxLng)],
                 [parseFloat(maxLat), parseFloat(minLng)],
             ];
-            const h3Cells = Array.from(h3.polygonToCells(polygon, 8)).slice(0, 50000);
+            const h3Cells = Array.from(h3.polygonToCells(polygon, 7)).slice(0, 50000);
 
             if (h3Cells.length === 0) {
                 return res.json({ success: true, workers: [], current_player_id: req.user.player_id });
@@ -268,7 +268,7 @@ class WorkerService {
                 [parseFloat(maxLat), parseFloat(maxLng)],
                 [parseFloat(maxLat), parseFloat(minLng)],
             ];
-            const h3Cells = Array.from(h3.polygonToCells(polygon, 8)).slice(0, 50000);
+            const h3Cells = Array.from(h3.polygonToCells(polygon, 7)).slice(0, 50000);
 
             if (h3Cells.length === 0) {
                 return res.json({ success: true, constructions: [], current_player_id: req.user.player_id });

@@ -13,7 +13,7 @@ class TerrainService {
             const bounds = { minLat: parseFloat(minLat), maxLat: parseFloat(maxLat), minLng: parseFloat(minLng), maxLng: parseFloat(maxLng) };
             if (Object.values(bounds).some(isNaN)) return res.status(400).json({ error: 'Invalid bounding box parameters' });
 
-            const H3_RESOLUTION = resolution ? parseInt(resolution, 10) : 8;
+            const H3_RESOLUTION = resolution ? parseInt(resolution, 10) : 7;
             const polygon = [[bounds.minLat, bounds.minLng], [bounds.minLat, bounds.maxLng], [bounds.maxLat, bounds.maxLng], [bounds.maxLat, bounds.minLng]];
             const h3CellsArray = Array.from(h3.polygonToCells(polygon, H3_RESOLUTION)).slice(0, 50000);
 
@@ -77,7 +77,7 @@ class TerrainService {
                 [bounds.minLat, bounds.minLng], [bounds.minLat, bounds.maxLng],
                 [bounds.maxLat, bounds.maxLng], [bounds.maxLat, bounds.minLng]
             ];
-            const h3CellsArray = Array.from(h3.polygonToCells(polygon, 8)).slice(0, 50000);
+            const h3CellsArray = Array.from(h3.polygonToCells(polygon, 7)).slice(0, 50000);
             if (h3CellsArray.length === 0) {
                 return res.json({ success: true, buildings: [] });
             }
@@ -125,7 +125,9 @@ class TerrainService {
                 coord_y: cell.coord_y,
                 territory: cell.population ? {
                     population: cell.population,
-                    happiness: cell.happiness,
+                    happiness: cell.division_id
+                        ? Math.min(100, Math.floor((cell.happiness || 0) * 1.10))
+                        : (cell.happiness || 0),
                     food: cell.food_stored,
                     wood: cell.wood_stored,
                     stone: cell.discovered_resource ? cell.stone_stored : 0,

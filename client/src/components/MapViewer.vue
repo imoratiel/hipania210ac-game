@@ -988,7 +988,7 @@ const error = ref(null);
 const hexagonCount = ref(0);
 const hexagonOpacity = ref(parseInt(localStorage.getItem('feudos_transparency') ?? '100', 10));
 const currentZoom = ref(13);
-const currentResolution = ref(8); // H3 resolution (8 or 10)
+const currentResolution = ref(7); // H3 resolution
 const terrainTypes = ref([]);
 const showH3Layer = ref(true);
 const showTerrainLayer = ref(true); // Terrain layer visibility
@@ -1449,9 +1449,7 @@ const initMap = () => {
     zoom = urlParams.zoom;
   }
 
-  // Inicializar resolución desde URL o determinar automáticamente según zoom
-  // Force resolution to always be 8 (database only contains res 8 indices)
-  currentResolution.value = 8;
+  currentResolution.value = 7;
 
   console.log(`Initializing map at [${center[0]}, ${center[1]}], zoom ${zoom}, resolution ${currentResolution.value}`);
 
@@ -1647,7 +1645,7 @@ const handleMapMove = () => {
 
 /**
  * Handle zoom change
- * - Resolution is always 8 (database only contains res 8 indices)
+ * - Resolution is always 6 (database only contains res 6 indices)
  * - Hexagons visible between zoom 11-17
  * - Zoom < 12: Oculta asentamientos
  * - Zoom >= 12: Muestra asentamientos
@@ -1655,9 +1653,6 @@ const handleMapMove = () => {
 const handleZoomChange = () => {
   const previousZoom = currentZoom.value;
   currentZoom.value = map.getZoom();
-
-  // Resolution is always 8 (no dynamic switching)
-  // Database only has res 8 indices, so we don't change resolution
 
   // Verificar si cruzamos el umbral de visualización de asentamientos
   const wasShowingSettlements = previousZoom >= MIN_ZOOM_SETTLEMENTS;

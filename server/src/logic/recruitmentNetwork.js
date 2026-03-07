@@ -12,8 +12,10 @@
 const h3 = require('h3-js');
 const GAME_CONFIG = require('../config/constants.js');
 
-const MIN_POP = GAME_CONFIG.ECONOMY.MIN_FIEF_POPULATION;
+const MIN_POP  = GAME_CONFIG.ECONOMY.MIN_FIEF_POPULATION;
 const MAX_RANGE = GAME_CONFIG.ECONOMY.RECRUITMENT_NETWORK_RANGE;
+const MAX_RECRUITS_DIVISION    = GAME_CONFIG.DIVISIONS.MAX_RECRUITS_DIVISION;
+const MAX_RECRUITS_INDEPENDENT = GAME_CONFIG.DIVISIONS.MAX_RECRUITS_INDEPENDENT;
 
 /**
  * BFS para encontrar todos los feudos contiguos del mismo jugador
@@ -63,7 +65,7 @@ async function getConnectedNetwork(client, startH3, playerId) {
 async function getFiefPopulations(client, h3Indices) {
     if (h3Indices.length === 0) return [];
     const result = await client.query(
-        'SELECT h3_index, population FROM territory_details WHERE h3_index = ANY($1::text[]) FOR UPDATE',
+        'SELECT h3_index, population, division_id FROM territory_details WHERE h3_index = ANY($1::text[]) FOR UPDATE',
         [h3Indices]
     );
     return result.rows;
@@ -71,16 +73,22 @@ async function getFiefPopulations(client, h3Indices) {
 
 /**
  * Calcula el total de población reclutable de una red de feudos.
- * Reclutable por feudo = MAX(0, population - MIN_POP).
  *
- * @param {Array} fiefPops - [{ h3_index, population }]
+ * Por feudo: reclutable = MIN( MAX(0, population - MIN_POP), cap )
+ * donde cap depende de si el feudo pertenece a un señorío:
+ *   - division_id IS NOT NULL → cap MAX_RECRUITS_DIVISION    (200)
+ *   - division_id IS NULL     → cap MAX_RECRUITS_INDEPENDENT (400)
+ *
+ * @param {Array} fiefPops - [{ h3_index, population, division_id? }]
  * @returns {number}
  */
 function calcRecruitablePool(fiefPops) {
-    return fiefPops.reduce(
-        (sum, f) => sum + Math.max(0, (parseInt(f.population) || 0) - MIN_POP),
-        0
-    );
+    return fiefPops.reduce((sum, f) => {
+        const pop       = parseInt(f.population) || 0;
+        const cap       = f.division_id ? MAX_RECRUITS_DIVISION : MAX_RECRUITS_INDEPENDENT;
+        const available = Math.min(Math.max(0, pop - MIN_POP), cap);
+        return sum + available;
+    }, 0);
 }
 
 /**

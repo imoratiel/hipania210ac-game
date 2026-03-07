@@ -49,9 +49,36 @@
 
         </div>
 
+        <!-- Tax rate slider -->
+        <div class="fuero-tax-section">
+          <div class="fuero-tax-header">
+            <span class="fuero-label">Tasa impositiva del señorío</span>
+            <span class="fuero-tax-value">{{ divisionTaxRate }}%</span>
+          </div>
+          <input
+            v-model.number="divisionTaxRate"
+            type="range" min="0" max="100" step="1"
+            class="fuero-tax-slider"
+          />
+          <div class="fuero-tax-hints">
+            <span>0% — Sin impuestos</span>
+            <span>Felicidad: +10% ✨</span>
+            <span>100% — Máximo</span>
+          </div>
+          <div v-if="taxMsg" class="fuero-result" :class="taxMsg.type">{{ taxMsg.text }}</div>
+          <button class="fuero-btn fuero-btn-primary fuero-btn-sm" :disabled="taxSaving" @click="saveTax">
+            {{ taxSaving ? 'Guardando...' : 'Aplicar tasa' }}
+          </button>
+        </div>
+
         <div class="fuero-info-note">
           <span>🏰</span>
-          <span>Este feudo forma parte del <strong>{{ lawsData.division.name }}</strong>. Las leyes y fueros que rigen este territorio han sido proclamados por su senor.</span>
+          <span>Este feudo forma parte del <strong>{{ lawsData.division.name }}</strong>. Las leyes y fueros que rigen este territorio han sido proclamados por su señor.</span>
+        </div>
+
+        <div class="fuero-info-note fuero-info-recruit">
+          <span>🪖</span>
+          <span>Los feudos dentro de un señorío tienen un límite de <strong>200 reclutas</strong> por feudo (feudos libres: 400). La felicidad aumenta un <strong>+10%</strong>.</span>
         </div>
       </div>
 
@@ -79,6 +106,27 @@
             <span>El nuevo {{ lawsData.rank.territory_name }} constara de <strong>{{ selectedFiefs.size }} feudos</strong></span>
           </div>
 
+          <!-- Editable division name -->
+          <div class="fuero-name-field">
+            <label class="fuero-label">Nombre del señorío</label>
+            <div class="fuero-name-input-row">
+              <input
+                v-model="customName"
+                type="text"
+                maxlength="100"
+                class="fuero-name-input"
+                placeholder="Nombre del señorío..."
+                @blur="refreshProposedName"
+              />
+              <button
+                class="fuero-btn fuero-btn-secondary fuero-btn-sm"
+                :disabled="nameProposing"
+                @click="refreshProposedName"
+                title="Verificar disponibilidad del nombre"
+              >{{ nameProposing ? '...' : '✓' }}</button>
+            </div>
+          </div>
+
           <!-- Noble title preview -->
           <div class="fuero-name-preview">
             <span class="fuero-label">Tu titulo</span>
@@ -93,6 +141,12 @@
           <!-- Result message -->
           <div v-if="resultMsg" class="fuero-result" :class="resultMsg.type">
             {{ resultMsg.text }}
+          </div>
+
+          <!-- Recruitment cap note -->
+          <div class="fuero-info-note fuero-info-recruit">
+            <span>🪖</span>
+            <span>Al unirse al señorío, el límite de reclutamiento por feudo baja de <strong>400</strong> a <strong>200</strong> reclutas. A cambio, la felicidad aumenta un <strong>+10%</strong>.</span>
           </div>
 
           <!-- Confirm button -->
@@ -115,7 +169,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
-import { getTerritoryLaws, proclaimDivision } from '@/services/mapApi.js';
+import { getTerritoryLaws, proclaimDivision, proposeDivisionName, updateDivisionTax } from '@/services/mapApi.js';
 
 const props = defineProps({
   h3_index: { type: String, required: true },
@@ -131,6 +185,11 @@ const lawsData = ref(null);
 const selectedFiefs = ref(new Set());
 const proclaiming = ref(false);
 const resultMsg = ref(null);
+const customName = ref('');
+const nameProposing = ref(false);
+const divisionTaxRate = ref(10);
+const taxSaving = ref(false);
+const taxMsg = ref(null);
 
 // ─── Computed ─────────────────────────────────────────────────────────────────
 
@@ -163,9 +222,13 @@ async function fetchLaws() {
     const data = await getTerritoryLaws(props.h3_index);
     lawsData.value = data;
 
+    if (data.has_division) {
+      divisionTaxRate.value = data.division.tax_rate ?? 10;
+    }
     // Auto-select all contiguous fiefs if case B
     if (!data.has_division && data.can_found) {
       selectedFiefs.value = new Set(data.contiguous_fiefs);
+      customName.value = data.suggested_name ?? '';
       emitHighlights();
     }
   } catch (err) {
@@ -181,6 +244,37 @@ function emitHighlights() {
   emit('highlight-fiefs', Array.from(selectedFiefs.value));
 }
 
+// ─── Tax rate (Case A) ────────────────────────────────────────────────────────
+
+async function saveTax() {
+  taxSaving.value = true;
+  taxMsg.value = null;
+  try {
+    await updateDivisionTax(lawsData.value.division.id, divisionTaxRate.value);
+    taxMsg.value = { type: 'success', text: `Tasa actualizada: ${divisionTaxRate.value}%` };
+  } catch (err) {
+    taxMsg.value = { type: 'error', text: err?.response?.data?.message || 'Error al guardar la tasa.' };
+  } finally {
+    taxSaving.value = false;
+  }
+}
+
+// ─── Name proposal ────────────────────────────────────────────────────────────
+
+async function refreshProposedName() {
+  const base = customName.value.trim();
+  if (!base) return;
+  nameProposing.value = true;
+  try {
+    const data = await proposeDivisionName(base);
+    customName.value = data.name;
+  } catch (_) {
+    // silencioso — el backend resolverá en proclaim
+  } finally {
+    nameProposing.value = false;
+  }
+}
+
 // ─── Proclaim ─────────────────────────────────────────────────────────────────
 
 async function proclaim() {
@@ -193,16 +287,16 @@ async function proclaim() {
     const data = await proclaimDivision({
       capital_h3: props.h3_index,
       fiefs: Array.from(selectedFiefs.value),
+      name: customName.value.trim() || undefined,
     });
 
-    resultMsg.value = {
-      type: 'success',
-      text: `¡${data.division.name} proclamado con ${data.division.fief_count} feudos!`,
-    };
+    let text = `¡${data.division.name} proclamado con ${data.division.fief_count} feudos!`;
+    if (data.name_changed) {
+      text += ` (El nombre "${data.original_name}" ya estaba en uso — se asignó "${data.division.name}" automáticamente.)`;
+    }
 
+    resultMsg.value = { type: 'success', text };
     emit('division-proclaimed', data.division);
-
-    // Refresh to show Case A
     setTimeout(() => fetchLaws(), 1500);
   } catch (err) {
     resultMsg.value = {
@@ -423,6 +517,12 @@ onBeforeUnmount(() => {
   line-height: 1.5;
 }
 
+.fuero-info-recruit {
+  border-color: rgba(147, 197, 114, 0.2);
+  background: rgba(147, 197, 114, 0.05);
+  color: #8ab87a;
+}
+
 /* Rank banner (Case B) */
 .fuero-rank-banner {
   display: flex;
@@ -482,6 +582,75 @@ onBeforeUnmount(() => {
 
 .fiefs-min-note {
   font-size: 0.78rem;
+  color: #5a4a3a;
+}
+
+/* Tax rate slider */
+.fuero-tax-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(197,160,89,0.06);
+  border: 1px solid rgba(197,160,89,0.25);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.fuero-tax-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.fuero-tax-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #c5a059;
+}
+
+.fuero-tax-slider {
+  width: 100%;
+  accent-color: #c5a059;
+  cursor: pointer;
+}
+
+.fuero-tax-hints {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: #5a4a3a;
+}
+
+/* Name input field */
+.fuero-name-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fuero-name-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.fuero-name-input {
+  flex: 1;
+  background: rgba(197,160,89,0.06);
+  border: 1px solid rgba(197,160,89,0.3);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: #e8d5b5;
+  font-size: 0.9rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.fuero-name-input:focus {
+  border-color: #c5a059;
+}
+
+.fuero-name-input::placeholder {
   color: #5a4a3a;
 }
 

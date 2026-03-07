@@ -94,6 +94,7 @@ class DivisionModel {
                 pd.name,
                 pd.capital_h3,
                 pd.created_at,
+                pd.tax_rate,
                 nr.id           AS rank_id,
                 nr.title_male   AS rank_title_male,
                 nr.title_female AS rank_title_female,
@@ -244,6 +245,22 @@ class DivisionModel {
             WHERE pd.boundary_geojson IS NOT NULL
         `);
         return result.rows;
+    }
+
+    /**
+     * Actualiza la tasa impositiva de una division.
+     * Solo permite modificar divisiones que pertenezcan al jugador indicado.
+     * Devuelve la fila actualizada o null si no se encontró.
+     */
+    async UpdateTaxRate(client, divisionId, playerId, taxRate) {
+        const result = await client.query(
+            `UPDATE political_divisions
+             SET tax_rate = $1
+             WHERE id = $2 AND player_id = $3
+             RETURNING id, name, tax_rate`,
+            [taxRate, divisionId, playerId]
+        );
+        return result.rows[0] ?? null;
     }
 
     /**

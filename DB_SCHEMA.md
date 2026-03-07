@@ -203,3 +203,9 @@
 - gender (CHAR 1)
 - noble_rank_id (INT FK -> noble_ranks.id)
 
+## Tabla: landmarks
+- id (SERIAL PK)
+- name (VARCHAR 100) - Nombre geográfico (Pueblo, monte, río, etc.)
+- h3_index (VARCHAR 15) - Coordenada H3 (Resolución 7 recomendada)
+- type (VARCHAR 50) - Clasificación: 'pueblo', 'monte', 'río', 'pantano', 'valle'
+

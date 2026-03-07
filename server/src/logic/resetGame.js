@@ -9,7 +9,7 @@ const pool = require('../../db.js');
  *  3. Elimina construcciones activas
  *  4. Restaura terreno original en hexes de puentes y elimina puentes
  *  5. Elimina edificios de feudos
- *  6. Resetea metadatos de territorios (preserva oro, comida, recursos y población)
+ *  6. Resetea metadatos de territorios (preserva oro, comida, recursos y población) y elimina divisiones políticas
  *  7. Libera todos los hexes del mapa (player_id = NULL)
  *  8. Elimina mensajes y notificaciones
  *  9. Elimina bots (is_ai = TRUE)
@@ -27,7 +27,8 @@ async function resetGame() {
         await client.query(`
             LOCK TABLE armies, troops, workers, active_constructions, bridges,
                        fief_buildings, territory_details, h3_map,
-                       messages, notifications, players, world_state
+                       messages, notifications, players, world_state,
+                       political_divisions
             IN ACCESS EXCLUSIVE MODE
         `);
 
@@ -67,8 +68,12 @@ async function resetGame() {
                 mine_level           = 0,
                 lumber_level         = 0,
                 port_level           = 0,
-                defense_level        = 0
+                defense_level        = 0,
+                division_id          = NULL
         `);
+
+        // 6b. Delete political divisions (señoríos y otras divisiones)
+        await client.query('DELETE FROM political_divisions');
 
         // 7. Release hex ownership
         await client.query('UPDATE h3_map SET player_id = NULL');

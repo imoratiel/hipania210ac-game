@@ -198,7 +198,12 @@ class KingdomModel {
                 upgrade_bld.name          AS upgrade_building_name,
                 upgrade_bld.gold_cost     AS upgrade_gold_cost,
                 upgrade_bld.construction_time_turns AS upgrade_turns,
-                pd.name AS division_name
+                pd.name AS division_name,
+                pd.tax_rate AS division_tax_rate,
+                CASE WHEN td.division_id IS NOT NULL
+                     THEN LEAST(100, FLOOR(td.happiness * 1.10))
+                     ELSE td.happiness
+                END AS effective_happiness
             FROM h3_map m
             JOIN territory_details td ON m.h3_index = td.h3_index
             JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
