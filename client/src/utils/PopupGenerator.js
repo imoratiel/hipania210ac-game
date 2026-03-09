@@ -273,7 +273,8 @@ export function generateArmyPopup(armyData, config) {
     currentIndex = 0,          // índice del ejército actualmente visible
     hasExplorersAtHex = false, // el jugador tiene Exploradores en el mismo hex
     scoutingArmyId = null,     // army_id del ejército propio con exploradores
-    attackingArmyId = null     // army_id del ejército propio en el mismo hex (para atacar)
+    attackingArmyId = null,    // army_id del ejército propio en el mismo hex (para atacar)
+    characterAtHex = null      // personaje propio sin ejército en este hex (para asignar)
   } = config;
 
   _ensureFadeAnimation();
@@ -423,6 +424,19 @@ export function generateArmyPopup(armyData, config) {
       popupContent += `<button id="army-merge-${army.army_id}" class="${mergeClass}" ${!canMerge ? 'disabled' : ''} title="${mergeTitle}">🔗</button>`;
 
       popupContent += `<button id="army-supply-${army.army_id}" class="army-action-icon" title="Abastecer">🌾</button>`;
+
+      // Botón comandante: si ya tiene → retirar; si no y hay personaje en hex → asignar
+      if (army.commander) {
+        popupContent += `<button id="army-commander-${army.army_id}" class="army-action-icon" title="Retirar comandante">🚪</button>`;
+      } else {
+        const canAssign = !!characterAtHex;
+        const cmdClass = canAssign ? 'army-action-icon' : 'army-action-icon army-action-disabled';
+        const cmdTitle = canAssign
+          ? `Asignar ${characterAtHex.name} como comandante`
+          : 'No hay personaje disponible en este feudo';
+        popupContent += `<button id="army-commander-${army.army_id}" class="${cmdClass}" ${!canAssign ? 'disabled' : ''} title="${cmdTitle}">👑</button>`;
+      }
+
       popupContent += '</div>';
     } else {
       // ── ENEMY ARMY: classified intelligence ─────────────────────────────

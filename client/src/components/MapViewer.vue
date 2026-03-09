@@ -998,7 +998,7 @@ import 'leaflet/dist/leaflet.css';
 
 // Import map utilities
 import { getHexagonStyles } from '@/utils/mapStyles.js';
-import { generateCellPopupContent, generateArmyPopup } from '@/utils/popupGenerator.js';
+import { generateCellPopupContent, generateArmyPopup } from '@/utils/PopupGenerator.js';
 import MapInteractionController from '@/utils/MapInteractionController.js';
 import RouteVisualizer from '@/utils/RouteVisualizer.js';
 import { createStackerDivIcon } from '@/utils/HexStacker.js';
@@ -1112,6 +1112,7 @@ let _pp_index = 0;
 let _pp_ref = null;
 let _pp_h3 = '';
 let _pp_coords = { x: null, y: null, ownerId: null };
+let _char_cache = []; // personajes del jugador, actualizados en fetchAndRenderCharacters
 
 // Action panel state
 const showActionPanel = ref(false);
@@ -2408,6 +2409,7 @@ const fetchAndRenderCharacters = async () => {
   try {
     const data = await mapApi.getMyCharacters();
     const characters = data.characters ?? [];
+    _char_cache = characters;
     for (const char of characters) {
       if (!char.h3_index) continue; // sin posición → sin marcador
       try {
@@ -2438,6 +2440,10 @@ const fetchAndRenderCharacters = async () => {
         const movingBadge = isMoving
           ? `<span class="char-popup-moving">&#8594; en marcha</span>`
           : '';
+        const hasArmy = !!char.army_id;
+        const joinLeaveBtn = hasArmy
+          ? `<button id="char-leave-${char.id}" class="army-action-icon" title="Abandonar ejército">🚪</button>`
+          : `<button id="char-join-${char.id}" class="army-action-icon" title="Unirse al ejército del feudo">🔗</button>`;
 
         const popupHtml = `
           <div class="char-popup">
@@ -2451,6 +2457,7 @@ const fetchAndRenderCharacters = async () => {
             <div class="char-popup-actions">
               <button id="char-move-${char.id}" class="army-action-icon" title="Establecer destino">📍</button>
               <button id="char-stop-${char.id}" class="army-action-icon" title="${stopTitle}">🛑</button>
+              ${joinLeaveBtn}
             </div>
           </div>`;
 
@@ -2461,6 +2468,10 @@ const fetchAndRenderCharacters = async () => {
             if (moveBtn) moveBtn.addEventListener('click', () => handleCharacterMove(char));
             const stopBtn = document.getElementById(`char-stop-${char.id}`);
             if (stopBtn) stopBtn.addEventListener('click', () => handleCharacterStop(char));
+            const joinBtn = document.getElementById(`char-join-${char.id}`);
+            if (joinBtn) joinBtn.addEventListener('click', () => handleCharacterJoin(char));
+            const leaveBtn = document.getElementById(`char-leave-${char.id}`);
+            if (leaveBtn) leaveBtn.addEventListener('click', () => handleCharacterLeave(char));
           }, 50);
         });
 
@@ -2618,6 +2629,9 @@ const syncWithServer = async () => {
 
         // Reload messages (new harvest messages may have been generated)
         await loadMessages();
+
+        // Refresh character markers (positions updated by turn engine)
+        fetchAndRenderCharacters();
 
         lastSyncTime = Date.now();
       } else {
@@ -4171,6 +4185,35 @@ const handleCharacterStop = async (char) => {
   }
 };
 
+const handleCharacterJoin = async (char) => {
+  try {
+    const data = await mapApi.getArmiesAtHex(char.h3_index);
+    // El endpoint ya filtra por player_id del jugador autenticado
+    const ownArmy = data.armies?.[0];
+    if (!ownArmy) {
+      showToast('⚠️ No hay ejército propio en este feudo', 'warning');
+      return;
+    }
+    await mapApi.assignArmyCommander(ownArmy.army_id, char.id);
+    map.closePopup();
+    await fetchAndRenderCharacters();
+    showToast(`✅ ${char.name} se ha unido al ejército`, 'success');
+  } catch (err) {
+    showToast(`❌ ${err?.response?.data?.message || 'Error al unirse al ejército'}`, 'error');
+  }
+};
+
+const handleCharacterLeave = async (char) => {
+  try {
+    await mapApi.removeArmyCommander(char.army_id);
+    map.closePopup();
+    await fetchAndRenderCharacters();
+    showToast(`🚪 ${char.name} ha abandonado el ejército`, 'info');
+  } catch (err) {
+    showToast(`❌ ${err?.response?.data?.message || 'Error al abandonar el ejército'}`, 'error');
+  }
+};
+
 // Open transfer panel from map popup
 const handleArmySplit = (army) => {
   const ownArmiesAtHex = _pp_armies.filter(
@@ -4200,6 +4243,31 @@ const handleArmyMerge = async (army) => {
 };
 const handleArmySupply = (_army) => showToast('⚙️ Función "Abastecer" próximamente', 'info');
 
+const handleArmyCommander = async (army, h3_index) => {
+  try {
+    if (army.commander) {
+      // Retirar comandante actual
+      await mapApi.removeArmyCommander(army.army_id);
+      map.closePopup();
+      await fetchAndRenderCharacters();
+      showToast(`🚪 Comandante retirado del ejército`, 'info');
+    } else {
+      // Asignar personaje disponible en el hex
+      const char = _char_cache.find(c => c.h3_index === h3_index && !c.army_id);
+      if (!char) {
+        showToast('⚠️ No hay personaje disponible en este feudo', 'warning');
+        return;
+      }
+      await mapApi.assignArmyCommander(army.army_id, char.id);
+      map.closePopup();
+      await fetchAndRenderCharacters();
+      showToast(`✅ ${char.name} lidera ahora el ejército`, 'success');
+    }
+  } catch (err) {
+    showToast(`❌ ${err?.response?.data?.message || 'Error al gestionar comandante'}`, 'error');
+  }
+};
+
 /**
  * Attaches click listeners to action buttons of the currently visible army in the popup.
  * Called after popup renders (setTimeout) and after each navigation step.
@@ -4224,6 +4292,9 @@ const attachArmyListeners = (army, h3_index) => {
 
   const supplyBtn = document.getElementById(`army-supply-${army.army_id}`);
   if (supplyBtn) supplyBtn.addEventListener('click', () => handleArmySupply(army));
+
+  const commanderBtn = document.getElementById(`army-commander-${army.army_id}`);
+  if (commanderBtn && !commanderBtn.disabled) commanderBtn.addEventListener('click', () => handleArmyCommander(army, h3_index));
 };
 
 /** Retorna si hay un ejército propio con Exploradores en el hex y su army_id, y el primer ejército propio para atacar. */
@@ -4262,6 +4333,7 @@ window.armyPopupNavigate = (delta) => {
   if (newIndex < 0 || newIndex >= _pp_armies.length || !_pp_ref) return;
   _pp_index = newIndex;
   const { hasExplorersAtHex, scoutingArmyId, attackingArmyId } = _getScoutingInfo(_pp_armies);
+  const characterAtHex = _char_cache.find(c => c.h3_index === _pp_h3 && !c.army_id) ?? null;
   const newContent = generateArmyPopup({ armies: _pp_armies }, {
     currentPlayerId: playerId.value,
     h3_index: _pp_h3,
@@ -4271,7 +4343,8 @@ window.armyPopupNavigate = (delta) => {
     currentIndex: _pp_index,
     hasExplorersAtHex,
     scoutingArmyId,
-    attackingArmyId
+    attackingArmyId,
+    characterAtHex
   });
   _pp_ref.setContent(newContent);
   setTimeout(() => {
@@ -4320,6 +4393,11 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
     // Compute scouting info for the enemy popup button
     const { hasExplorersAtHex, scoutingArmyId, attackingArmyId } = _getScoutingInfo(_pp_armies);
 
+    // Personaje propio sin ejército asignado en este hex (para botón 👑)
+    // Si el caché está vacío (primera apertura), poblarlo antes de buscar
+    if (_char_cache.length === 0) await fetchAndRenderCharacters();
+    const characterAtHex = _char_cache.find(c => c.h3_index === h3_index && !c.army_id) ?? null;
+
     // Build popup HTML content using external generator
     const popupContent = generateArmyPopup(data, {
       currentPlayerId: playerId.value,
@@ -4330,7 +4408,8 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
       currentIndex: 0,
       hasExplorersAtHex,
       scoutingArmyId,
-      attackingArmyId
+      attackingArmyId,
+      characterAtHex
     });
 
     // Create and show popup — store reference for navigation
