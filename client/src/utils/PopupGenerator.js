@@ -339,7 +339,7 @@ export function generateArmyPopup(armyData, config) {
             </svg>
           </span>`;
           popupContent += `<span class="troop-name" style="flex:1;">${c.full_title || c.name}</span>`;
-          popupContent += `<span class="troop-quantity" style="color:#c5a059;font-size:0.72rem;">+${c.combat_buff_pct}%</span>`;
+          popupContent += `<span class="troop-quantity" style="color:#c5a059;font-size:0.72rem;" title="Bono de combate al ejército">⚔️+${c.combat_buff_pct}%</span>`;
           popupContent += `<div class="guard-bar-mini" title="Guardia ${c.personal_guard}/25">
             <div style="width:${guardFill}%;background:${guardColor};height:100%;border-radius:2px;"></div>
           </div>`;

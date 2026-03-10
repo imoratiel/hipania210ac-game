@@ -1,4 +1,5 @@
 const db = require('../../db.js'); // Tu conexión a DB
+const { CHARACTERS: { COMBAT_BUFF_BASE, COMBAT_BUFF_PER_LEVEL } } = require('../config/constants');
 
 class ArmyModel {
     async findById(armyId) {
@@ -44,7 +45,7 @@ class ArmyModel {
                                        ),
                     'level',           c.level,
                     'personal_guard',  c.personal_guard,
-                    'combat_buff_pct', 10 + (c.level - 1)
+                    'combat_buff_pct', $2 + (c.level - 1) * $3
                 ) ELSE NULL END AS commander
             FROM armies a
             JOIN players p  ON a.player_id = p.player_id
@@ -53,7 +54,7 @@ class ArmyModel {
             LEFT JOIN noble_ranks nr ON nr.id = p2.noble_rank_id
             WHERE a.h3_index = $1
         `;
-        const result = await db.query(query, [h3_index]);
+        const result = await db.query(query, [h3_index, COMBAT_BUFF_BASE, COMBAT_BUFF_PER_LEVEL]);
         return result;
     }
     async GetArmyUnits(army_id) {
@@ -403,7 +404,25 @@ class ArmyModel {
             [armyId]
         );
 
-        return { army: armyResult.rows[0], troops: troopsResult.rows };
+        const commanderResult = await db.query(
+            `SELECT c.id, c.name, c.level, c.personal_guard, c.is_captive,
+                    $2::int + (c.level - 1) * $3::int AS combat_buff_pct,
+                    CONCAT(
+                        CASE WHEN pl2.gender = 'F' THEN nr.title_female ELSE nr.title_male END,
+                        ' ', c.name
+                    ) AS full_title
+             FROM characters c
+             LEFT JOIN players pl2 ON pl2.player_id = c.player_id
+             LEFT JOIN noble_ranks nr ON nr.id = pl2.noble_rank_id
+             WHERE c.army_id = $1`,
+            [armyId, COMBAT_BUFF_BASE, COMBAT_BUFF_PER_LEVEL]
+        );
+
+        return {
+            army: armyResult.rows[0],
+            troops: troopsResult.rows,
+            commander: commanderResult.rows[0] ?? null,
+        };
     }
 
     async GetArmiesAtHexForMerge(client, h3_index, player_id, host_army_id) {
@@ -468,7 +487,7 @@ class ArmyModel {
                                        ),
                     'level',           c.level,
                     'personal_guard',  c.personal_guard,
-                    'combat_buff_pct', 10 + (c.level - 1)
+                    'combat_buff_pct', $3 + (c.level - 1) * $4
                 ) ELSE NULL END AS commander
              FROM armies a
              LEFT JOIN characters c ON c.army_id = a.army_id
@@ -476,7 +495,7 @@ class ArmyModel {
              LEFT JOIN noble_ranks nr ON nr.id = p.noble_rank_id
              WHERE a.h3_index = $1 AND a.player_id = $2 AND a.destination IS NULL
              ORDER BY a.army_id`,
-            [h3_index, player_id]
+            [h3_index, player_id, COMBAT_BUFF_BASE, COMBAT_BUFF_PER_LEVEL]
         );
         return result.rows;
     }

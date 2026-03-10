@@ -63,8 +63,8 @@ const GAME_CONFIG = {
     CHARACTERS: {
         GUARD_MAX:              25,   // Máximo de guardia personal
         GUARD_REGEN_PER_TURN:    1,   // Guardia recuperada por turno
-        COMBAT_BUFF_BASE:       10,   // % de bono de combate en nivel 1
-        COMBAT_BUFF_PER_LEVEL:   1,   // % adicional por nivel > 1
+        COMBAT_BUFF_BASE:       10,   // % de bono de combate (fijo)
+        COMBAT_BUFF_PER_LEVEL:   0,   // % adicional por nivel > 1 (0 = buff plano)
         DEATH_AGE_THRESHOLD:    60,   // Edad a partir de la cual hay riesgo de muerte
         DEATH_CHANCE_PER_YEAR:   2,   // % de probabilidad de muerte por año sobre el umbral
         DEFAULT_ABILITIES: ['estrategia', 'logistica', 'diplomacia'],

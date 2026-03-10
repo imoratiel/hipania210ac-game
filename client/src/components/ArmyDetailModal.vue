@@ -21,7 +21,37 @@
           <div v-else-if="error" class="adm-error">❌ {{ error }}</div>
 
           <template v-else>
-            <!-- Tabla de tropas -->
+            <!-- Comandante -->
+            <template v-if="commander">
+              <div class="adm-section-label">👑 COMANDANTE</div>
+              <div class="adm-commander-card">
+                <div class="adm-commander-avatar">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="28" height="28">
+                    <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
+                  </svg>
+                </div>
+                <div class="adm-commander-info">
+                  <div class="adm-commander-name">{{ commander.full_title }}</div>
+                  <div class="adm-commander-meta">
+                    <span class="adm-commander-level">Nivel {{ commander.level }}</span>
+                    <span class="adm-commander-buff">⚔️ +{{ commander.combat_buff_pct }}% combate</span>
+                    <span v-if="commander.is_captive" class="adm-commander-captive">⛓️ Cautivo</span>
+                  </div>
+                  <div class="adm-commander-guard-row">
+                    <span class="adm-commander-guard-label">Guardia personal</span>
+                    <div class="adm-commander-guard-bar-wrap">
+                      <div class="adm-commander-guard-bar-fill"
+                           :style="{ width: Math.round(commander.personal_guard / 25 * 100) + '%',
+                                     background: barColor(Math.round(commander.personal_guard / 25 * 100)) }">
+                      </div>
+                    </div>
+                    <span class="adm-commander-guard-count">{{ commander.personal_guard }}/25</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+          <!-- Tabla de tropas -->
             <div class="adm-section-label">🗡 COMPOSICIÓN DE TROPAS</div>
             <div class="adm-table-wrap">
               <table v-if="troops.length > 0" class="adm-table">
@@ -224,6 +254,7 @@ const loading    = ref(false);
 const error      = ref('');
 const armyDetail = ref(null);  // army con provisiones
 const troops     = ref([]);
+const commander  = ref(null);  // personaje comandante del ejército
 const dismissQty  = ref({});   // { [unit_type_id]: quantity }
 const dismissing  = ref(new Set());
 
@@ -353,6 +384,7 @@ const fetchDetail = async (armyId) => {
     if (data.success) {
       armyDetail.value = data.army;
       troops.value     = data.troops;
+      commander.value  = data.commander ?? null;
       // Init dismiss inputs to 1 for each unit type
       dismissQty.value = Object.fromEntries(data.troops.map(t => [t.unit_type_id, 1]));
       // Auto-expand reinforce section if requested and conditions met
@@ -380,6 +412,7 @@ watch(() => props.show, (val) => {
     // Limpiar al cerrar
     armyDetail.value  = null;
     troops.value      = [];
+    commander.value   = null;
     error.value       = '';
     showReinforce.value = false;
     reinforceMsg.value  = '';
@@ -694,4 +727,102 @@ onUnmounted(() => document.removeEventListener('keydown', handleEsc));
 }
 .adm-reinforce-btn:hover:not(:disabled) { background: #1e4a1e; }
 .adm-reinforce-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Comandante */
+.adm-commander-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 20px 14px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(251,191,36,0.08) 0%, rgba(31,41,55,0.9) 100%);
+  border: 1px solid rgba(251,191,36,0.3);
+  border-radius: 8px;
+}
+.adm-commander-avatar {
+  width: 44px;
+  height: 44px;
+  background: rgba(251,191,36,0.15);
+  border: 1px solid rgba(251,191,36,0.4);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fbbf24;
+  flex-shrink: 0;
+}
+.adm-commander-info {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+.adm-commander-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fbbf24;
+  font-family: 'Georgia', serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.adm-commander-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.adm-commander-level {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  background: #1f2937;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #374151;
+}
+.adm-commander-buff {
+  font-size: 0.75rem;
+  color: #4ade80;
+  background: rgba(34,197,94,0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(34,197,94,0.25);
+}
+.adm-commander-captive {
+  font-size: 0.75rem;
+  color: #f87171;
+  background: rgba(239,68,68,0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(239,68,68,0.25);
+}
+.adm-commander-guard-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.adm-commander-guard-label {
+  font-size: 0.72rem;
+  color: #6b7280;
+  white-space: nowrap;
+}
+.adm-commander-guard-bar-wrap {
+  flex: 1;
+  height: 6px;
+  background: #1f2937;
+  border-radius: 3px;
+  overflow: hidden;
+  max-width: 120px;
+}
+.adm-commander-guard-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+.adm-commander-guard-count {
+  font-size: 0.72rem;
+  color: #9ca3af;
+  white-space: nowrap;
+}
 </style>

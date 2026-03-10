@@ -206,13 +206,62 @@ class CharacterModel {
 
     /**
      * Devuelve el comandante actual de un ejército (o null).
+     * Acepta client transaccional para uso dentro de transacciones.
      */
-    async getCommanderForArmy(armyId) {
-        const r = await pool.query(
+    async getCommanderForArmy(client, armyId) {
+        const r = await (client || pool).query(
             'SELECT * FROM characters WHERE army_id = $1 LIMIT 1',
             [armyId]
         );
         return r.rows[0] ?? null;
+    }
+
+    /**
+     * Actualiza la guardia personal del personaje (tras combate de guardia).
+     */
+    async updateGuard(client, characterId, newGuard) {
+        const clamped = Math.min(25, Math.max(0, newGuard));
+        await (client || pool).query(
+            'UPDATE characters SET personal_guard = $1 WHERE id = $2',
+            [clamped, characterId]
+        );
+    }
+
+    /**
+     * Marca al personaje como capturado y lo asigna al ejército capturador.
+     * Calcula un rescate proporcional al nivel del personaje.
+     */
+    async setCaptive(client, characterId, capturingArmyId, characterLevel = 1) {
+        const ransomAmount = 1000 * characterLevel;
+        await (client || pool).query(
+            `UPDATE characters
+             SET army_id              = $1,
+                 is_captive           = TRUE,
+                 captured_by_army_id  = $1,
+                 destination          = NULL,
+                 ransom_amount        = $2,
+                 ransom_turns_remaining = 10
+             WHERE id = $3`,
+            [capturingArmyId, ransomAmount, characterId]
+        );
+    }
+
+    /**
+     * Libera al personaje (huida o rescate): limpia estado de cautiverio
+     * y establece la capital como destino de movimiento.
+     */
+    async flee(client, characterId, capitalH3) {
+        await (client || pool).query(
+            `UPDATE characters
+             SET army_id              = NULL,
+                 is_captive           = FALSE,
+                 captured_by_army_id  = NULL,
+                 ransom_amount        = NULL,
+                 ransom_turns_remaining = NULL,
+                 destination          = $1
+             WHERE id = $2`,
+            [capitalH3, characterId]
+        );
     }
 
     /**

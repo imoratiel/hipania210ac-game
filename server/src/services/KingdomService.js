@@ -882,11 +882,11 @@ class KingdomService {
                 return res.status(409).json({ success: false, message: 'El jugador ya ha sido inicializado' });
             }
             Logger.action(
-                `✅ Inicialización épica completada. Capital: ${result.capitalHex}, feudos bonus: ${result.bonusHexes.length}`,
+                `✅ Inicialización completada. Capital: ${result.capitalHex}, feudos: ${result.allHexes.length}, señorío: ${result.senorioName ?? 'ninguno'}`,
                 player_id
             );
             logGameEvent(`[INIT] Jugador ${player_id} inicializado. Capital: ${result.capitalHex}`);
-            res.json({ success: true, capital_h3: result.capitalHex, bonus_hexes: result.bonusHexes });
+            res.json({ success: true, capital_h3: result.capitalHex, bonus_hexes: result.allHexes });
         } catch (error) {
             Logger.error(error, { endpoint: '/game/initialize', method: 'POST', userId: player_id });
             res.status(500).json({ success: false, message: 'Error al inicializar jugador: ' + error.message });

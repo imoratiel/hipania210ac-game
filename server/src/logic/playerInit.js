@@ -5,28 +5,56 @@
  * Runs inside a single atomic transaction:
  *  1. Idempotency guard (FOR UPDATE on players row)
  *  2. Find a free, isolated capital hex (≥10 cells from any occupied territory)
- *  3. Claim capital + ring-2 colonizable neighbors
+ *  3. Claim capital + BFS-expanded territory (≤30 hexes, bounded by rivers/sea)
  *  4. Create starting army (Milicia x100, Arqueros x50, Caballería Ligera x50)
- *  5. Build a completed Barracks (Cuartel) in the capital
- *  6. Set capital_h3 and is_initialized = TRUE
+ *  5. Build completed Cuartel + Fortaleza in the capital
+ *  6. Create starting character and assign to army
+ *  7. Create initial Señorío (political division) with all claimed hexes
+ *  8. Set capital_h3, noble_rank and is_initialized = TRUE
  */
 
 const pool  = require('../../db.js');
 const h3    = require('h3-js');
-const ArmyModel    = require('../models/ArmyModel.js');
-const KingdomModel = require('../models/KingdomModel.js');
+const ArmyModel      = require('../models/ArmyModel.js');
+const KingdomModel   = require('../models/KingdomModel.js');
+const CharacterModel = require('../models/CharacterModel.js');
+const DivisionModel  = require('../models/DivisionModel.js');
+const MapService     = require('../services/MapService.js');
+const { suggestDivisionName } = require('../logic/contiguitySearch.js');
+const { getUniqueDivisionName } = require('../logic/NamingService.js');
 
-const ISOLATION_RADIUS = 10; // min hex distance from any occupied territory
+const ISOLATION_RADIUS  = 10; // min hex distance from any occupied territory
+
+/**
+ * Force-initializes territory_details for a hex during player init.
+ * Uses ON CONFLICT DO UPDATE (not DO NOTHING) so pre-existing rows with
+ * stale/zero population are overwritten with the correct starting values.
+ */
+async function upsertTerritoryDetails(client, h3_index, eco) {
+    await client.query(`
+        INSERT INTO territory_details
+            (h3_index, population, happiness, food_stored, wood_stored, stone_stored, iron_stored, gold_stored)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (h3_index) DO UPDATE SET
+            population   = EXCLUDED.population,
+            happiness    = EXCLUDED.happiness,
+            food_stored  = EXCLUDED.food_stored,
+            wood_stored  = EXCLUDED.wood_stored,
+            stone_stored = EXCLUDED.stone_stored,
+            iron_stored  = EXCLUDED.iron_stored,
+            gold_stored  = EXCLUDED.gold_stored
+    `, [h3_index, eco.population, eco.happiness, eco.food, eco.wood, eco.stone, 0, eco.gold ?? 0]);
+}
+const TARGET_HEX_COUNT  = 30; // total hexes to claim (capital + bonus)
+const BFS_MAX_RADIUS    = 7;  // max search radius for BFS expansion
+
+// Terrain type IDs that act as impassable barriers in the BFS
+const RIVER_TERRAIN_ID = 4;
+const SEA_TERRAIN_ID   = 1;
 
 /**
  * Finds a free colonizable hex that is at least ISOLATION_RADIUS cells away
  * from every currently occupied hex.
- *
- * Strategy (JS-side, no custom SQL function needed):
- *  1. Load all occupied h3_index values from DB.
- *  2. Build a forbidden Set by expanding each occupied hex with gridDisk(radius).
- *  3. Fetch up to 500 random free colonizable hexes from DB.
- *  4. Return the first one not in the forbidden Set.
  */
 async function findIsolatedFreeHex(client) {
     const occupiedResult = await client.query(
@@ -58,12 +86,72 @@ async function findIsolatedFreeHex(client) {
 }
 
 /**
+ * BFS expansion from the capital hex.
+ * Rivers (RIVER_TERRAIN_ID) and Sea (SEA_TERRAIN_ID) act as impassable walls —
+ * the BFS cannot enter them, so the territory naturally stops at these boundaries.
+ * Expands outward until TARGET_HEX_COUNT - 1 bonus (non-capital) colonizable hexes
+ * are found within BFS_MAX_RADIUS.
+ *
+ * Returns an array of bonus hex indices (not including the capital).
+ * Also returns hexInfo map for name generation later.
+ */
+async function bfsExpandTerritory(client, capitalHex) {
+    const allCandidates = h3.gridDisk(capitalHex, BFS_MAX_RADIUS);
+
+    const result = await client.query(`
+        SELECT m.h3_index, m.terrain_type_id, m.player_id,
+               t.is_colonizable, t.name AS terrain_name
+        FROM h3_map m
+        JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
+        WHERE m.h3_index = ANY($1::text[])
+    `, [allCandidates]);
+
+    const hexInfo = new Map(result.rows.map(r => [r.h3_index, r]));
+
+    const visited    = new Set([capitalHex]);
+    const queue      = [capitalHex];
+    const bonusHexes = [];
+
+    while (queue.length > 0 && bonusHexes.length < TARGET_HEX_COUNT - 1) {
+        const current = queue.shift();
+        const info    = hexInfo.get(current);
+
+        if (!info) continue;
+
+        // Collect as bonus territory: colonizable, unclaimed, not the capital
+        if (current !== capitalHex && info.is_colonizable && !info.player_id) {
+            bonusHexes.push(current);
+        }
+
+        // Rivers and sea are walls: don't expand further from them
+        if (info.terrain_type_id === RIVER_TERRAIN_ID ||
+            info.terrain_type_id === SEA_TERRAIN_ID) {
+            continue;
+        }
+
+        // Expand to h3 ring-1 neighbors
+        for (const neighbor of h3.gridDisk(current, 1).filter(n => n !== current)) {
+            if (!visited.has(neighbor) && hexInfo.has(neighbor)) {
+                // Don't enter sea hexes at all (permanent barrier)
+                if (hexInfo.get(neighbor).terrain_type_id !== SEA_TERRAIN_ID) {
+                    visited.add(neighbor);
+                    queue.push(neighbor);
+                }
+            }
+        }
+    }
+
+    return { bonusHexes, hexInfo };
+}
+
+/**
  * Main initialization function.
  * Returns { alreadyInitialized: true } if the player was already initialized,
- * or { success: true, capitalHex, bonusHexes } on first-time initialization.
+ * or { success: true, capitalHex, allHexes, senorio } on first-time initialization.
  */
 async function initializePlayer(player_id) {
     const client = await pool.connect();
+    let divisionId = null;
     try {
         await client.query('BEGIN');
 
@@ -88,7 +176,7 @@ async function initializePlayer(player_id) {
             'UPDATE h3_map SET player_id = $1, last_update = CURRENT_TIMESTAMP WHERE h3_index = $2',
             [player_id, capitalHex]
         );
-        await KingdomModel.InsertTerritoryDetails(client, capitalHex, {
+        await upsertTerritoryDetails(client, capitalHex, {
             population: Math.floor(Math.random() * 201) + 400,
             happiness:  Math.floor(Math.random() * 21)  + 60,
             food:       Math.floor(Math.random() * 2001) + 1000,
@@ -97,25 +185,24 @@ async function initializePlayer(player_id) {
             gold:       Math.floor(Math.random() * 501)  + 300,
         });
 
-        // ── 3. Claim ring-2 colonizable neighbors ────────────────────────────
-        const ring1 = h3.gridDisk(capitalHex, 2).filter(n => n !== capitalHex);
-        const neighborsResult = await client.query(`
-            SELECT m.h3_index
-            FROM h3_map m
-            JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
-            WHERE m.h3_index = ANY($1::text[])
-              AND m.player_id IS NULL
-              AND t.is_colonizable = TRUE
-            FOR UPDATE OF m
-        `, [ring1]);
+        // ── 3. BFS expansion: claim up to 29 bonus hexes (total 30) ──────────
+        //    Rivers and sea act as barriers; territory stays on one side of them.
+        const { bonusHexes, hexInfo } = await bfsExpandTerritory(client, capitalHex);
 
-        const bonusHexes = [];
-        for (const row of neighborsResult.rows) {
+        // Lock rows we're about to claim
+        if (bonusHexes.length > 0) {
+            await client.query(
+                'SELECT 1 FROM h3_map WHERE h3_index = ANY($1::text[]) AND player_id IS NULL FOR UPDATE',
+                [bonusHexes]
+            );
+        }
+
+        for (const hex of bonusHexes) {
             await client.query(
                 'UPDATE h3_map SET player_id = $1, last_update = CURRENT_TIMESTAMP WHERE h3_index = $2',
-                [player_id, row.h3_index]
+                [player_id, hex]
             );
-            await KingdomModel.InsertTerritoryDetails(client, row.h3_index, {
+            await upsertTerritoryDetails(client, hex, {
                 population: Math.floor(Math.random() * 201) + 200,
                 happiness:  Math.floor(Math.random() * 21)  + 50,
                 food:       Math.floor(Math.random() * 2001),
@@ -123,8 +210,9 @@ async function initializePlayer(player_id) {
                 stone:      Math.floor(Math.random() * 2001),
                 gold:       Math.floor(Math.random() * 201)  + 50,
             });
-            bonusHexes.push(row.h3_index);
         }
+
+        const allHexes = [capitalHex, ...bonusHexes];
 
         // ── 4. Set capital ───────────────────────────────────────────────────
         await client.query(
@@ -154,26 +242,107 @@ async function initializePlayer(player_id) {
         await ArmyModel.AddTroops(client, armyId, unitMap['Caballería Ligera'],  50);
         await ArmyModel.refreshDetectionRange(client, armyId);
 
-        // ── 7. Build completed Barracks in capital ───────────────────────────
-        const barracksResult = await client.query(
-            "SELECT id FROM buildings WHERE LOWER(name) IN ('cuartel', 'barracks') LIMIT 1"
+        // ── 7. Build completed Fortaleza in capital ───────────────────────────
+        // Fortaleza satisfies both the military-building check (recruitment) and
+        // the HasFortress check (required to proclaim a Señorío).
+        // fief_buildings uses h3_index as PK, so only one building per hex.
+        const fortressResult = await client.query(
+            "SELECT id FROM buildings WHERE LOWER(name) IN ('fortaleza', 'fortress') LIMIT 1"
         );
-        if (barracksResult.rows.length > 0) {
+        const fortressId = fortressResult.rows[0]?.id;
+
+        if (fortressId) {
             await client.query(
                 `INSERT INTO fief_buildings (h3_index, building_id, remaining_construction_turns, is_under_construction)
-                 VALUES ($1, $2, 0, FALSE)`,
-                [capitalHex, barracksResult.rows[0].id]
+                 VALUES ($1, $2, 0, FALSE)
+                 ON CONFLICT (h3_index) DO UPDATE
+                   SET building_id = EXCLUDED.building_id,
+                       remaining_construction_turns = 0,
+                       is_under_construction = FALSE`,
+                [capitalHex, fortressId]
             );
+        } else {
+            // Fallback: build barracks if no fortaleza exists in DB
+            const barracksResult = await client.query(
+                "SELECT id FROM buildings WHERE LOWER(name) IN ('cuartel', 'barracks') LIMIT 1"
+            );
+            if (barracksResult.rows.length > 0) {
+                await client.query(
+                    `INSERT INTO fief_buildings (h3_index, building_id, remaining_construction_turns, is_under_construction)
+                     VALUES ($1, $2, 0, FALSE)
+                     ON CONFLICT DO NOTHING`,
+                    [capitalHex, barracksResult.rows[0].id]
+                );
+            }
         }
 
-        // ── 8. Mark player as initialized and set starting gold ──────────────
+        // ── 8. Create starting character and assign to army ──────────────────
+        const playerResult = await client.query(
+            'SELECT username FROM players WHERE player_id = $1',
+            [player_id]
+        );
+        const username = playerResult.rows[0]?.username ?? 'Señor';
+        const character = await CharacterModel.create(client, {
+            player_id,
+            name:               username,
+            age:                25,
+            health:             100,
+            level:              1,
+            personal_guard:     25,
+            is_main_character:  true,
+            is_heir:            false,
+            h3_index:           capitalHex,
+        });
+        await CharacterModel.assignToArmy(client, character.id, armyId);
+
+        // ── 9. Create initial Señorío ────────────────────────────────────────
+        let senorioName = null;
+        if (allHexes.length >= 30) {
+            const senorioRank = await DivisionModel.GetSenorioRank(client);
+            if (senorioRank) {
+                // Gather terrain names from hexInfo for name generation
+                const fiefsForName = allHexes
+                    .map(h => hexInfo.get(h))
+                    .filter(Boolean)
+                    .map(info => ({ terrain_name: info.terrain_name }));
+
+                const baseName     = suggestDivisionName(fiefsForName, senorioRank.territory_name);
+                const divisionName = await getUniqueDivisionName(client, baseName, player_id);
+
+                const division = await DivisionModel.CreateDivision(client, {
+                    player_id,
+                    name:          divisionName,
+                    noble_rank_id: senorioRank.id,
+                    capital_h3:    capitalHex,
+                });
+
+                if (division) {
+                    divisionId  = division.id;
+                    senorioName = divisionName;
+                    await DivisionModel.AssignFiefsToDivision(client, division.id, allHexes);
+                    // Promote player to Señor rank
+                    await client.query(
+                        'UPDATE players SET noble_rank_id = $1 WHERE player_id = $2',
+                        [senorioRank.id, player_id]
+                    );
+                }
+            }
+        }
+
+        // ── 10. Mark player as initialized and set starting gold ─────────────
         await client.query(
             'UPDATE players SET is_initialized = TRUE, gold = 100000 WHERE player_id = $1',
             [player_id]
         );
 
         await client.query('COMMIT');
-        return { success: true, capitalHex, bonusHexes };
+
+        // Pre-calculate señorío boundary (pure h3 computation, runs after COMMIT)
+        if (divisionId) {
+            await MapService.generateDivisionBoundary(divisionId);
+        }
+
+        return { success: true, capitalHex, allHexes, senorioName };
 
     } catch (err) {
         await client.query('ROLLBACK').catch(() => {});
