@@ -14,7 +14,9 @@ const { executeConstruction, canPerformAction, applyCooldown, processConquestLoo
 
 class KingdomService {
     async StartExploration(req, res) {
-        const client = await pool.connect();
+        // DISABLED: exploration temporarily disabled
+        return res.status(503).json({ success: false, message: 'La exploración de recursos está temporalmente desactivada.' });
+        const client = await pool.connect(); // eslint-disable-line no-unreachable
         try {
             const { h3_index } = req.body;
             const player_id = req.user.player_id;

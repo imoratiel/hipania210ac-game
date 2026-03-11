@@ -79,62 +79,12 @@ export function generateCellPopupContent(cell, config) {
     popupContent += `<p class="popup-detail-item">👥 Población: ${cell.territory.population} habitantes</p>`;
     popupContent += `<p class="popup-detail-item">😊 Felicidad: ${cell.territory.happiness || 0}%</p>`;
 
-    // Resources
+    // Resources (DISABLED: wood/stone/iron hidden; exploration hidden)
     popupContent += '<p class="popup-resources-label">Recursos Almacenados:</p>';
     popupContent += '<div class="popup-resource-grid">';
     popupContent += `<span class="resource-item" ${cell.territory.food <= 0 ? 'style="color:#ff6b6b;font-weight:bold;"' : ''}>🌾 Comida: ${cell.territory.food}</span>`;
-    popupContent += `<span class="resource-item">🌲 Madera: ${cell.territory.wood}</span>`;
-
-    // Determine exploration state
-    const isExplored = cell.territory.discovered_resource !== null;
-    const isExploring = cell.territory.exploration_end_turn !== null && currentTurn < cell.territory.exploration_end_turn;
-
-    // Mining resources - only show if territory has been explored
-    if (isExplored) {
-      if (cell.territory.discovered_resource !== 'none') {
-        if (cell.territory.discovered_resource === 'stone') {
-          const stone = Number(cell.territory.stone || 0);
-          popupContent += `<span class="resource-item">⛰️ Piedra: ${Math.round(stone)}</span>`;
-        }
-        if (cell.territory.discovered_resource === 'iron') {
-          const iron = Number(cell.territory.iron || 0);
-          popupContent += `<span class="resource-item">⛏️ Hierro: ${Math.round(iron)}</span>`;
-        }
-        if (cell.territory.discovered_resource === 'gold') {
-          const gold = Number(cell.territory.gold || 0);
-          popupContent += `<span class="resource-item resource-gold">💛 Oro: ${gold.toFixed(2)}</span>`;
-        }
-      } else {
-        popupContent += '<span class="resource-item" style="opacity: 0.5;">⛏️ Sin recursos mineros</span>';
-      }
-    } else if (isExploring) {
-      popupContent += '<span class="resource-item" style="opacity: 0.5;">⏳ Prospección en curso...</span>';
-    } else {
-      popupContent += '<span class="resource-item" style="opacity: 0.5;">❓ Recursos desconocidos</span>';
-    }
-
-    popupContent += '</div>';
-
-    // EXPLORATION STATUS
-    popupContent += '<div class="exploration-status-box">';
-    popupContent += '<p class="exploration-status-label">📊 Estado de Prospección:</p>';
-
-    if (isExplored) {
-      const resourceIcon = {
-        'stone': '⛰️ Piedra',
-        'iron': '⛏️ Hierro',
-        'gold': '💛 Oro',
-        'none': '❌ Sin recursos'
-      };
-      const resourceName = resourceIcon[cell.territory.discovered_resource] || '✅ Explorado';
-      popupContent += `<p class="exploration-status exploration-completed">✅ Explorado - ${resourceName}</p>`;
-    } else if (isExploring) {
-      const turnsRemaining = cell.territory.exploration_end_turn - currentTurn;
-      popupContent += `<p class="exploration-status exploration-in-progress">⏳ Explorando... (Faltan ${turnsRemaining} turno${turnsRemaining !== 1 ? 's' : ''})</p>`;
-    } else {
-      popupContent += '<p class="exploration-status exploration-not-started">⚪ Sin explorar</p>';
-    }
-
+    // popupContent += `<span class="resource-item">🌲 Madera: ${cell.territory.wood}</span>`; // DISABLED
+    // DISABLED: stone/iron/exploration section hidden
     popupContent += '</div></div>';
   } else if (cell.territory && cell.player_id) {
     popupContent += '<p class="espionage-required">🔒 Información detallada requiere espionaje</p>';

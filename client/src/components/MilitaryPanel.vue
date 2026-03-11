@@ -44,9 +44,9 @@
       <div class="recruitment-section current-fief-mini">
         <div class="fief-resources-compact">
           <div class="resource-pill">💰 Oro: {{ formatNumber(playerGold) }}</div>
-          <div class="resource-pill">🌲 Madera: {{ formatNumber(fief.wood) }}</div>
-          <div class="resource-pill">⛰️ Piedra: {{ formatNumber(fief.stone) }}</div>
-          <div class="resource-pill">⛏️ Hierro: {{ formatNumber(fief.iron) }}</div>
+          <!-- DISABLED: <div class="resource-pill">🌲 Madera: {{ formatNumber(fief.wood) }}</div> -->
+          <!-- DISABLED: <div class="resource-pill">⛰️ Piedra: {{ formatNumber(fief.stone) }}</div> -->
+          <!-- DISABLED: <div class="resource-pill">⛏️ Hierro: {{ formatNumber(fief.iron) }}</div> -->
         </div>
         <button class="btn-back-to-fiefs" @click="$emit('back')">
           ← Volver a la lista de feudos
@@ -147,15 +147,11 @@
           <span v-if="totalCost.gold > 0" :class="['footer-cost-item', { 'cost-insufficient': playerGold < totalCost.gold }]">
             💰 {{ totalCost.gold }}
           </span>
-          <span v-if="totalCost.wood_stored > 0" :class="['footer-cost-item', { 'cost-insufficient': (fief.wood || 0) < totalCost.wood_stored }]">
-            🌲 {{ totalCost.wood_stored }}
-          </span>
-          <span v-if="totalCost.stone_stored > 0" :class="['footer-cost-item', { 'cost-insufficient': (fief.stone || 0) < totalCost.stone_stored }]">
-            ⛰️ {{ totalCost.stone_stored }}
-          </span>
-          <span v-if="totalCost.iron_stored > 0" :class="['footer-cost-item', { 'cost-insufficient': (fief.iron || 0) < totalCost.iron_stored }]">
-            ⛏️ {{ totalCost.iron_stored }}
-          </span>
+          <!-- DISABLED: wood/stone/iron costs hidden
+          <span v-if="totalCost.wood_stored > 0" ...>🌲 {{ totalCost.wood_stored }}</span>
+          <span v-if="totalCost.stone_stored > 0" ...>⛰️ {{ totalCost.stone_stored }}</span>
+          <span v-if="totalCost.iron_stored > 0" ...>⛏️ {{ totalCost.iron_stored }}</span>
+          -->
         </div>
         <div class="footer-upkeep">
           <small>Mantenimiento: 💰{{ totalUpkeep.gold }}/turno 🌾{{ totalUpkeep.food }}/turno</small>

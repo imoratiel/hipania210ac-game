@@ -99,21 +99,19 @@ async function processHarvest(client, turn, config) {
                     const goldProduction = Math.floor((territory.population || 0) * 0.1 * GAME_CONFIG.HARVEST.GOLD_PRODUCTION_MULTIPLIER);
 
                     // Update territory storage
+                    // DISABLED: wood/stone/iron production temporarily disabled
                     await client.query(`
                         UPDATE territory_details
                         SET
                             food_stored = food_stored + $1,
-                            wood_stored = wood_stored + $2,
-                            stone_stored = stone_stored + $3,
-                            iron_stored = iron_stored + $4,
-                            gold_stored = gold_stored + $5
-                        WHERE h3_index = $6
-                    `, [foodProduction, woodProduction, stoneProduction, ironProduction, goldProduction, territory.h3_index]);
+                            gold_stored = gold_stored + $2
+                        WHERE h3_index = $3
+                    `, [foodProduction, goldProduction, territory.h3_index]);
 
                     totalFoodProduced += foodProduction;
-                    totalWoodProduced += woodProduction;
-                    totalStoneProduced += stoneProduction;
-                    totalIronProduced += ironProduction;
+                    // totalWoodProduced += woodProduction;   // DISABLED
+                    // totalStoneProduced += stoneProduction; // DISABLED
+                    // totalIronProduced += ironProduction;   // DISABLED
                     totalGoldProduced += goldProduction;
                 }
 
@@ -156,9 +154,6 @@ async function processHarvest(client, turn, config) {
                 const messageBody = `
 🌾 **Producción Total:**
 • Comida: +${totalFoodProduced}
-• Madera: +${totalWoodProduced}
-• Piedra: +${totalStoneProduced}
-• Hierro: +${totalIronProduced}
 • Oro: +${totalGoldProduced}
 
 ⚔️ **Consumo de Tropas:**
@@ -231,6 +226,11 @@ ${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.len
  * @param {Object} config - Game configuration
  */
 async function processMilitaryConsumption(client, turn, config) {
+
+    Logger.engine(`FORZADO PARA EVITAR EL CONSUMO DE EL EJERCITO POR AHORA - DESHABILITADO TEMPORALMENTE`);
+    return;
+
+
     try {
         Logger.engine(`[TURN ${turn}] Processing military food consumption...`);
 
@@ -405,30 +405,22 @@ async function processMonthlyProduction(client, turn, config) {
                     // Fishing is constant (no multiplier building yet)
                     fishingProduction = Math.floor(fishingProduction);
 
-                    // Update territory storage
+                    // DISABLED: wood/stone/iron monthly production temporarily disabled
+                    // Only fishing (food) production remains active
                     await client.query(`
                         UPDATE territory_details
-                        SET
-                            wood_stored = wood_stored + $1,
-                            stone_stored = stone_stored + $2,
-                            iron_stored = iron_stored + $3,
-                            food_stored = food_stored + $4
-                        WHERE h3_index = $5
-                    `, [woodProduction, stoneProduction, ironProduction, fishingProduction, territory.h3_index]);
+                        SET food_stored = food_stored + $1
+                        WHERE h3_index = $2
+                    `, [fishingProduction, territory.h3_index]);
 
-                    totalWoodProduced += woodProduction;
-                    totalStoneProduced += stoneProduction;
-                    totalIronProduced += ironProduction;
+                    // totalWoodProduced += woodProduction;   // DISABLED
+                    // totalStoneProduced += stoneProduction; // DISABLED
+                    // totalIronProduced += ironProduction;   // DISABLED
                     totalFishingProduced += fishingProduction;
                 }
 
                 // Generate monthly production notification
                 const messageBody = `
-🏭 **Producción Industrial:**
-• Madera: +${totalWoodProduced}
-• Piedra: +${totalStoneProduced}
-• Hierro: +${totalIronProduced}
-
 🎣 **Producción Pesquera:**
 • Comida (Pesca): +${totalFishingProduced}
 
@@ -470,13 +462,39 @@ ${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.len
 }
 
 /**
+ * Process civil food consumption for all inhabited fiefs.
+ * Runs once per game month (day 1). Consumption = daily rate × 30 days.
+ * Daily rate: floor(population / 100) × 0.1
+ * Monthly:    floor(population / 100) × 0.1 × 30  =  floor(population / 100) × 3
+ */
+async function processCivilFoodConsumption(client, turn) {
+    try {
+        await client.query(`
+            UPDATE territory_details
+            SET food_stored = GREATEST(0, food_stored - (FLOOR(population / 100.0) * 3))
+            WHERE h3_index IN (SELECT h3_index FROM h3_map WHERE player_id IS NOT NULL)
+        `);
+        Logger.engine(`[TURN ${turn}] Civil food consumption processed (monthly ×30)`);
+    } catch (error) {
+        Logger.error(error, {
+            context: 'turn_engine.processCivilFoodConsumption',
+            turn,
+        });
+        // Non-fatal: allow turn to continue
+    }
+}
+
+/**
  * Process completed explorations
  * @param {Object} client - PostgreSQL client (within transaction)
  * @param {number} turn - Current turn number
  * @param {Object} config - Game configuration
  */
 async function processExplorations(client, turn, config) {
-    try {
+    // DISABLED: exploration temporarily disabled
+    Logger.engine(`[TURN ${turn}] Explorations skipped (disabled)`);
+    return;
+    try { // eslint-disable-line no-unreachable
         Logger.engine(`[TURN ${turn}] Processing completed explorations...`);
 
         // Get all territories with completed explorations
@@ -944,24 +962,7 @@ async function processGameTurn(pool, config) {
 
         Logger.engine(`[TURN ${newTurn}] Started processing - Date: ${newDate}`);
 
-        // Daily food consumption
-        try {
-            // Buscar esta línea en MapViewer.vue para asegurarnos de que el consumo de comida coincide entre backend y frontend:
-            // const FOOD_CONSUMPTION_MULTIPLIER = 0.1;
-            await client.query(`
-                UPDATE territory_details
-                SET food_stored = GREATEST(0, food_stored - (FLOOR(population / 100.0) * 0.1))
-                WHERE h3_index IN (SELECT h3_index FROM h3_map WHERE player_id IS NOT NULL)
-            `);
-            Logger.engine(`[TURN ${newTurn}] Food consumption processed`);
-        } catch (error) {
-            Logger.error(error, {
-                context: 'turn_engine.processGameTurn',
-                phase: 'food_consumption',
-                turn: newTurn
-            });
-            // Continue processing - don't fail entire turn for food consumption error
-        }
+        // Civil food consumption now runs monthly (see below, dayOfMonth === 1)
 
         // Census and Production (every 30 turns)
         if (((newTurn - 1) % 30) === 0) {
@@ -1084,7 +1085,8 @@ async function processGameTurn(pool, config) {
         const dayOfMonth = gameDate.getDate();
 
         if (dayOfMonth === 1) {
-            Logger.engine(`[TURN ${newTurn}] Monthly production day (day 1 of month)`);
+            Logger.engine(`[TURN ${newTurn}] Monthly day (day 1 of month)`);
+            await processCivilFoodConsumption(client, newTurn);
             await processMonthlyProduction(client, newTurn, config);
         }
 

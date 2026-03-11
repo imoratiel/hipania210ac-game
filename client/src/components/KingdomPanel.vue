@@ -9,9 +9,9 @@
             <th class="col-number">👥</th>
             <th class="col-number">😊</th>
             <th class="col-number">🌾</th>
-            <th class="col-number">🌲</th>
-            <th class="col-number">⛰️</th>
-            <th class="col-number">⛏️</th>
+            <!-- DISABLED: <th class="col-number">🌲</th> -->
+            <!-- DISABLED: <th class="col-number">⛰️</th> -->
+            <!-- DISABLED: <th class="col-number">⛏️</th> -->
             <th class="col-number">💰</th>
             <th class="col-division">Señorío</th>
             <th class="col-edificio">🏛️</th>
@@ -33,9 +33,9 @@
             </td>
             <td class="text-right">{{ fief.happiness }}%</td>
             <td class="text-right">{{ formatNumber(fief.food) }}</td>
-            <td class="text-right">{{ formatNumber(fief.wood) }}</td>
-            <td class="text-right">{{ formatNumber(fief.stone) }}</td>
-            <td class="text-right">{{ formatNumber(fief.iron) }}</td>
+            <!-- DISABLED: <td class="text-right">{{ formatNumber(fief.wood) }}</td> -->
+            <!-- DISABLED: <td class="text-right">{{ formatNumber(fief.stone) }}</td> -->
+            <!-- DISABLED: <td class="text-right">{{ formatNumber(fief.iron) }}</td> -->
             <td class="text-gold text-right">{{ formatGold(fief.gold) }}</td>
             <td class="division-cell">
               <span v-if="fief.division_name" class="division-badge" :title="fief.division_name">
@@ -70,15 +70,15 @@
             <td class="text-right troops-cell">{{ fief.total_troops || 0 }}</td>
             <td class="table-actions">
               <button class="btn-micro" @click="$emit('focusOnFief', fief.h3_index)" title="Ver en el mapa">🗺️</button>
+              <!-- DISABLED: exploration button hidden
               <button
                 v-if="fief.explorationStatus === 'pending'"
                 class="btn-micro btn-explore-micro"
                 @click="$emit('exploreFief', fief.h3_index)"
                 :disabled="playerGold < explorationConfig.gold_cost"
                 :title="`Explorar (${explorationConfig.gold_cost} 💰)`"
-              >
-                ⛏️
-              </button>
+              >⛏️</button>
+              -->
               <button
                 v-if="fief.can_recruit"
                 class="btn-micro btn-recruit-micro"

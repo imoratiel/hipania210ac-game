@@ -184,9 +184,9 @@ const provAllocationsA = ref({}); // provisions (rounded integers for slider)
 const PROVISIONS = [
   { key: 'gold',  icon: '🥇', label: 'Oro'    },
   { key: 'food',  icon: '🍖', label: 'Comida' },
-  { key: 'wood',  icon: '🌲', label: 'Madera' },
-  { key: 'stone', icon: '⛰️', label: 'Piedra' },
-  { key: 'iron',  icon: '⛏️', label: 'Hierro' },
+  // DISABLED: { key: 'wood',  icon: '🌲', label: 'Madera' },
+  // DISABLED: { key: 'stone', icon: '⛰️', label: 'Piedra' },
+  // DISABLED: { key: 'iron',  icon: '⛏️', label: 'Hierro' },
 ];
 
 // ── Raw data helpers ───────────────────────────────────────────────────────

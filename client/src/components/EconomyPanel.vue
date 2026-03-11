@@ -22,9 +22,11 @@
             <template v-else>
               <div class="res-list">
                 <div class="res-row"><span>🌾 Comida</span><strong>{{ fmt(summary.total_food) }}</strong></div>
+                <!-- DISABLED: wood/stone/iron hidden
                 <div class="res-row"><span>🌲 Madera</span><strong>{{ fmt(summary.total_wood) }}</strong></div>
                 <div class="res-row"><span>⛰️ Piedra</span><strong>{{ fmt(summary.total_stone) }}</strong></div>
                 <div class="res-row"><span>⛏️ Hierro</span><strong>{{ fmt(summary.total_iron) }}</strong></div>
+                -->
                 <div class="res-row eco-gold-row"><span>💰 Oro (feudos)</span><strong class="gold">{{ fmt(summary.total_gold) }}</strong></div>
                 <div class="res-row"><span>👥 Población</span><strong>{{ fmt(summary.total_population) }}</strong></div>
               </div>
