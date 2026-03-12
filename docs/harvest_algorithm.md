@@ -8,13 +8,14 @@
 
 Cada turno equivale a **1 día** de juego (`game_date + INTERVAL '1 day'`). Los procesos económicos se ejecutan en distintas frecuencias:
 
-| Proceso | Frecuencia | Condición |
-|---|---|---|
-| Consumo civil de comida (territorio) | **Mensual** | `dayOfMonth === 1` |
-| Consumo militar (provisiones → feudo) | **Cada turno** (diario) | siempre |
-| Producción pesquera | **Mensual** | `dayOfMonth === 1` |
-| **Cosecha agrícola + oro** | **2 veces/año** | `dayOfYear === 75` ó `dayOfYear === 180` |
-| Cobro de impuesto fiscal | Mensual | `dayOfMonth === 10` |
+| Proceso | Frecuencia | Condición | Estado |
+|---|---|---|---|
+| Consumo civil de comida (territorio) | **Mensual** | `dayOfMonth === 1` | ✅ Activo |
+| Solidaridad alimentaria señorío | **Mensual** | `dayOfMonth === 1` (antes del consumo) | ✅ Activo |
+| Consumo militar (provisiones → feudo) | **Cada turno** (diario) | siempre | ✅ Activo |
+| Producción pesquera | **Mensual** | `dayOfMonth === 1` | ⛔ **Desactivado** |
+| **Cosecha agrícola + oro** | **2 veces/año** | `dayOfYear === 75` ó `dayOfYear === 180` | ✅ Activo |
+| Cobro de impuesto fiscal | Mensual | `dayOfMonth === 10` | ✅ Activo |
 
 `dayOfYear = turno_actual % days_per_year`
 
@@ -22,7 +23,20 @@ Las cosechas representan la siega de **primavera** (día 75) y **otoño** (día 
 
 ---
 
-## A. Consumo civil — día 1 de cada mes (`processCivilFoodConsumption`)
+## A. Solidaridad alimentaria del señorío — día 1 de cada mes (`processSeñorioFoodSolidarity`)
+
+Se ejecuta **antes** del consumo civil. Si un feudo va a quedarse sin comida para cubrir su consumo mensual, el señorío cubre el déficit tomando comida del feudo con mayor superávit dentro del mismo señorío.
+
+**Condiciones:**
+- El feudo en déficit pertenece a un señorío (`division_id IS NOT NULL`)
+- El feudo donante tiene superávit: `food_stored > monthly_consumption`
+- Transferencia: `MIN(déficit, superávit_del_donante)`
+
+El donante nunca queda por debajo de su propio consumo mensual. Si no hay ningún feudo con superávit en el señorío, el déficit no se cubre.
+
+---
+
+## B. Consumo civil — día 1 de cada mes (`processCivilFoodConsumption`)
 
 Todos los feudos con dueño descuentan comida una vez al mes, equivalente a 30 días de consumo:
 
@@ -49,31 +63,35 @@ El consumo se cubre en este orden:
 
 Valores de `food_consumption` por unidad:
 
-| Unidad             | food_consumption/turno |
-|--------------------|------------------------|
-| Milicia            | 0.1                    |
-| Soldados           | 0.1                    |
-| Lanceros           | 0.1                    |
-| Arqueros           | 0.1                    |
-| Ballesteros        | 0.1                    |
-| Caballería Ligera  | 0.2                    |
-| Caballería Pesada  | 0.3                    |
-| Explorador         | 0.1                    |
-| Ariete             | 0.1                    |
-| Catapulta          | 0.1                    |
+| Unidad             | food_consumption/turno | Razón |
+|--------------------|------------------------|-------|
+| Milicia            | 0.001                  | 1 persona |
+| Soldados           | 0.001                  | 1 persona |
+| Lanceros           | 0.001                  | 1 persona |
+| Arqueros           | 0.001                  | 1 persona |
+| Ballesteros        | 0.001                  | 1 persona |
+| Caballería Ligera  | 0.003                  | jinete + caballo (~3 personas) |
+| Caballería Pesada  | 0.003                  | jinete + caballo (~3 personas) |
+| Explorador         | 0.003                  | explorador + montura (~3 personas) |
+| Ariete             | 0                      | maquinaria, sin consumo |
+| Catapulta          | 0                      | maquinaria, sin consumo |
+
+> Tasa de referencia: 1 persona consume `1/1000 = 0.001` comida/día (`floor(POP/100) × 0.1 / POP`)
 
 ---
 
-## C. Producción pesquera — día 1 de cada mes (`processMonthlyProduction`)
+## C. Producción pesquera — ⛔ DESACTIVADA
 
-Los feudos con `fishing_output > 0` (terrenos costeros y fluviales) producen comida mensualmente:
+> La producción pesquera está temporalmente comentada en `processMonthlyProduction` para simplificar el balance económico durante la fase de pruebas. El código permanece en `turn_engine.js` para reactivarlo cuando sea necesario.
+
+Los feudos con `fishing_output > 0` (terrenos costeros y fluviales) producirían comida mensualmente cuando se reactive:
 
 ```
 fishingProduction = floor(fishing_output)   // sin multiplicadores actualmente
-food_stored += fishingProduction
+food_stored += fishingProduction             // DESACTIVADO
 ```
 
-Valores de `fishing_output` por terreno:
+Valores de `fishing_output` por terreno (para cuando se reactive):
 
 | Terreno | fishing_output |
 |---|---|

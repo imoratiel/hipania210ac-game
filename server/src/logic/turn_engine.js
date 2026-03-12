@@ -227,8 +227,8 @@ ${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.len
  */
 async function processMilitaryConsumption(client, turn, config) {
 
-    Logger.engine(`FORZADO PARA EVITAR EL CONSUMO DE EL EJERCITO POR AHORA - DESHABILITADO TEMPORALMENTE`);
-    return;
+    //Logger.engine(`FORZADO PARA EVITAR EL CONSUMO DE EL EJERCITO POR AHORA - DESHABILITADO TEMPORALMENTE`);
+    //return;
 
 
     try {
@@ -406,17 +406,17 @@ async function processMonthlyProduction(client, turn, config) {
                     fishingProduction = Math.floor(fishingProduction);
 
                     // DISABLED: wood/stone/iron monthly production temporarily disabled
-                    // Only fishing (food) production remains active
-                    await client.query(`
-                        UPDATE territory_details
-                        SET food_stored = food_stored + $1
-                        WHERE h3_index = $2
-                    `, [fishingProduction, territory.h3_index]);
-
                     // totalWoodProduced += woodProduction;   // DISABLED
                     // totalStoneProduced += stoneProduction; // DISABLED
                     // totalIronProduced += ironProduction;   // DISABLED
-                    totalFishingProduced += fishingProduction;
+
+                    // DISABLED: fishing food production temporarily disabled
+                    // await client.query(`
+                    //     UPDATE territory_details
+                    //     SET food_stored = food_stored + $1
+                    //     WHERE h3_index = $2
+                    // `, [fishingProduction, territory.h3_index]);
+                    // totalFishingProduced += fishingProduction;
                 }
 
                 // Generate monthly production notification
@@ -467,6 +467,90 @@ ${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.len
  * Daily rate: floor(population / 100) × 0.1
  * Monthly:    floor(population / 100) × 0.1 × 30  =  floor(population / 100) × 3
  */
+/**
+ * Señorío food solidarity: before monthly consumption, fiefs in deficit
+ * receive food from the richest surplus fief within the same señorío.
+ *
+ * Deficit fief:  food_stored < monthly_consumption  (floor(pop/100)*3)
+ * Donor fief:    has surplus = food_stored - monthly_consumption > 0
+ * Transfer:      MIN(deficit, donor_surplus)
+ *
+ * Runs once per month, BEFORE processCivilFoodConsumption.
+ */
+async function processSeñorioFoodSolidarity(client, turn) {
+    try {
+        // All deficit fiefs that belong to a señorío, ordered by largest deficit first
+        const deficitResult = await client.query(`
+            SELECT
+                td.h3_index,
+                td.division_id,
+                td.food_stored,
+                FLOOR(td.population / 100.0) * 3                         AS monthly_consumption,
+                GREATEST(0, FLOOR(td.population / 100.0) * 3 - td.food_stored) AS deficit
+            FROM territory_details td
+            JOIN h3_map m ON td.h3_index = m.h3_index
+            WHERE td.division_id IS NOT NULL
+              AND m.player_id IS NOT NULL
+              AND td.population > 0
+              AND td.food_stored < FLOOR(td.population / 100.0) * 3
+            ORDER BY td.division_id, deficit DESC
+        `);
+
+        if (deficitResult.rows.length === 0) return;
+
+        let transferCount = 0;
+
+        for (const fief of deficitResult.rows) {
+            // Re-read food_stored of deficit fief (may have received a transfer already this loop)
+            const currentFief = await client.query(
+                'SELECT food_stored FROM territory_details WHERE h3_index = $1',
+                [fief.h3_index]
+            );
+            const currentFood = parseFloat(currentFief.rows[0]?.food_stored || 0);
+            const remainingDeficit = Math.max(0, fief.monthly_consumption - currentFood);
+            if (remainingDeficit <= 0) continue;
+
+            // Find richest donor in the same señorío with surplus after their own consumption
+            const donorResult = await client.query(`
+                SELECT td.h3_index, td.food_stored,
+                       td.food_stored - (FLOOR(td.population / 100.0) * 3) AS surplus
+                FROM territory_details td
+                JOIN h3_map m ON td.h3_index = m.h3_index
+                WHERE td.division_id = $1
+                  AND td.h3_index   != $2
+                  AND m.player_id IS NOT NULL
+                  AND td.food_stored > FLOOR(td.population / 100.0) * 3
+                ORDER BY surplus DESC
+                LIMIT 1
+            `, [fief.division_id, fief.h3_index]);
+
+            if (!donorResult.rows[0]) continue;
+
+            const donor = donorResult.rows[0];
+            const transfer = Math.min(remainingDeficit, parseFloat(donor.surplus));
+            if (transfer <= 0) continue;
+
+            await client.query(
+                'UPDATE territory_details SET food_stored = food_stored - $1 WHERE h3_index = $2',
+                [transfer, donor.h3_index]
+            );
+            await client.query(
+                'UPDATE territory_details SET food_stored = food_stored + $1 WHERE h3_index = $2',
+                [transfer, fief.h3_index]
+            );
+            transferCount++;
+            Logger.engine(`[TURN ${turn}] Solidarity: ${donor.h3_index} → ${fief.h3_index} (${transfer.toFixed(1)} food)`);
+        }
+
+        if (transferCount > 0) {
+            Logger.engine(`[TURN ${turn}] Señorío food solidarity: ${transferCount} transfer(s) completed`);
+        }
+    } catch (error) {
+        Logger.error(error, { context: 'turn_engine.processSeñorioFoodSolidarity', turn });
+        // Non-fatal: allow turn to continue
+    }
+}
+
 async function processCivilFoodConsumption(client, turn) {
     try {
         await client.query(`
@@ -1086,6 +1170,7 @@ async function processGameTurn(pool, config) {
 
         if (dayOfMonth === 1) {
             Logger.engine(`[TURN ${newTurn}] Monthly day (day 1 of month)`);
+            await processSeñorioFoodSolidarity(client, newTurn);
             await processCivilFoodConsumption(client, newTurn);
             await processMonthlyProduction(client, newTurn, config);
         }
