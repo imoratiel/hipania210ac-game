@@ -11,6 +11,7 @@ const { Logger } = require('../utils/logger');
 const ArmySimulationService = require('../services/ArmySimulationService');
 const NotificationService = require('../services/NotificationService');
 const CharacterService = require('../services/CharacterService');
+const { calculateHappiness } = require('../services/FiefService');
 const h3 = require('h3-js');
 
 /**
@@ -467,6 +468,74 @@ ${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.len
  * Daily rate: floor(population / 100) × 0.1
  * Monthly:    floor(population / 100) × 0.1 × 30  =  floor(population / 100) × 3
  */
+/**
+ * Processes fief happiness for all player-owned, populated fiefs.
+ * Runs monthly (day 1). Applies inertia delta based on tax, food autonomy,
+ * garrison presence and war-zone status.
+ */
+async function processHappiness(client, turn) {
+    try {
+        // Effective tax rate: señorío rate (1-15) or player global (normalised to 1-15)
+        const result = await client.query(`
+            SELECT
+                td.h3_index,
+                td.happiness,
+                td.food_stored,
+                td.population,
+                COALESCE(td.is_war_zone, FALSE) AS is_war_zone,
+                LEAST(15, GREATEST(1,
+                    COALESCE(pd.tax_rate, p.tax_percentage, 10)
+                )) AS effective_tax_rate,
+                EXISTS(
+                    SELECT 1 FROM armies a
+                    WHERE a.h3_index = td.h3_index AND a.is_garrison = TRUE
+                ) AS has_garrison
+            FROM territory_details td
+            JOIN h3_map m ON td.h3_index = m.h3_index
+            JOIN players p ON p.player_id = m.player_id
+            LEFT JOIN political_divisions pd ON pd.id = td.division_id
+            WHERE m.player_id IS NOT NULL
+              AND td.population > 0
+        `);
+
+        if (result.rows.length === 0) return;
+
+        const h3Indices = [];
+        const newValues = [];
+
+        for (const fief of result.rows) {
+            const newHappiness = calculateHappiness(
+                {
+                    happiness:   fief.happiness,
+                    food_stored: fief.food_stored,
+                    population:  fief.population,
+                    is_war_zone: fief.is_war_zone,
+                },
+                {
+                    tax_rate:     parseFloat(fief.effective_tax_rate),
+                    has_garrison: fief.has_garrison,
+                }
+            );
+            h3Indices.push(fief.h3_index);
+            newValues.push(newHappiness);
+        }
+
+        await client.query(`
+            UPDATE territory_details AS td
+            SET happiness = u.happiness
+            FROM (
+                SELECT UNNEST($1::text[]) AS h3_index,
+                       UNNEST($2::int[])  AS happiness
+            ) AS u
+            WHERE td.h3_index = u.h3_index
+        `, [h3Indices, newValues]);
+
+        Logger.engine(`[TURN ${turn}] Happiness updated for ${h3Indices.length} fief(s)`);
+    } catch (error) {
+        Logger.error(error, { context: 'turn_engine.processHappiness', turn });
+    }
+}
+
 /**
  * Señorío food solidarity: before monthly consumption, fiefs in deficit
  * receive food from the richest surplus fief within the same señorío.
@@ -1172,6 +1241,8 @@ async function processGameTurn(pool, config) {
             Logger.engine(`[TURN ${newTurn}] Monthly day (day 1 of month)`);
             await processSeñorioFoodSolidarity(client, newTurn);
             await processCivilFoodConsumption(client, newTurn);
+            // Happiness calculated after all consumption (civil + military already ran this turn)
+            await processHappiness(client, newTurn);
             await processMonthlyProduction(client, newTurn, config);
         }
 
