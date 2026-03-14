@@ -1246,7 +1246,8 @@ const filteredAndSortedFiefs = computed(() => {
   // Calculate enriched fief data with distance and autonomy
   let enrichedFiefs = myFiefs.value.map(fief => {
     const population = Number(fief.population || 0);
-    const happiness = Number(fief.happiness || 0);
+    const happiness      = Number(fief.happiness       || 0);
+    const happinessDelta = Number(fief.happiness_delta ?? 0);
     const food = Number(fief.food_stored || 0);
     const wood = Number(fief.wood_stored || 0);
     const stone = Number(fief.stone_stored || 0);
@@ -1348,6 +1349,7 @@ const filteredAndSortedFiefs = computed(() => {
       terrain: fief.terrain_name || 'Desconocido',
       population,
       happiness,
+      happiness_delta: happinessDelta,
       food,
       wood,
       stone,

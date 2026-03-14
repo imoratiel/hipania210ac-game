@@ -500,13 +500,15 @@ async function processHappiness(client, turn) {
 
         if (result.rows.length === 0) return;
 
-        const h3Indices = [];
-        const newValues = [];
+        const h3Indices  = [];
+        const newValues  = [];
+        const deltaValues = [];
 
         for (const fief of result.rows) {
+            const oldHappiness = fief.happiness ?? 50;
             const newHappiness = calculateHappiness(
                 {
-                    happiness:   fief.happiness,
+                    happiness:   oldHappiness,
                     food_stored: fief.food_stored,
                     population:  fief.population,
                     is_war_zone: fief.is_war_zone,
@@ -518,17 +520,20 @@ async function processHappiness(client, turn) {
             );
             h3Indices.push(fief.h3_index);
             newValues.push(newHappiness);
+            deltaValues.push(newHappiness - oldHappiness);
         }
 
         await client.query(`
             UPDATE territory_details AS td
-            SET happiness = u.happiness
+            SET happiness       = u.happiness,
+                happiness_delta = u.delta
             FROM (
                 SELECT UNNEST($1::text[]) AS h3_index,
-                       UNNEST($2::int[])  AS happiness
+                       UNNEST($2::int[])  AS happiness,
+                       UNNEST($3::int[])  AS delta
             ) AS u
             WHERE td.h3_index = u.h3_index
-        `, [h3Indices, newValues]);
+        `, [h3Indices, newValues, deltaValues]);
 
         Logger.engine(`[TURN ${turn}] Happiness updated for ${h3Indices.length} fief(s)`);
     } catch (error) {

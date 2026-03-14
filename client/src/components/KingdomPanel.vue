@@ -31,7 +31,16 @@
             <td class="text-right pop-cell">
               {{ formatNumber(fief.population) }}
             </td>
-            <td class="text-right">{{ fief.happiness }}%</td>
+            <td class="text-right" :class="{ 'happiness-low': fief.happiness < 30 }">
+                <span
+                  :title="fief.happiness_delta !== 0 ? `${fief.happiness_delta > 0 ? '+' : ''}${fief.happiness_delta} en el último mes` : 'Sin cambios este mes'"
+                  class="happiness-value"
+                >{{ fief.happiness }}%<span
+                    v-if="fief.happiness_delta !== 0"
+                    class="happiness-delta"
+                    :class="fief.happiness_delta > 0 ? 'delta-positive' : 'delta-negative'"
+                  > ({{ fief.happiness_delta > 0 ? '+' : '' }}{{ fief.happiness_delta }})</span></span>
+              </td>
             <td class="text-right">{{ formatNumber(fief.food) }}</td>
             <!-- DISABLED: <td class="text-right">{{ formatNumber(fief.wood) }}</td> -->
             <!-- DISABLED: <td class="text-right">{{ formatNumber(fief.stone) }}</td> -->
@@ -394,6 +403,11 @@ const formatGold = (val) => {
 .pop-at-cap { color: #f97316; font-weight: 700; }
 .text-center { text-align: center; }
 .text-gold { color: #ffd700; }
+.happiness-low { color: #ff4444; font-weight: 600; }
+.happiness-value { white-space: nowrap; cursor: default; }
+.happiness-delta { font-size: 0.8em; opacity: 0.85; }
+.delta-positive { color: #4caf50; }
+.delta-negative { color: #ff6b6b; }
 .text-danger { color: #ff6b6b; }
 .text-success { color: #4caf50; }
 
