@@ -877,9 +877,12 @@ class KingdomService {
     }
 
     async InitializePlayer(req, res) {
-        const player_id = req.user.player_id;
+        const player_id   = req.user.player_id;
+        const forceCultureId = req.query?.culture_id ? parseInt(req.query.culture_id, 10) : null;
+        const randomBonus    = req.query?.random_bonus === 'true';
+        console.log(`[Init] player=${player_id} culture_id=${forceCultureId} random_bonus=${randomBonus} | query:`, req.query);
         try {
-            const result = await initializePlayer(player_id);
+            const result = await initializePlayer(player_id, { forceCultureId, randomBonus });
             if (result.alreadyInitialized) {
                 return res.status(409).json({ success: false, message: 'El jugador ya ha sido inicializado' });
             }

@@ -58,19 +58,54 @@ const SEA_TERRAIN_ID   = 1;
  * Finds a free colonizable hex that is at least ISOLATION_RADIUS cells away
  * from every currently occupied hex.
  */
-async function findIsolatedFreeHex(client) {
+async function findIsolatedFreeHex(client, cultureId = null) {
     const occupiedResult = await client.query(
         'SELECT h3_index FROM h3_map WHERE player_id IS NOT NULL'
     );
-    const occupiedHexes = occupiedResult.rows.map(r => r.h3_index);
-
     const forbidden = new Set();
-    for (const hex of occupiedHexes) {
+    for (const hex of occupiedResult.rows.map(r => r.h3_index)) {
         for (const near of h3.gridDisk(hex, ISOLATION_RADIUS)) {
             forbidden.add(near);
         }
     }
 
+    // ── Culture-weighted spawn ───────────────────────────────────────────────
+    // If a culture is specified, prefer hexes with high weight for that culture.
+    // geo_culture_weights can have overlapping zones so different cultures may
+    // share border hexes — this is intentional to allow mixed-culture regions.
+    // Falls back to pure random if geo_culture_weights is empty or has no entries
+    // for this culture.
+    if (cultureId !== null) {
+        const weighted = await client.query(`
+            SELECT m.h3_index, gcw.weight
+            FROM h3_map m
+            JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
+            JOIN geo_culture_weights gcw
+                ON gcw.h3_index = m.h3_index AND gcw.culture_id = $1
+            WHERE m.player_id IS NULL
+              AND t.is_colonizable = TRUE
+            ORDER BY RANDOM()
+            LIMIT 800
+        `, [cultureId]);
+
+        const valid = weighted.rows.filter(r => !forbidden.has(r.h3_index));
+
+        if (valid.length > 0) {
+            // Weighted random: hexes in the culture's core zone (high weight)
+            // are picked more often than border/overlap zones (low weight).
+            const total = valid.reduce((s, r) => s + Number(r.weight), 0);
+            let rng = Math.random() * total;
+            for (const row of valid) {
+                rng -= Number(row.weight);
+                if (rng <= 0) return row.h3_index;
+            }
+            return valid[0].h3_index;
+        }
+        // No geo weights for this culture — fall through to random
+        Logger.action(`[Init] geo_culture_weights vacío para cultura ${cultureId} — spawn aleatorio`, null);
+    }
+
+    // ── Pure random spawn (no culture or empty table) ────────────────────────
     const candidatesResult = await client.query(`
         SELECT m.h3_index
         FROM h3_map m
@@ -151,7 +186,7 @@ async function bfsExpandTerritory(client, capitalHex, targetCount) {
  * Returns { alreadyInitialized: true } if the player was already initialized,
  * or { success: true, capitalHex, allHexes, senorio } on first-time initialization.
  */
-async function initializePlayer(player_id) {
+async function initializePlayer(player_id, { forceCultureId = null, randomBonus = false } = {}) {
     const client = await pool.connect();
     let divisionId = null;
     try {
@@ -172,7 +207,7 @@ async function initializePlayer(player_id) {
         const targetFiefCount = senorioRankMeta?.min_fiefs_required ?? 40;
 
         // ── 1. Find capital hex ──────────────────────────────────────────────
-        const capitalHex = await findIsolatedFreeHex(client);
+        const capitalHex = await findIsolatedFreeHex(client, forceCultureId);
         if (!capitalHex) {
             throw new Error('No hay feudos disponibles suficientemente alejados. Contacta al administrador.');
         }
@@ -226,11 +261,11 @@ async function initializePlayer(player_id) {
             [capitalHex, player_id]
         );
 
-        // ── 5. Assign culture by capital location ────────────────────────────
-        let cultureId = assignCultureByLocation(capitalHex);
+        // ── 5. Assign culture ────────────────────────────────────────────────
+        // If the player explicitly chose a culture, use it directly.
+        // Otherwise fall back to geo-weight lookup, then random.
+        let cultureId = forceCultureId ?? assignCultureByLocation(capitalHex);
 
-        // Fallback: if geo_culture_weights has no entry for this hex (table empty
-        // or area not yet mapped), pick a random culture from the cultures table.
         if (!cultureId) {
             const fallback = await client.query(
                 'SELECT id FROM cultures ORDER BY RANDOM() LIMIT 1'
@@ -239,7 +274,9 @@ async function initializePlayer(player_id) {
             if (cultureId) Logger.action(`[Init] No geo weight for ${capitalHex} — random culture assigned: ${cultureId}`, player_id);
         }
 
-        const startingTroops = await getStartingTroopsByCulture(cultureId);
+        const troopMultiplier = randomBonus ? 2 : 1;
+        const startingTroopsBase = await getStartingTroopsByCulture(cultureId);
+        const startingTroops = startingTroopsBase.map(t => ({ ...t, quantity: t.quantity * troopMultiplier }));
 
         if (cultureId) {
             await client.query(
@@ -347,9 +384,10 @@ async function initializePlayer(player_id) {
         }
 
         // ── 10. Mark player as initialized and set starting gold ─────────────
+        const startingGold = randomBonus ? 200000 : 100000;
         await client.query(
-            'UPDATE players SET is_initialized = TRUE, gold = 100000 WHERE player_id = $1',
-            [player_id]
+            'UPDATE players SET is_initialized = TRUE, gold = $1 WHERE player_id = $2',
+            [startingGold, player_id]
         );
 
         await client.query('COMMIT');

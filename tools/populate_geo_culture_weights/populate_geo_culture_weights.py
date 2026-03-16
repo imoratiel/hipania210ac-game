@@ -37,7 +37,7 @@ except ImportError:
     sys.exit(1)
 
 # ── Configuración DB ────────────────────────────────────────────────────────
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'terrain_extractor'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'terrain_extractor'))
 try:
     from config import DB_CONFIG
     print("✅ DB_CONFIG cargado desde terrain_extractor/config.py")
@@ -67,9 +67,9 @@ def get_culture_weights(lat: float, lng: float) -> dict[int, int]:
 
     Distribución histórica aproximada (c. 300-100 a.C.):
       Celtas     → NW: Galicia, Asturias, Cantabria, norte de Portugal
-      Íberos     → E: costa mediterránea, Levante, baja Cataluña
+      Romanos    → E: costa mediterránea, Levante, baja Cataluña
       Cartagineses → S: Andalucía, Cartagena, sur de Portugal
-      Romanos    → C: Meseta, Extremadura, interior (y base residual)
+      Íberos     → C: Meseta, Extremadura, interior (y base residual)
     """
 
     # ── Celtas (id=4): noroeste ─────────────────────────────────────────────
@@ -87,20 +87,20 @@ def get_culture_weights(lat: float, lng: float) -> dict[int, int]:
     elif lat > 40.0 and lng < -7.0:
         celtic = 35   # Portugal norte
 
-    # ── Íberos (id=3): costa este ───────────────────────────────────────────
-    iberian = 0
+    # ── Romanos (id=1): costa este ──────────────────────────────────────────
+    roman = 0
     if lat > 40.5 and lat < 43.0 and lng > 1.5:
-        iberian = 95  # Cataluña costera
+        roman = 95  # Cataluña costera
     elif lat > 39.0 and lat < 41.5 and lng > 0.5:
-        iberian = 90  # Valencia / Castellón
+        roman = 90  # Valencia / Castellón
     elif lat > 37.0 and lat < 39.5 and lng > -1.0:
-        iberian = 80  # Murcia / Alicante / Almería este
+        roman = 80  # Murcia / Alicante / Almería este
     elif lat > 41.0 and lat < 43.5 and lng > 0.0:
-        iberian = 70  # Aragón costal / Gerona interior
+        roman = 70  # Aragón costal / Gerona interior
     elif lat > 38.0 and lat < 42.0 and lng > -1.0 and lng < 0.5:
-        iberian = 55  # Aragón interior / interior valenciano
+        roman = 55  # Aragón interior / interior valenciano
     elif lat > 37.5 and lat < 41.0 and lng > -2.0 and lng < 0.0:
-        iberian = 35  # Transición Meseta-Levante
+        roman = 35  # Transición Meseta-Levante
 
     # ── Cartagineses (id=2): sur ────────────────────────────────────────────
     carthaginian = 0
@@ -117,16 +117,16 @@ def get_culture_weights(lat: float, lng: float) -> dict[int, int]:
     elif lat < 38.0 and lng > -6.0 and lng < -3.0:
         carthaginian = 60  # Extremadura sur / Córdoba norte
 
-    # ── Romanos (id=1): Meseta central + base residual ──────────────────────
-    roman = 10  # presencia residual en toda la península
+    # ── Íberos (id=3): Meseta central + base residual ───────────────────────
+    iberian = 10  # presencia residual en toda la península
     if lat > 39.0 and lat < 42.5 and lng > -6.5 and lng < -2.0:
-        roman = 80   # Meseta Norte (Castilla y León)
+        iberian = 80   # Meseta Norte (Castilla y León)
     elif lat > 38.0 and lat < 40.5 and lng > -5.5 and lng < -1.5:
-        roman = 75   # Meseta Sur (Castilla-La Mancha)
+        iberian = 75   # Meseta Sur (Castilla-La Mancha)
     elif lat > 38.5 and lat < 41.0 and lng > -7.5 and lng < -5.0:
-        roman = 60   # Extremadura / interior Portugal
+        iberian = 60   # Extremadura / interior Portugal
     elif lat > 40.0 and lat < 42.0 and lng > -4.0 and lng < -1.0:
-        roman = 55   # Zona de transición Meseta-Ebro
+        iberian = 55   # Zona de transición Meseta-Ebro
 
     result = {
         1: roman,

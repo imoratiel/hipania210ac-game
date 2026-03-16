@@ -1,43 +1,105 @@
 <template>
   <div class="welcome-overlay" @click.self="() => {}">
     <div class="welcome-parchment">
-      <!-- Heraldic crest -->
-      <div class="welcome-crest">⚜️</div>
 
+      <!-- Header -->
+      <div class="welcome-crest">⚜️</div>
       <h1 class="welcome-title">El Destino Llama</h1>
       <div class="welcome-divider">✦ ✦ ✦</div>
 
       <p class="welcome-text">
-        Joven Señor, tu nombre resuena aún con suavidad, pero el destino ha puesto ante ti este
-        pequeño feudo, refugio de hombres leales. Una pequeña hueste de valientes ha jurado
-        proteger tu estandarte. El hierro, el trigo y la gloria aguardan. Ante ti se extiende un
-        mundo implacable...
-        <em>ahora la senda es tuya.</em>
-        ¿Cómo escribirás tu leyenda?
+        Joven Señor, antes de reclamar tus tierras debes
+        <em>elegir el linaje que guiará tu casa</em>.
+        Tu sangre determinará los guerreros que te jurarán lealtad.
       </p>
 
-      <div class="welcome-grants">
-        <div class="grant-item"><span class="grant-icon">🏰</span> Un feudo capital y sus tierras colindantes</div>
-        <div class="grant-item"><span class="grant-icon">⚔️</span> Guardia del Señor: 100 milicianos, 50 arqueros, 50 jinetes</div>
-        <div class="grant-item"><span class="grant-icon">🏯</span> Cuartel erigido en tu capital</div>
+      <!-- ── Culture selector ── -->
+      <div class="culture-section">
+        <div class="culture-section-label">— Elige tu Linaje —</div>
+
+        <div class="culture-grid">
+          <button
+            v-for="c in cultures"
+            :key="c.id"
+            class="culture-btn"
+            :class="{ selected: selectedCulture?.id === c.id, random: c.id === 'random' }"
+            @click="selectedCulture = c"
+          >
+            <!-- Shield -->
+            <div class="culture-shield" :style="{ background: c.shieldBg, borderColor: c.shieldBorder }">
+              <svg viewBox="0 0 60 72" xmlns="http://www.w3.org/2000/svg" class="shield-svg">
+                <path d="M4,4 L56,4 L56,52 L30,68 L4,52 Z"
+                      :fill="c.shieldBg"
+                      :stroke="c.shieldBorder"
+                      stroke-width="3"
+                      stroke-linejoin="round"/>
+                <!-- Inner border -->
+                <path d="M9,9 L51,9 L51,49 L30,63 L9,49 Z"
+                      fill="none"
+                      :stroke="c.shieldBorder"
+                      stroke-width="1"
+                      opacity="0.5"/>
+                <text x="30" y="43" text-anchor="middle" font-size="24" :fill="c.shieldSymbolColor">{{ c.symbol }}</text>
+              </svg>
+            </div>
+            <div class="culture-name">{{ c.name }}</div>
+          </button>
+        </div>
+
+        <!-- Description -->
+        <transition name="desc-fade">
+          <div v-if="selectedCulture" class="culture-desc" :key="selectedCulture.id">
+            <div class="culture-desc-header">
+              <span class="culture-desc-symbol">{{ selectedCulture.symbol }}</span>
+              <strong class="culture-desc-title">{{ selectedCulture.name }}</strong>
+            </div>
+            <p class="culture-desc-text">{{ selectedCulture.description }}</p>
+          </div>
+        </transition>
       </div>
 
       <div class="welcome-divider">✦ ✦ ✦</div>
+
+      <!-- Grants -->
+      <div class="welcome-grants">
+        <div class="grant-item">
+          <span class="grant-icon">🏰</span>
+          Un feudo capital y sus tierras colindantes
+        </div>
+        <div class="grant-item">
+          <span class="grant-icon">⚔️</span>
+          Guardia del Señor según el linaje elegido
+          <span v-if="selectedCulture?.id === 'random'" class="bonus-tag">×2</span>
+        </div>
+        <div class="grant-item">
+          <span class="grant-icon">💰</span>
+          Oro inicial para tu señorío
+          <span v-if="selectedCulture?.id === 'random'" class="bonus-tag">×2</span>
+        </div>
+        <div class="grant-item">
+          <span class="grant-icon">🏯</span>
+          Fortaleza erigida en tu capital
+        </div>
+      </div>
 
       <div v-if="error" class="welcome-error">{{ error }}</div>
 
       <button
         class="welcome-btn"
-        :disabled="loading"
+        :disabled="loading || !selectedCulture"
         @click="begin"
       >
         <span v-if="loading" class="welcome-btn-inner">
           <span class="welcome-spinner"></span> Preparando tu reino...
         </span>
+        <span v-else-if="!selectedCulture" class="welcome-btn-inner">
+          ⚜️ &nbsp;Elige tu linaje para comenzar
+        </span>
         <span v-else class="welcome-btn-inner">
           ⚜️ &nbsp;Comenzar mi camino
         </span>
       </button>
+
     </div>
   </div>
 </template>
@@ -48,27 +110,77 @@ import { initializePlayer } from '../services/mapApi.js';
 
 const emit = defineEmits(['done']);
 
-const loading = ref(false);
-const error   = ref('');
+const loading        = ref(false);
+const error          = ref('');
+const selectedCulture = ref(null);
+
+const cultures = [
+  {
+    id:               4,
+    name:             'Celtas',
+    symbol:           '☘',
+    shieldBg:         '#162b16',
+    shieldBorder:     '#4a9e4e',
+    shieldSymbolColor:'#8fde74',
+    description:      'Guerreros del norte y el oeste. Maestros de la emboscada y la guerra en bosques y ríos, sus caudillos inspiran una lealtad feroz. Sus tropas son rápidas y resistentes, forjadas en el frío del Cantábrico.',
+  },
+  {
+    id:               3,
+    name:             'Íberos',
+    symbol:           '☀',
+    shieldBg:         '#11213e',
+    shieldBorder:     '#4a78c8',
+    shieldSymbolColor:'#e8c830',
+    description:      'Pueblo antiguo del levante peninsular. Expertos en escaramuza y arquería, sus ciudades controlan las rutas del Mediterráneo occidental. Sus guerreros son ágiles y letales desde la distancia.',
+  },
+  {
+    id:               1,
+    name:             'Roma',
+    symbol:           '⚔',
+    shieldBg:         '#2e0e0e',
+    shieldBorder:     '#c04040',
+    shieldSymbolColor:'#f0c070',
+    description:      'Herederos del orden y la disciplina. Sus legiones son imbatibles en campo abierto y sus ingenieros levantan fortalezas que desafían los siglos. La formación cerrada es su mayor fortaleza.',
+  },
+  {
+    id:               2,
+    name:             'Cartago',
+    symbol:           '✦',
+    shieldBg:         '#1e0e33',
+    shieldBorder:     '#8040c0',
+    shieldSymbolColor:'#d4a020',
+    description:      'Señores del comercio y el Mediterráneo. Sus mercenarios son los más temidos de cada tierra y su oro compra lo que la espada no puede. Maestros de la guerra naval y el asedio.',
+  },
+  {
+    id:               'random',
+    name:             'Aleatorio',
+    symbol:           '?',
+    shieldBg:         '#1a1a22',
+    shieldBorder:     '#666688',
+    shieldSymbolColor:'#aaaacc',
+    description:      'Que el destino decida tu sangre. A cambio de la incertidumbre sobre tu linaje, recibirás el doble de tropas y el doble de oro al inicio de tu partida. Un arma poderosa para quien acepte el azar.',
+  },
+];
 
 async function begin() {
-  if (loading.value) return;
+  if (loading.value || !selectedCulture.value) return;
   loading.value = true;
   error.value   = '';
   try {
-    const data = await initializePlayer();
+    const isRandom  = selectedCulture.value.id === 'random';
+    const cultureId = isRandom ? null : selectedCulture.value.id;
+    const data = await initializePlayer(cultureId, isRandom);
     if (data.success || data.message?.includes('inicializado')) {
       emit('done', { capital_h3: data.capital_h3 });
     } else {
-      error.value = data.message || 'Error al inicializar el reino';
+      error.value   = data.message || 'Error al inicializar el reino';
       loading.value = false;
     }
   } catch (err) {
-    // 409 = already initialized — treat as success and continue
     if (err.response?.status === 409) {
       emit('done', {});
     } else {
-      error.value = err?.response?.data?.message || 'Error de conexión. Inténtalo de nuevo.';
+      error.value   = err?.response?.data?.message || 'Error de conexión. Inténtalo de nuevo.';
       loading.value = false;
     }
   }
@@ -80,20 +192,21 @@ async function begin() {
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: rgba(5, 3, 1, 0.92);
+  background: rgba(5, 3, 1, 0.93);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
+  overflow-y: auto;
 }
 
 .welcome-parchment {
   background: radial-gradient(ellipse at center, #2a1f0e 0%, #1a1208 100%);
   border: 2px solid #8b6914;
   border-radius: 12px;
-  max-width: 560px;
+  max-width: 580px;
   width: 100%;
-  padding: 44px 48px;
+  padding: 40px 44px;
   text-align: center;
   box-shadow:
     0 0 0 1px #4a3410,
@@ -110,17 +223,17 @@ async function begin() {
 }
 
 .welcome-crest {
-  font-size: 3rem;
-  margin-bottom: 12px;
+  font-size: 2.6rem;
+  margin-bottom: 10px;
   filter: drop-shadow(0 0 10px rgba(201, 168, 76, 0.6));
 }
 
 .welcome-title {
-  font-size: 1.6rem;
+  font-size: 1.5rem;
   letter-spacing: 4px;
   text-transform: uppercase;
   color: #c9a84c;
-  margin: 0 0 14px;
+  margin: 0 0 12px;
   font-weight: 700;
   text-shadow: 0 0 18px rgba(201, 168, 76, 0.4);
 }
@@ -133,11 +246,10 @@ async function begin() {
 }
 
 .welcome-text {
-  font-size: 0.97rem;
-  line-height: 1.8;
+  font-size: 0.93rem;
+  line-height: 1.75;
   color: #c8b898;
-  margin: 0 0 22px;
-  font-style: normal;
+  margin: 0 0 18px;
 }
 
 .welcome-text em {
@@ -145,20 +257,144 @@ async function begin() {
   font-style: italic;
 }
 
+/* ── Culture section ─────────────────────────────────────────────────────── */
+.culture-section {
+  margin-bottom: 4px;
+}
+
+.culture-section-label {
+  font-size: 0.8rem;
+  letter-spacing: 3px;
+  color: #7a6240;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+.culture-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.culture-btn {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid #3d2e1a;
+  border-radius: 8px;
+  padding: 10px 8px 8px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, transform 0.15s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 96px;
+  color: #a89070;
+  font-family: 'Georgia', serif;
+}
+
+.culture-btn:hover {
+  border-color: #7a6240;
+  background: rgba(60, 40, 10, 0.5);
+  transform: translateY(-2px);
+}
+
+.culture-btn.selected {
+  border-color: #c9a84c;
+  background: rgba(80, 55, 15, 0.55);
+  box-shadow: 0 0 12px rgba(201, 168, 76, 0.2);
+}
+
+.culture-btn.random {
+  border-style: dashed;
+}
+
+.culture-btn.random.selected {
+  border-color: #9090bb;
+  box-shadow: 0 0 12px rgba(140, 140, 200, 0.2);
+}
+
+.shield-svg {
+  width: 52px;
+  height: 62px;
+  display: block;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
+}
+
+.culture-name {
+  font-size: 0.72rem;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #a89070;
+  font-family: sans-serif;
+}
+
+.culture-btn.selected .culture-name {
+  color: #c9a84c;
+}
+
+/* ── Description ─────────────────────────────────────────────────────────── */
+.culture-desc {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid #3d2e1a;
+  border-radius: 8px;
+  padding: 12px 16px;
+  text-align: left;
+  margin-top: 4px;
+}
+
+.culture-desc-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.culture-desc-symbol {
+  font-size: 1.1rem;
+}
+
+.culture-desc-title {
+  font-size: 0.88rem;
+  color: #c9a84c;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.culture-desc-text {
+  font-size: 0.82rem;
+  line-height: 1.65;
+  color: #a89878;
+  font-family: sans-serif;
+  margin: 0;
+}
+
+.desc-fade-enter-active,
+.desc-fade-leave-active {
+  transition: opacity 0.2s, transform 0.2s;
+}
+.desc-fade-enter-from,
+.desc-fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+/* ── Grants ──────────────────────────────────────────────────────────────── */
 .welcome-grants {
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid #3d2e1a;
   border-radius: 8px;
-  padding: 14px 18px;
-  margin-bottom: 22px;
+  padding: 12px 16px;
+  margin-bottom: 18px;
   text-align: left;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
 }
 
 .grant-item {
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: #a89070;
   font-family: sans-serif;
   display: flex;
@@ -167,10 +403,23 @@ async function begin() {
 }
 
 .grant-icon {
-  font-size: 1rem;
+  font-size: 0.95rem;
   flex-shrink: 0;
 }
 
+.bonus-tag {
+  margin-left: auto;
+  background: rgba(201, 168, 76, 0.2);
+  border: 1px solid #c9a84c;
+  border-radius: 4px;
+  color: #c9a84c;
+  font-size: 0.72rem;
+  font-weight: bold;
+  padding: 1px 6px;
+  letter-spacing: 1px;
+}
+
+/* ── Error / Button ──────────────────────────────────────────────────────── */
 .welcome-error {
   color: #f87171;
   font-size: 0.82rem;
@@ -180,12 +429,12 @@ async function begin() {
 
 .welcome-btn {
   width: 100%;
-  padding: 14px 20px;
+  padding: 13px 20px;
   background: linear-gradient(135deg, #3d2d10 0%, #2d1f0a 100%);
   border: 1px solid #c9a84c;
   border-radius: 8px;
   color: #fbbf24;
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-family: 'Georgia', serif;
   letter-spacing: 2px;
   cursor: pointer;
@@ -199,8 +448,10 @@ async function begin() {
 }
 
 .welcome-btn:disabled {
-  opacity: 0.7;
+  opacity: 0.55;
   cursor: not-allowed;
+  border-color: #5a4820;
+  color: #8a7040;
 }
 
 .welcome-btn-inner {
