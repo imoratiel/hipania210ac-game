@@ -49,7 +49,12 @@
       "Read(//d/TOOLS/rtk/**)",
       "Bash(D:/TOOLS/rtk/rtk.exe --version)",
       "Bash(D:/TOOLS/rtk/rtk.exe --help)",
-      "Bash(D:/TOOLS/rtk/rtk.exe init:*)"
+      "Bash(D:/TOOLS/rtk/rtk.exe init:*)",
+      "Bash(xargs -I{} grep -l \"noble_rank\\\\|max_fief\" d:/claude/mediev-h3-game/sql/{})",
+      "Bash(claude mcp:*)",
+      "Bash(npx --version)",
+      "mcp__postgres__query",
+      "Bash(rtk grep:*)"
     ]
   }
 }
