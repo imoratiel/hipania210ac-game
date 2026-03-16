@@ -127,6 +127,7 @@
           title="Editar perfil"
         >
           <span class="username">{{ currentUser.display_name || currentUser.username }}</span>
+          <span v-if="currentUser.culture_name" class="culture-badge">{{ currentUser.culture_name }}</span>
         </button>
         <button
           v-if="currentUser && currentUser.role === 'admin'"
@@ -1399,6 +1400,7 @@ let divisionHighlightLayer = null; // Gold overlay for division fief selection
 let divisionBoundaryLayer = null;  // Political division borders (GeoJSON)
 let characterMarkersLayer = null;  // Character icons on the map
 let debounceTimer = null;
+let lastLoadedBounds = null; // bounds at the time of last data fetch
 
 // Configuration
 const MIN_ZOOM = 9; // Zoom mínimo del mapa
@@ -1408,6 +1410,9 @@ const MIN_ZOOM_SETTLEMENTS = 12; // Mostrar asentamientos solo a partir de zoom 
 const LEON_CENTER = [42.599, -5.573];
 const INITIAL_ZOOM = 13;
 const DEBOUNCE_DELAY = 500; // ms
+// Minimum fraction of the current viewport that must be "new" to trigger a reload.
+// 0.20 = reload only when at least 20% of the current view was not previously loaded.
+const EXTENT_CHANGE_THRESHOLD = 0.20;
 // REMOVED: ZOOM_THRESHOLD_RES_10 - Now resolution is always 8 (database only has res 8 indices)
 
 // Game mechanics constants
@@ -1677,6 +1682,27 @@ const initMap = () => {
  * Handle map movement (with debouncing)
  * Actualiza hexágonos y URL del navegador
  */
+/**
+ * Returns the fraction of `newBounds` area that is NOT covered by `oldBounds`.
+ * 0 = identical view, 1 = completely new area.
+ */
+const extentChangeFraction = (oldBounds, newBounds) => {
+  if (!oldBounds) return 1; // no previous load → always reload
+
+  const iW = Math.max(0, Math.min(oldBounds.getEast(),  newBounds.getEast())
+                       - Math.max(oldBounds.getWest(),  newBounds.getWest()));
+  const iH = Math.max(0, Math.min(oldBounds.getNorth(), newBounds.getNorth())
+                       - Math.max(oldBounds.getSouth(), newBounds.getSouth()));
+  const intersection = iW * iH;
+
+  const nW = newBounds.getEast()  - newBounds.getWest();
+  const nH = newBounds.getNorth() - newBounds.getSouth();
+  const newArea = nW * nH;
+
+  if (newArea <= 0) return 1;
+  return 1 - (intersection / newArea); // fraction of new view that is "new"
+};
+
 const handleMapMove = () => {
   // Clear previous timer
   if (debounceTimer) {
@@ -1685,11 +1711,16 @@ const handleMapMove = () => {
 
   // Set new timer
   debounceTimer = setTimeout(() => {
-    // Solo cargar hexágonos si la capa H3 está visible
-    if (showH3Layer.value) {
-      loadHexagonsIfZoomValid();
-    }
     updateURLParams(); // Actualizar URL con nueva posición
+
+    if (!showH3Layer.value) return;
+
+    const currentBounds = map.getBounds();
+    const changeFraction = extentChangeFraction(lastLoadedBounds, currentBounds);
+
+    if (changeFraction < EXTENT_CHANGE_THRESHOLD) return; // < 20% new area, skip reload
+
+    loadHexagonsIfZoomValid();
   }, DEBOUNCE_DELAY);
 };
 
@@ -1730,6 +1761,7 @@ const handleZoomChange = () => {
 const loadHexagonsIfZoomValid = () => {
   const currentZoom = map.getZoom();
   if (currentZoom >= MIN_ZOOM_H3 && currentZoom <= MAX_ZOOM_H3) {
+    lastLoadedBounds = map.getBounds(); // record extent before fetching
     fetchHexagonData();
   } else {
     // Clear hexagons and all map-bound markers if zoom is outside valid range
@@ -6107,6 +6139,17 @@ onBeforeUnmount(() => {
 
 .username {
   font-family: var(--font-sans);
+}
+
+.culture-badge {
+  display: block;
+  font-size: 0.68rem;
+  font-family: var(--font-sans);
+  color: var(--gold-light, #c5a059);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  margin-top: 1px;
 }
 
 /* Profile panel */

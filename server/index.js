@@ -8,6 +8,7 @@ const pool = require('./db');
 const { CONFIG, loadGameConfig } = require('./src/config');
 const { initializeLogger, logGameEvent } = require('./src/utils/logger');
 const { startTimeEngine } = require('./src/logic/turn_engine');
+const { loadGeoCultureCache } = require('./src/services/PlayerService');
 
 const economy = require('./src/logic/economy');
 const territory = require('./src/logic/territory');
@@ -59,6 +60,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok', database: 'connected' 
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   await loadGameConfig(pool, logGameEvent);
+  await loadGeoCultureCache();
 
   // Respect engine_auto_start flag persisted in game_config.
   // Defaults to true (start engine) unless an admin explicitly stopped it.

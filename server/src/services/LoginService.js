@@ -107,11 +107,15 @@ class LoginService {
         try {
             // Fetch is_initialized from DB (not in JWT payload)
             const result = await pool.query(
-                'SELECT is_initialized, gender FROM players WHERE player_id = $1',
+                `SELECT p.is_initialized, p.gender, c.name AS culture_name
+                 FROM players p
+                 LEFT JOIN cultures c ON c.id = p.culture_id
+                 WHERE p.player_id = $1`,
                 [req.user.player_id]
             );
             const is_initialized = result.rows[0]?.is_initialized ?? false;
-            const gender          = result.rows[0]?.gender ?? 'M';
+            const gender         = result.rows[0]?.gender ?? 'M';
+            const culture_name   = result.rows[0]?.culture_name ?? null;
             res.json({
                 success: true,
                 user: {
@@ -121,6 +125,7 @@ class LoginService {
                     role:           req.user.role,
                     is_initialized,
                     gender,
+                    culture_name,
                 }
             });
         } catch (error) {

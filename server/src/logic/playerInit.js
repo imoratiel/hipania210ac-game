@@ -15,6 +15,7 @@
 
 const pool  = require('../../db.js');
 const h3    = require('h3-js');
+const { Logger } = require('../utils/logger');
 const ArmyModel      = require('../models/ArmyModel.js');
 const KingdomModel   = require('../models/KingdomModel.js');
 const CharacterModel = require('../models/CharacterModel.js');
@@ -22,6 +23,7 @@ const DivisionModel  = require('../models/DivisionModel.js');
 const MapService     = require('../services/MapService.js');
 const { suggestDivisionName } = require('../logic/contiguitySearch.js');
 const { getUniqueDivisionName } = require('../logic/NamingService.js');
+const { assignCultureByLocation, getStartingTroopsByCulture } = require('../services/PlayerService.js');
 
 const ISOLATION_RADIUS  = 10; // min hex distance from any occupied territory
 
@@ -45,7 +47,7 @@ async function upsertTerritoryDetails(client, h3_index, eco) {
             gold_stored  = EXCLUDED.gold_stored
     `, [h3_index, eco.population, eco.happiness, eco.food, eco.wood, eco.stone, 0, eco.gold ?? 0]);
 }
-const TARGET_HEX_COUNT  = 30; // total hexes to claim (capital + bonus)
+// TARGET_HEX_COUNT is read from noble_ranks.max_fiefs_limit (level_order = 2) at runtime
 const BFS_MAX_RADIUS    = 7;  // max search radius for BFS expansion
 
 // Terrain type IDs that act as impassable barriers in the BFS
@@ -95,7 +97,7 @@ async function findIsolatedFreeHex(client) {
  * Returns an array of bonus hex indices (not including the capital).
  * Also returns hexInfo map for name generation later.
  */
-async function bfsExpandTerritory(client, capitalHex) {
+async function bfsExpandTerritory(client, capitalHex, targetCount) {
     const allCandidates = h3.gridDisk(capitalHex, BFS_MAX_RADIUS);
 
     const result = await client.query(`
@@ -112,7 +114,7 @@ async function bfsExpandTerritory(client, capitalHex) {
     const queue      = [capitalHex];
     const bonusHexes = [];
 
-    while (queue.length > 0 && bonusHexes.length < TARGET_HEX_COUNT - 1) {
+    while (queue.length > 0 && bonusHexes.length < targetCount - 1) {
         const current = queue.shift();
         const info    = hexInfo.get(current);
 
@@ -165,6 +167,10 @@ async function initializePlayer(player_id) {
             return { alreadyInitialized: true };
         }
 
+        // ── 0. Fetch target fief count from DB (max_fiefs_limit of Señorío rank) ──
+        const senorioRankMeta = await DivisionModel.GetSenorioRank(client);
+        const targetFiefCount = senorioRankMeta?.min_fiefs_required ?? 40;
+
         // ── 1. Find capital hex ──────────────────────────────────────────────
         const capitalHex = await findIsolatedFreeHex(client);
         if (!capitalHex) {
@@ -187,7 +193,7 @@ async function initializePlayer(player_id) {
 
         // ── 3. BFS expansion: claim up to 29 bonus hexes (total 30) ──────────
         //    Rivers and sea act as barriers; territory stays on one side of them.
-        const { bonusHexes, hexInfo } = await bfsExpandTerritory(client, capitalHex);
+        const { bonusHexes, hexInfo } = await bfsExpandTerritory(client, capitalHex, targetFiefCount);
 
         // Lock rows we're about to claim
         if (bonusHexes.length > 0) {
@@ -220,15 +226,26 @@ async function initializePlayer(player_id) {
             [capitalHex, player_id]
         );
 
-        // ── 5. Resolve unit type IDs by name ─────────────────────────────────
-        const unitTypesResult = await client.query(
-            "SELECT unit_type_id, name FROM unit_types WHERE name IN ('Milicia', 'Arqueros', 'Caballería Ligera')"
-        );
-        const unitMap = {};
-        for (const row of unitTypesResult.rows) unitMap[row.name] = row.unit_type_id;
+        // ── 5. Assign culture by capital location ────────────────────────────
+        let cultureId = assignCultureByLocation(capitalHex);
 
-        if (!unitMap['Milicia'] || !unitMap['Arqueros'] || !unitMap['Caballería Ligera']) {
-            throw new Error('Tipos de unidad iniciales no encontrados. Verifica la tabla unit_types.');
+        // Fallback: if geo_culture_weights has no entry for this hex (table empty
+        // or area not yet mapped), pick a random culture from the cultures table.
+        if (!cultureId) {
+            const fallback = await client.query(
+                'SELECT id FROM cultures ORDER BY RANDOM() LIMIT 1'
+            );
+            cultureId = fallback.rows[0]?.id ?? null;
+            if (cultureId) Logger.action(`[Init] No geo weight for ${capitalHex} — random culture assigned: ${cultureId}`, player_id);
+        }
+
+        const startingTroops = await getStartingTroopsByCulture(cultureId);
+
+        if (cultureId) {
+            await client.query(
+                'UPDATE players SET culture_id = $1 WHERE player_id = $2',
+                [cultureId, player_id]
+            );
         }
 
         // ── 6. Create starting army ──────────────────────────────────────────
@@ -237,9 +254,9 @@ async function initializePlayer(player_id) {
         );
         const armyId = armyResult.rows[0].army_id;
 
-        await ArmyModel.AddTroops(client, armyId, unitMap['Milicia'],            100);
-        await ArmyModel.AddTroops(client, armyId, unitMap['Arqueros'],           50);
-        await ArmyModel.AddTroops(client, armyId, unitMap['Caballería Ligera'],  50);
+        for (const troop of startingTroops) {
+            await ArmyModel.AddTroops(client, armyId, troop.unit_type_id, troop.quantity);
+        }
         await ArmyModel.refreshDetectionRange(client, armyId);
 
         // ── 7. Build completed Fortaleza in capital ───────────────────────────
@@ -297,8 +314,8 @@ async function initializePlayer(player_id) {
 
         // ── 9. Create initial Señorío ────────────────────────────────────────
         let senorioName = null;
-        if (allHexes.length >= 30) {
-            const senorioRank = await DivisionModel.GetSenorioRank(client);
+        if (allHexes.length >= (senorioRankMeta?.min_fiefs_required ?? 30)) {
+            const senorioRank = senorioRankMeta;
             if (senorioRank) {
                 // Gather terrain names from hexInfo for name generation
                 const fiefsForName = allHexes
