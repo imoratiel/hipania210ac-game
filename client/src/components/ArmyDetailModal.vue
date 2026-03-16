@@ -59,7 +59,7 @@
                   <tr>
                     <th class="adm-th-name">Unidad</th>
                     <th class="adm-th-num">Cant.</th>
-                    <th class="adm-th-num">Exp.</th>
+                    <th class="adm-th-bar">Exp.</th>
                     <th class="adm-th-bar">Moral</th>
                     <th class="adm-th-bar">Estamina</th>
                     <th class="adm-th-num">Atq.</th>
@@ -74,7 +74,12 @@
                       {{ t.unit_name }}
                     </td>
                     <td class="adm-td-num">{{ t.quantity }}</td>
-                    <td class="adm-td-num adm-gold">{{ t.experience }}</td>
+                    <td class="adm-td-bar">
+                      <div class="adm-bar-wrap">
+                        <div class="adm-bar-fill adm-bar-exp" :style="{ width: Math.min(t.experience, 100) + '%' }"></div>
+                        <span class="adm-bar-label adm-gold">{{ t.experience }}%</span>
+                      </div>
+                    </td>
                     <td class="adm-td-bar">
                       <div class="adm-bar-wrap">
                         <div class="adm-bar-fill" :style="{ width: t.morale + '%', background: barColor(t.morale) }"></div>
@@ -185,7 +190,10 @@
                   </thead>
                   <tbody>
                     <tr v-for="ut in availableUnitTypes" :key="ut.unit_type_id" class="adm-tr">
-                      <td class="adm-td-name">{{ ut.name }}</td>
+                      <td class="adm-td-name">
+                        <span class="adm-unit-icon" :title="ut.unit_class">{{ unitClassIcon(ut.unit_class) }}</span>
+                        {{ ut.name }}
+                      </td>
                       <td class="adm-td-num adm-gold" style="font-size:0.75rem; white-space:nowrap;">
                         <span v-for="req in (ut.requirements || [])" :key="req.resource_type">
                           {{ req.resource_type === 'gold' ? '💰' : req.resource_type === 'wood_stored' ? '🌲' : req.resource_type === 'stone_stored' ? '⛰️' : '⛏️' }}{{ req.amount }}
@@ -465,7 +473,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleEsc));
   border: 1px solid #374151;
   border-radius: 10px;
   width: 100%;
-  max-width: 700px;
+  max-width: 900px;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
@@ -544,7 +552,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleEsc));
   width: 100%;
   border-collapse: collapse;
   font-size: 0.84rem;
-  min-width: 540px;
+  min-width: 660px;
 }
 .adm-table thead th {
   padding: 7px 10px;
@@ -582,6 +590,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleEsc));
   transition: width 0.3s;
   border-radius: 4px;
 }
+.adm-bar-exp { background: #d97706; }
 .adm-bar-label {
   position: absolute;
   inset: 0;

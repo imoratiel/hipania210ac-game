@@ -165,6 +165,7 @@ class ArmyModel {
                 ut.is_siege,
                 ut.descrip,
                 ut.culture_id,
+                ut.unit_class,
                 COALESCE(
                     json_agg(
                         json_build_object(
@@ -177,7 +178,7 @@ class ArmyModel {
             FROM unit_types ut
             LEFT JOIN unit_requirements ur ON ut.unit_type_id = ur.unit_type_id
             GROUP BY ut.unit_type_id, ut.name, ut.attack, ut.health_points, ut.speed,
-                     ut.gold_upkeep, ut.food_consumption, ut.is_siege, ut.descrip, ut.culture_id
+                     ut.gold_upkeep, ut.food_consumption, ut.is_siege, ut.descrip, ut.culture_id, ut.unit_class
             ORDER BY ut.unit_type_id
         `;
         const result = await db.query(query);
@@ -397,7 +398,7 @@ class ArmyModel {
 
         const troopsResult = await db.query(
             `SELECT t.unit_type_id, t.quantity, t.experience, t.morale, t.stamina, t.force_rest,
-                    ut.name AS unit_name, ut.attack, ut.health_points, ut.speed
+                    ut.name AS unit_name, ut.attack, ut.health_points, ut.speed, ut.unit_class
              FROM troops t
              JOIN unit_types ut ON ut.unit_type_id = t.unit_type_id
              WHERE t.army_id = $1

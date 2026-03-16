@@ -65,7 +65,7 @@ INSERT INTO unit_types (name, attack, defense, health_points, speed, initial_exp
 ('Jinetes de Élite',  8, 6, 7, 4, 40, 4, 20, 2, 400,  FALSE, 'Polivalentes.',           3, 'CAVALRY_2'),
 ('Falarica',    7, 3, 4, 4, 20, 3,  4, 1,  80,  FALSE, 'Daño por fuego.',         3, 'ARCHER_1'),
 ('Honderos',    6, 4, 4, 5, 30, 3,  6, 1, 120,  FALSE, 'Muy rápidos.',            3, 'ARCHER_2'),
-('Devotio',     8, 8, 7, 4, 60, 3,  0, 1, 900,  FALSE, 'Coste Oro 0 (Lealtad).', 3, 'INFANTRY_ELITE'),
+('Devotio',     8, 8, 7, 4, 60, 3,  0, 1, 900,  FALSE, 'Tan leales que no cobran soldadas.', 3, 'INFANTRY_ELITE'),
 ('Ariete',      1, 1, 1, 1,100, 1,250, 0, 1200, TRUE,  'Asedio protegido.',       3, 'SIEGE');
 
 -- ══════════════════════════════════════════════════════════════════════════════

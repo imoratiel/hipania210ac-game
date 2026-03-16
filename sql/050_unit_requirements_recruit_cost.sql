@@ -43,7 +43,7 @@ INSERT INTO unit_requirements (unit_type_id, resource_type, amount) VALUES
 (20, 'gold',   400),  -- Jin. Élite
 (21, 'gold',    80),  -- Falarica
 (22, 'gold',   120),  -- Honderos
-(23, 'gold',     0),  -- Devotio  ← coste 0 por lealtad (ver CSV)
+(23, 'gold',   900),  -- Devotio  ← coste 0 por lealtad (ver CSV)
 (24, 'gold',  1200),  -- Ariete
 
 -- ── CELTAS ───────────────────────────────────────────────────────────────────
