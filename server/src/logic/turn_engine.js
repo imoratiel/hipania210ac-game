@@ -120,7 +120,7 @@ async function processHarvest(client, turn, config) {
                 const troopsResult = await client.query(`
                     SELECT
                         SUM(t.quantity) as total_troops,
-                        SUM(t.quantity * ut.food_consumption) as total_food_consumption,
+                        SUM(t.quantity * ut.food_consumption * 0.001) as total_food_consumption,
                         SUM(t.quantity * ut.gold_upkeep) as total_gold_consumption
                     FROM troops t
                     JOIN armies a ON t.army_id = a.army_id
@@ -129,7 +129,7 @@ async function processHarvest(client, turn, config) {
                 `, [player.player_id]);
 
                 const totalTroops = parseInt(troopsResult.rows[0]?.total_troops || 0);
-                const totalFoodConsumption = Math.floor(parseFloat(troopsResult.rows[0]?.total_food_consumption || 0));
+                const totalFoodConsumption = parseFloat(troopsResult.rows[0]?.total_food_consumption || 0);
                 const totalGoldConsumption = Math.floor(parseFloat(troopsResult.rows[0]?.total_gold_consumption || 0));
 
                 // Net production
@@ -253,13 +253,13 @@ async function processMilitaryConsumption(client, turn, config) {
             try {
                 // Calculate total food consumption for this army
                 const consumptionResult = await client.query(`
-                    SELECT COALESCE(SUM(t.quantity * ut.food_consumption), 0) as total_consumption
+                    SELECT COALESCE(SUM(t.quantity * ut.food_consumption * 0.001), 0) as total_consumption
                     FROM troops t
                     JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
                     WHERE t.army_id = $1
                 `, [army.army_id]);
 
-                const totalConsumption = Math.floor(parseFloat(consumptionResult.rows[0]?.total_consumption || 0));
+                const totalConsumption = parseFloat(consumptionResult.rows[0]?.total_consumption || 0);
 
                 if (totalConsumption === 0) {
                     continue; // No troops = no consumption

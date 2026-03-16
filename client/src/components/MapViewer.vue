@@ -804,6 +804,7 @@
               :armyCount="armyCount"
               :armyLimit="armyLimit"
               :recruitablePool="recruitablePool"
+              :playerCultureId="currentUser?.culture_id ?? null"
               @bulkRecruit="handleRecruitmentEmit"
               @back="activeKingdomTab = 'fiefs'"
             />

@@ -59,7 +59,7 @@
         <div v-if="loading" class="loading-text">Cargando unidades...</div>
         <div v-else class="unit-types-grid">
           <div
-            v-for="unit in unitTypes"
+            v-for="unit in availableUnitTypes"
             :key="unit.unit_type_id"
             :class="[
               'unit-card',
@@ -89,7 +89,7 @@
               </div>
             </div>
             <div class="unit-upkeep">
-              <small>Manutención: 💰{{ unit.gold_upkeep }}/turno 🌾{{ unit.food_consumption }}/turno</small>
+              <small>Manutención: 💰{{ unit.gold_upkeep }}/turno</small>
             </div>
 
             <!-- Quantity selector -->
@@ -154,7 +154,7 @@
           -->
         </div>
         <div class="footer-upkeep">
-          <small>Mantenimiento: 💰{{ totalUpkeep.gold }}/turno 🌾{{ totalUpkeep.food }}/turno</small>
+          <small>Mantenimiento: 💰{{ totalUpkeep.gold }}/turno</small>
         </div>
       </div>
       <button
@@ -183,6 +183,7 @@ const props = defineProps({
   armyCount: { type: Number, default: 0 },
   armyLimit: { type: Number, default: 2 },
   recruitablePool: { type: Number, default: null },
+  playerCultureId: { type: Number, default: null },
 });
 
 const emit = defineEmits(['bulkRecruit', 'back']);
@@ -190,6 +191,13 @@ const emit = defineEmits(['bulkRecruit', 'back']);
 const armyName = ref('');
 const recruitMode = ref('field');  // 'field' | 'garrison'
 const unitQuantities = reactive({});
+
+// Solo muestra unidades de la cultura del jugador
+const availableUnitTypes = computed(() => {
+  if (!props.unitTypes) return [];
+  if (!props.playerCultureId) return props.unitTypes;
+  return props.unitTypes.filter(u => u.culture_id === props.playerCultureId);
+});
 
 const formatNumber = (val) => {
   if (val === null || val === undefined || isNaN(val)) return '0';
@@ -233,8 +241,7 @@ const totalSelectedTroops = computed(() =>
 
 const totalCost = computed(() => {
   const cost = { gold: 0, wood_stored: 0, stone_stored: 0, iron_stored: 0 };
-  if (!props.unitTypes) return cost;
-  for (const unit of props.unitTypes) {
+  for (const unit of availableUnitTypes.value) {
     const qty = unitQuantities[unit.unit_type_id] || 0;
     if (qty === 0) continue;
     for (const req of unit.requirements) {
@@ -245,12 +252,10 @@ const totalCost = computed(() => {
 });
 
 const totalUpkeep = computed(() => {
-  const result = { gold: 0, food: 0 };
-  if (!props.unitTypes) return result;
-  for (const unit of props.unitTypes) {
+  const result = { gold: 0 };
+  for (const unit of availableUnitTypes.value) {
     const qty = unitQuantities[unit.unit_type_id] || 0;
     result.gold += (unit.gold_upkeep || 0) * qty;
-    result.food += (unit.food_consumption || 0) * qty;
   }
   return result;
 });
