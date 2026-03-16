@@ -62,7 +62,7 @@ class ArmyModel {
             SELECT
                 t.unit_type_id, t.quantity, t.experience, t.morale,
                 ut.name AS unit_name, ut.attack, ut.health_points,
-                t.stamina, t.force_rest
+                t.stamina, t.force_rest, ut.unit_class
             FROM troops t
             JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
             WHERE t.army_id = $1

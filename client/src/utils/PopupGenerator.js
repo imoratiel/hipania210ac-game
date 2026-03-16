@@ -298,7 +298,7 @@ export function generateArmyPopup(armyData, config) {
 
         if (army.units) {
           army.units.forEach(unit => {
-            const unitIcon = getUnitIcon(unit.unit_name);
+            const unitIcon = getUnitIcon(unit.unit_class);
             popupContent += `<div class="army-troop-item">`;
             popupContent += `<span class="troop-icon">${unitIcon}</span>`;
             popupContent += `<span class="troop-name">${unit.unit_name}:</span>`;
@@ -449,12 +449,16 @@ export function generateArmyPopup(armyData, config) {
  * @param {string} unitName - Name of the unit type
  * @returns {string} Emoji icon
  */
-function getUnitIcon(unitName) {
-  const name = unitName.toLowerCase();
-  if (name.includes('infanter') || name.includes('lancer')) return '⚔️';
-  if (name.includes('archer') || name.includes('arquer')) return '🏹';
-  if (name.includes('caball') || name.includes('knight')) return '🐴';
-  if (name.includes('siege') || name.includes('catapult')) return '🎯';
-  if (name.includes('scout') || name.includes('explor')) return '🔭';
-  return '🛡️'; // Default icon
+function getUnitIcon(unitClass) {
+  switch (unitClass) {
+    case 'INFANTRY_1':
+    case 'INFANTRY_2':     return '🛡';
+    case 'INFANTRY_ELITE': return '⭐';
+    case 'ARCHER_1':
+    case 'ARCHER_2':       return '🏹';
+    case 'CAVALRY_1':
+    case 'CAVALRY_2':      return '🐎';
+    case 'SIEGE':          return '🪨';
+    default:               return '⚔️';
+  }
 }

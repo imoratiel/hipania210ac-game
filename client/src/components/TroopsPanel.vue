@@ -158,6 +158,7 @@
     :show="inspectModalVisible"
     :army="inspectArmy"
     :autoReinforce="inspectAutoReinforce"
+    :playerCultureId="props.playerCultureId"
     @close="inspectModalVisible = false; inspectAutoReinforce = false"
     @dismissed="(payload) => emit('armyDismissed', payload)"
   />
@@ -188,7 +189,8 @@ const props = defineProps({
   loading: {
     type: Boolean,
     default: false
-  }
+  },
+  playerCultureId: { type: Number, default: null },
 });
 
 const emit = defineEmits(['locate', 'armyStopped', 'armyStopFailed', 'armyAttacked', 'armyAttackFailed', 'armyDismissed', 'armiesTransferred']);

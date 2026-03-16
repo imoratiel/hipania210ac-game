@@ -827,6 +827,7 @@
           <TroopsPanel
             :armies="armies"
             :loading="loadingTroops"
+            :playerCultureId="currentUser?.culture_id ?? null"
             @locate="handleLocateTroop"
             @armyStopped="handleArmyStopped"
             @armyStopFailed="(msg) => showToast(msg, 'error')"

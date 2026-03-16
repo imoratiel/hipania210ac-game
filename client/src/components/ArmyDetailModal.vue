@@ -69,7 +69,10 @@
                 </thead>
                 <tbody>
                   <tr v-for="t in troops" :key="t.unit_name" class="adm-tr">
-                    <td class="adm-td-name">{{ t.unit_name }}</td>
+                    <td class="adm-td-name">
+                      <span class="adm-unit-icon" :title="t.unit_class">{{ unitClassIcon(t.unit_class) }}</span>
+                      {{ t.unit_name }}
+                    </td>
                     <td class="adm-td-num">{{ t.quantity }}</td>
                     <td class="adm-td-num adm-gold">{{ t.experience }}</td>
                     <td class="adm-td-bar">
@@ -172,7 +175,7 @@
                   <!-- DISABLED: <span>⛏️ Hierro: <b>{{ armyDetail.fief_iron }}</b></span> -->
                 </div>
 
-                <table class="adm-table" v-if="unitTypes.length > 0">
+                <table class="adm-table" v-if="availableUnitTypes.length > 0">
                   <thead>
                     <tr>
                       <th class="adm-th-name">Unidad</th>
@@ -181,7 +184,7 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="ut in unitTypes" :key="ut.unit_type_id" class="adm-tr">
+                    <tr v-for="ut in availableUnitTypes" :key="ut.unit_type_id" class="adm-tr">
                       <td class="adm-td-name">{{ ut.name }}</td>
                       <td class="adm-td-num adm-gold" style="font-size:0.75rem; white-space:nowrap;">
                         <span v-for="req in (ut.requirements || [])" :key="req.resource_type">
@@ -244,9 +247,10 @@ import { dismissTroops, reinforceArmy } from '../services/mapApi.js';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const props = defineProps({
-  show:          { type: Boolean, default: false },
-  army:          { type: Object,  default: null  },  // datos básicos del panel (name, army_id, …)
-  autoReinforce: { type: Boolean, default: false },  // auto-abre la sección de refuerzo
+  show:            { type: Boolean, default: false },
+  army:            { type: Object,  default: null  },  // datos básicos del panel (name, army_id, …)
+  autoReinforce:   { type: Boolean, default: false },  // auto-abre la sección de refuerzo
+  playerCultureId: { type: Number,  default: null  },
 });
 const emit = defineEmits(['close', 'dismissed']);
 
@@ -266,6 +270,12 @@ const reinforcing     = ref(false);
 const reinforceError  = ref('');
 const reinforceMsg    = ref('');
 
+// Unit types filtered by player culture
+const availableUnitTypes = computed(() => {
+  if (!props.playerCultureId) return unitTypes.value;
+  return unitTypes.value.filter(u => u.culture_id === props.playerCultureId);
+});
+
 // Calculates how many people would be lost per unit type if dismissed (cap overflow)
 const dismissSurplus = computed(() => {
   const fiefPop = parseInt(armyDetail.value?.fief_population) || 0;
@@ -281,7 +291,7 @@ const dismissSurplus = computed(() => {
 // Total gold cost for current reinforce inputs
 const totalReinforceCost = computed(() => {
   const costs = { gold: 0, wood: 0, stone: 0, iron: 0 };
-  for (const ut of unitTypes.value) {
+  for (const ut of availableUnitTypes.value) {
     const qty = parseInt(reinforceQty.value[ut.unit_type_id]) || 0;
     if (qty <= 0) continue;
     for (const req of (ut.requirements || [])) {
@@ -296,7 +306,7 @@ const totalReinforceCost = computed(() => {
 
 // Total troops being added in reinforce form
 const totalReinforceQty = computed(() =>
-  unitTypes.value.reduce((s, ut) => s + (parseInt(reinforceQty.value[ut.unit_type_id]) || 0), 0)
+  availableUnitTypes.value.reduce((s, ut) => s + (parseInt(reinforceQty.value[ut.unit_type_id]) || 0), 0)
 );
 
 const handleDismiss = async (troop) => {
@@ -326,7 +336,7 @@ const handleDismiss = async (troop) => {
 };
 
 const handleReinforce = async () => {
-  const units = unitTypes.value
+  const units = availableUnitTypes.value
     .map(ut => ({ unit_type_id: ut.unit_type_id, quantity: parseInt(reinforceQty.value[ut.unit_type_id]) || 0 }))
     .filter(u => u.quantity > 0);
 
@@ -375,6 +385,18 @@ const barColor = (val) => {
   if (n >= 40) return '#f59e0b';
   return '#ef4444';
 };
+
+const UNIT_CLASS_ICON = {
+  INFANTRY_1:     '🛡',
+  INFANTRY_2:     '⚔',
+  INFANTRY_ELITE: '⭐',
+  ARCHER_1:       '🏹',
+  ARCHER_2:       '🏹',
+  CAVALRY_1:      '🐎',
+  CAVALRY_2:      '🐎',
+  SIEGE:          '🪨',
+};
+const unitClassIcon = (unit_class) => UNIT_CLASS_ICON[unit_class] || '⚔';
 
 const fetchDetail = async (armyId) => {
   loading.value = true;
@@ -540,7 +562,8 @@ onUnmounted(() => document.removeEventListener('keydown', handleEsc));
 .adm-tr { border-bottom: 1px solid #0d1117; }
 .adm-tr:hover { background: rgba(255,255,255,0.02); }
 
-.adm-td-name { padding: 9px 10px; color: #e2e8f0; font-weight: 600; }
+.adm-td-name { padding: 9px 10px; color: #e2e8f0; font-weight: 600; white-space: nowrap; }
+.adm-unit-icon { font-size: 13px; margin-right: 5px; }
 .adm-td-num { padding: 9px 10px; text-align: center; color: #9ca3af; }
 .adm-td-bar { padding: 9px 10px; min-width: 100px; }
 .adm-gold { color: #fbbf24 !important; }
