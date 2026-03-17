@@ -256,7 +256,8 @@ class ArmyModel {
     async AddTroops(client, army_id, unit_type_id, quantity) {
         await client.query(
             `INSERT INTO troops (army_id, unit_type_id, quantity, experience, morale, stamina, force_rest)
-             VALUES ($1, $2, $3, 10.00, 50.00, 100.00, false)`,
+             SELECT $1, $2, $3, COALESCE(ut.initial_experience, 0), 50.00, 100.00, false
+             FROM unit_types ut WHERE ut.unit_type_id = $2`,
             [army_id, unit_type_id, quantity]
         );
     }
@@ -565,7 +566,7 @@ class ArmyModel {
 
     /**
      * Adds troops to an existing army, merging with existing rows of the same unit type.
-     * If no row exists for that unit_type_id, inserts a fresh one (experience=10, morale=50).
+     * If no row exists for that unit_type_id, inserts a fresh one (initial_experience from unit_types, morale=50).
      */
     async ReinforceTroops(client, army_id, unit_type_id, quantity) {
         const existing = await client.query(
@@ -580,7 +581,8 @@ class ArmyModel {
         } else {
             await client.query(
                 `INSERT INTO troops (army_id, unit_type_id, quantity, experience, morale, stamina, force_rest)
-                 VALUES ($1, $2, $3, 10.00, 50.00, 100.00, false)`,
+                 SELECT $1, $2, $3, COALESCE(ut.initial_experience, 0), 50.00, 100.00, false
+                 FROM unit_types ut WHERE ut.unit_type_id = $2`,
                 [army_id, unit_type_id, quantity]
             );
         }

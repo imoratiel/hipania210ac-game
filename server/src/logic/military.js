@@ -195,7 +195,8 @@ async function recruitUnits(pool, params, playerId) {
         // USANDO troop_id, army_id, unit_type_id
         await client.query(
             `INSERT INTO troops (army_id, unit_type_id, quantity, experience, morale, stamina, force_rest)
-             VALUES ($1, $2, $3, 10.00, 50.00, 100.00, false)`,
+             SELECT $1, $2, $3, COALESCE(ut.initial_experience, 0), 50.00, 100.00, false
+             FROM unit_types ut WHERE ut.unit_type_id = $2`,
             [armyId, unit_type_id, quantity]
         );
 
