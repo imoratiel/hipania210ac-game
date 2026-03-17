@@ -1,35 +1,39 @@
 # Sistema de Movimiento de Ejércitos
 
-## 1. Puntos de Movimiento (PM)
+## 1. Velocidad y Casillas por Turno
 
-Cada ejército tiene un número de PM disponibles por turno. El valor se calcula al inicio del procesamiento del turno:
+Cada tipo de unidad tiene un atributo `speed` en `unit_types.speed`. Este valor indica el **número máximo de casillas** que puede avanzar en un único turno.
 
 ```
-PM = min(speed) de todas las unidades del ejército
+maxCells = min(speed) de todas las unidades del ejército
 ```
 
-- La velocidad (`speed`) es un atributo de cada tipo de unidad (`unit_types.speed`).
-- El ejército se mueve a la velocidad de su unidad **más lenta**.
-- Si alguna unidad tiene `force_rest = TRUE`, el ejército tiene **PM = 0** y no puede moverse ese turno.
-
-**Máximo de hexágonos por turno:** 4 (independientemente de los PM disponibles).
+- El ejército avanza a la velocidad de su unidad **más lenta**.
+- Si alguna unidad tiene `force_rest = TRUE` (stamina = 0), el ejército tiene **maxCells = 0** y no puede moverse ese turno.
 
 ---
 
 ## 2. Costes de Terreno
 
-Cada hexágono tiene un coste de movimiento definido en `terrain_types.movement_cost`:
+Cada hexágono tiene un coste de movimiento definido en `terrain_types.movement_cost`. Este valor se usa para calcular el consumo de stamina.
 
-| Terreno       | Coste |
-|---------------|-------|
-| Llanura       | 1.0   |
-| Costa         | 1.0   |
-| Bosque        | 1.5   |
-| Río           | 1.5   |
-| Colinas       | 2.0   |
-| Pantano       | 3.0   |
-| Montaña       | 4.0   |
-| Mar           | -1 (infranqueable) |
+| Terreno            | movement_cost | Infranqueable |
+|--------------------|--------------|---------------|
+| Tierras de Cultivo | 1.0          |               |
+| Tierras de Secano  | 1.0          |               |
+| Estepas            | 1.0          |               |
+| Costa              | 1.0          |               |
+| Asentamiento       | 1.0          |               |
+| Puente             | 1.0          |               |
+| Río                | 1.5          |               |
+| Colinas            | 2.0          |               |
+| Bosque             | 2.0          |               |
+| Oteros             | 2.0          |               |
+| Espesuras          | 3.0          |               |
+| Pantanos           | 3.0          |               |
+| Alta Montaña       | 5.0          |               |
+| Agua               | 5.0          |               |
+| Mar                | —            | ✓             |
 
 El coste mínimo aplicado es siempre 1, aunque el valor del terreno sea menor.
 
@@ -59,23 +63,20 @@ La ruta calculada se almacena como un array JSON en `army_routes.path` y se reut
 Cada turno, el motor procesa cada ejército con destino asignado:
 
 ```
-1. Si recovering > 0 → bloqueado, no mueve
-2. Si alguna tropa tiene force_rest → PM = 0, no mueve
+1. Si alguna tropa tiene force_rest = TRUE (stamina = 0) → bloqueado, no mueve
+2. Calcular maxCells = min(speed) de las tropas
 3. Cargar ruta desde army_routes.path
-4. Mientras (PM > 0) y (hay ruta) y (pasos < 4):
+4. Repetir hasta (pasos = maxCells) o (sin ruta):
    a. Coger siguiente hexágono de la ruta
-   b. Si PM >= coste del terreno:
-        - Restar coste de PM
-        - Consumir stamina a las tropas (ver §5)
-        - Mover ejército al hexágono
-   c. Si PM < coste (esfuerzo extra):
-        - Mover igualmente el hexágono
-        - Descontar stamina por coste del terreno (igual que paso normal)
-        - Si alguna tropa llega a stamina = 0 → force_rest = TRUE en esa tropa
-        - recovering = 1 (turno de descanso forzado)
+   b. Mover el ejército al hexágono
+   c. Descontar stamina a todas las tropas (ver §5)
+   d. Si alguna tropa llega a stamina = 0:
+        - force_rest = TRUE en esa tropa
         - Detener el bucle
 5. Si llegó al destino: limpiar destino y ruta
 ```
+
+No existe "esfuerzo extra" ni contador `recovering`. El sistema es puramente stamina-driven.
 
 ---
 
@@ -83,41 +84,68 @@ Cada turno, el motor procesa cada ejército con destino asignado:
 
 Cada tropa (`troops`) tiene un valor individual de `stamina` en el rango **0–100**.
 
-### Consumo por movimiento
+### Cálculo exacto del consumo por movimiento
 
-Al moverse a un hexágono, cada tropa pierde stamina igual al coste de movimiento del terreno:
+Al entrar en un hexágono, la stamina se descuenta en dos pasos:
 
 ```
-nueva_stamina = max(0, stamina_actual - movement_cost_terreno)
+1. stamina_cost  = movement_cost_terreno × STAMINA_COST_PER_HEX
+2. nueva_stamina = max(0, stamina_actual - stamina_cost)
 ```
 
-Si la stamina llega a **0**, la tropa entra en `force_rest = TRUE` automáticamente.
+- `movement_cost_terreno` viene de `terrain_types.movement_cost` (tabla §2).
+- `STAMINA_COST_PER_HEX = 5` es el multiplicador definido en `constants.js`.
+- El resultado nunca baja de 0.
+- Si `nueva_stamina = 0`, la tropa entra en `force_rest = TRUE` automáticamente.
 
-### Esfuerzo extra
+**Ejemplos con valores reales:**
 
-Si el ejército no tiene suficientes PM para el siguiente hexágono pero aún queda ruta, puede hacer un **esfuerzo extra**:
-- Se mueve de todas formas al hexágono.
-- La stamina se descuenta con el coste normal del terreno (igual que cualquier otro paso). Si llega a 0, esa tropa entra en `force_rest = TRUE`.
-- El ejército queda con `recovering = 1` (no puede moverse el siguiente turno).
+| Terreno          | movement_cost | × 5 | Stamina consumida |
+|------------------|--------------|-----|-------------------|
+| Tierras/Costa/Puente | 1.0      | ×5  | **5**             |
+| Río              | 1.5          | ×5  | **7.5**           |
+| Colinas/Bosque/Oteros | 2.0     | ×5  | **10**            |
+| Espesuras/Pantanos | 3.0        | ×5  | **15**            |
+| Alta Montaña/Agua | 5.0         | ×5  | **25**            |
+
+**Casillas máximas antes de agotarse** (stamina 100, sin recuperación):
+
+| Terreno          | Coste/casilla | Casillas hasta stamina=0 |
+|------------------|--------------|--------------------------|
+| Tierras/Estepa   | 5            | **20 casillas**          |
+| Río              | 7.5          | **13 casillas**          |
+| Colinas/Bosque   | 10           | **10 casillas**          |
+| Espesuras/Pantanos | 15         | **6 casillas**           |
+| Alta Montaña     | 25           | **4 casillas**           |
+
+**Balance neto por turno** (stamina ini=100, maxCells=3, recuperación +4 si no mueve):
+
+| Terreno          | Gasto/turno | Recuperación | **Net** | Turnos hasta agotarse |
+|------------------|------------|-------------|---------|----------------------|
+| Tierras/Estepa   | −15        | +4          | **−11** | ~9 turnos            |
+| Río              | −22.5      | +4          | **−18.5** | ~5 turnos          |
+| Colinas/Bosque   | −30        | +4          | **−26** | ~4 turnos            |
+| Espesuras/Pantanos | −45      | +4          | **−41** | ~2-3 turnos          |
+| Alta Montaña     | −75 (3 pasos) | +4       | **−71** | ~1-2 turnos          |
 
 ### Recuperación pasiva
 
-Cada turno (al final, después del movimiento), las tropas recuperan stamina:
+Cada turno, **si el ejército no se movió**, las tropas recuperan stamina:
 
 ```
-nueva_stamina = min(100, stamina_actual + 4)
+nueva_stamina = min(100, stamina_actual + STAMINA_RECOVERY_PER_TURN)
 ```
 
 Si una tropa tenía `force_rest = TRUE` y su stamina alcanza **≥ 25**, se libera automáticamente (`force_rest = FALSE`).
 
-### Resumen de constantes
+### Constantes
 
-| Parámetro                    | Valor |
-|------------------------------|-------|
-| Stamina máxima               | 100   |
-| Recuperación por turno       | +4    |
-| Umbral para liberar force_rest | 25  |
-| Turnos de penalización (esfuerzo extra) | 1 |
+| Parámetro                        | Valor | Ubicación |
+|----------------------------------|-------|-----------|
+| Stamina máxima                   | 100   | `constants.js` |
+| `STAMINA_COST_PER_HEX`           | 5     | `constants.js` |
+| `STAMINA_RECOVERY_PER_TURN`      | +4    | `constants.js` |
+| Umbral para liberar `force_rest` | 25    | `constants.js` |
 
 ---
 
@@ -126,10 +154,10 @@ Si una tropa tenía `force_rest = TRUE` y su stamina alcanza **≥ 25**, se libe
 ```
 1. processArmyMovements()   — mueve todos los ejércitos con destino
 2. processWorkerMovements() — mueve trabajadores
-3. processArmyRecovery()    — recupera stamina y decrementa recovering
+3. processArmyRecovery()    — recupera stamina (solo ejércitos que NO se movieron)
 ```
 
-El movimiento ocurre **antes** de la recuperación para que el cansancio generado en el turno actual se recupere en el mismo turno (ciclo natural).
+El movimiento ocurre **antes** de la recuperación para que el cansancio generado en el turno actual se recupere en el mismo turno (ciclo natural). Los ejércitos que se movieron no recuperan stamina ese turno.
 
 ---
 
@@ -137,9 +165,9 @@ El movimiento ocurre **antes** de la recuperación para que el cansancio generad
 
 | Tabla          | Columnas clave                                              |
 |----------------|-------------------------------------------------------------|
-| `armies`       | `h3_index`, `destination`, `recovering`                    |
+| `armies`       | `h3_index`, `destination`                                  |
 | `army_routes`  | `army_id`, `path` (JSONB array de hexágonos)               |
 | `troops`       | `army_id`, `stamina`, `force_rest`, `unit_type_id`         |
-| `unit_types`   | `speed` (PM del tipo de unidad)                            |
+| `unit_types`   | `speed` (casillas máximas por turno del tipo de unidad)    |
 | `terrain_types`| `movement_cost`                                            |
 | `h3_map`       | `h3_index`, `terrain_type_id`                              |

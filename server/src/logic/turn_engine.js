@@ -908,7 +908,7 @@ async function processWorkerConstructions(client, turn) {
  * @param {number} turn - Current turn number
  * @param {Object} config - Game configuration
  */
-async function processArmyRecovery(client, turn, config) {
+async function processArmyRecovery(client, turn, config, movedArmyIds = new Set()) {
     try {
         Logger.engine(`[TURN ${turn}] Processing passive stamina recovery...`);
 
@@ -918,55 +918,42 @@ async function processArmyRecovery(client, turn, config) {
                 a.army_id,
                 a.name,
                 a.player_id,
-                a.recovering,
                 p.username
             FROM armies a
             JOIN players p ON a.player_id = p.player_id
         `);
 
         let recoveredCount = 0;
+        let skippedCount = 0;
         let releasedCount = 0;
-        let recoveringDecrementedCount = 0;
         let errorCount = 0;
 
         for (const army of armiesResult.rows) {
             try {
-                // Process passive stamina recovery for this army
-                const result = await ArmySimulationService.processPassiveRecovery(army.army_id);
-
-                if (result.success) {
-                    recoveredCount++;
-                    if (result.releasedUnits && result.releasedUnits > 0) {
-                        releasedCount += result.releasedUnits;
-                        Logger.engine(`[TURN ${turn}] Army ${army.army_id} (${army.name}): ${result.releasedUnits} units released from force_rest`);
-                    }
+                // Armies that moved this turn do not recover stamina
+                if (movedArmyIds.has(army.army_id)) {
+                    skippedCount++;
+                    Logger.army(army.army_id, 'STAMINA_SKIP', `Sin recuperación — el ejército se movió este turno`);
                 } else {
-                    errorCount++;
-                    Logger.error(new Error(result.message || 'Unknown recovery error'), {
-                        context: 'turn_engine.processArmyRecovery',
-                        phase: 'stamina_recovery',
-                        turn: turn,
-                        armyId: army.army_id
-                    });
-                }
+                    // Process passive stamina recovery for this army
+                    const result = await ArmySimulationService.processPassiveRecovery(army.army_id);
 
-                // Decrement recovering counter and regenerate movement points
-                const recoveringValue = parseInt(army.recovering) || 0;
-                if (recoveringValue > 0) {
-                    // Decrement recovering counter
-                    await client.query(`
-                        UPDATE armies
-                        SET recovering = GREATEST(0, recovering - 1)
-                        WHERE army_id = $1
-                    `, [army.army_id]);
-                    recoveringDecrementedCount++;
-
-                    if (recoveringValue === 1) {
-                        Logger.engine(`[TURN ${turn}] Army ${army.army_id} (${army.name}) finished recovering and is ready to move`);
+                    if (result.success) {
+                        recoveredCount++;
+                        if (result.releasedUnits && result.releasedUnits > 0) {
+                            releasedCount += result.releasedUnits;
+                            Logger.engine(`[TURN ${turn}] Army ${army.army_id} (${army.name}): ${result.releasedUnits} units released from force_rest`);
+                        }
+                    } else {
+                        errorCount++;
+                        Logger.error(new Error(result.message || 'Unknown recovery error'), {
+                            context: 'turn_engine.processArmyRecovery',
+                            phase: 'stamina_recovery',
+                            turn: turn,
+                            armyId: army.army_id
+                        });
                     }
                 }
-
-                // movement_points is no longer used - PM is calculated live in executeArmyTurn
 
             } catch (armyError) {
                 errorCount++;
@@ -980,7 +967,7 @@ async function processArmyRecovery(client, turn, config) {
             }
         }
 
-        Logger.engine(`[TURN ${turn}] Army recovery completed: ${recoveredCount} armies recovered stamina, ${releasedCount} units released from force_rest, ${recoveringDecrementedCount} armies recovering decremented, ${errorCount} errors`);
+        Logger.engine(`[TURN ${turn}] Army recovery completed: ${recoveredCount} recovered, ${skippedCount} skipped (moved), ${releasedCount} units released from force_rest, ${errorCount} errors`);
     } catch (error) {
         Logger.error(error, {
             context: 'turn_engine.processArmyRecovery',
@@ -1021,6 +1008,8 @@ async function processArmyMovements(client, turn, config) {
         let blockedCount = 0;
         let errorCount = 0;
 
+        const movedArmyIds = new Set();
+
         for (const army of armiesResult.rows) {
             try {
                 // Execute full movement turn for this army (multiple steps until PM exhausted)
@@ -1028,9 +1017,11 @@ async function processArmyMovements(client, turn, config) {
 
                 if (result.success && result.moved && result.arrived) {
                     arrivedCount++;
+                    movedArmyIds.add(army.army_id);
                     Logger.engine(`[TURN ${turn}] Army ${army.army_id} (${army.name}) arrived at destination after ${result.stepsCount} steps`);
                 } else if (result.success && result.moved) {
                     movedCount++;
+                    movedArmyIds.add(army.army_id);
                     const exhaustedNote = result.forceExhausted ? ' [AGOTADO]' : '';
                     Logger.engine(`[TURN ${turn}] Army ${army.army_id} (${army.name}) moved ${result.stepsCount} step(s)${exhaustedNote}`);
                 } else if (result.success && !result.moved) {
@@ -1058,6 +1049,7 @@ async function processArmyMovements(client, turn, config) {
         }
 
         Logger.engine(`[TURN ${turn}] Army movements completed: ${movedCount} moved, ${arrivedCount} arrived, ${blockedCount} blocked, ${errorCount} errors`);
+        return movedArmyIds;
     } catch (error) {
         Logger.error(error, {
             context: 'turn_engine.processArmyMovements',
@@ -1065,6 +1057,7 @@ async function processArmyMovements(client, turn, config) {
             turn: turn
         });
         // Don't throw - allow turn to continue
+        return new Set();
     }
 }
 
@@ -1212,15 +1205,14 @@ async function processGameTurn(pool, config) {
         // processMilitaryConsumption holds row-level locks on armies (food_provisions UPDATE via T1).
         // executeArmyTurn opens its own transaction (T2) and tries to UPDATE armies.h3_index.
         // T2 would block waiting for T1's lock, while T1 awaits T2 in JS → application-level deadlock.
-        await processArmyMovements(client, newTurn, config);
+        const movedArmyIds = await processArmyMovements(client, newTurn, config);
 
         // Worker straight-line movements (every turn)
         await processWorkerMovements(client, newTurn);
 
         // Army passive stamina recovery (every turn, after movements)
-        // Ejecutar DESPUÉS del movimiento para que el esfuerzo extra de este turno
-        // no sea inmediatamente cancelado por la recuperación del mismo turno.
-        await processArmyRecovery(client, newTurn, config);
+        // Armies that moved this turn are excluded — no recovery if the hex changed.
+        await processArmyRecovery(client, newTurn, config, movedArmyIds);
 
         // Action cooldowns tick (every turn)
         await processActionCooldowns(client, newTurn);
