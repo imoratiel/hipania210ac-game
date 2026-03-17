@@ -301,6 +301,11 @@ export async function upgradeFiefBuilding(h3_index) {
   return response.data;
 }
 
+export async function repairBuilding({ h3_index }) {
+  const response = await axios.post(`${API_URL}/api/territory/repair-building`, { h3_index });
+  return response.data;
+}
+
 export async function upgradeBuilding(h3_index, buildingType) {
   const response = await axios.post(`${API_URL}/api/territory/upgrade`, {
     h3_index,

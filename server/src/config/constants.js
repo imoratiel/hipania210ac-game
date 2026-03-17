@@ -49,7 +49,8 @@ const GAME_CONFIG = {
 
     // 🏛️ Reglas de Construcción
     BUILDINGS: {
-        EXCLUSION_RADIUS: 5,   // Radio (en hexágonos H3) dentro del cual no puede existir otro edificio del mismo tipo
+        EXCLUSION_RADIUS: 5,              // Radio (en hexágonos H3) dentro del cual no puede existir otro edificio del mismo tipo
+        CONSERVATION_DECAY_PERCENT: 2,    // % de conservación que pierde cada edificio el día 5 de cada mes
     },
 
     // 🏛️ Señoríos y Divisiones Políticas

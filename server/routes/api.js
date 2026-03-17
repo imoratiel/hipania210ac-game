@@ -70,6 +70,7 @@ module.exports = function () {
     router.get('/territory/buildings', authenticateToken, (req, res) => KingdomService.GetBuildings(req, res));
     router.post('/territory/construct', authenticateToken, (req, res) => KingdomService.ConstructBuilding(req, res));
     router.post('/territory/upgrade-building', authenticateToken, (req, res) => KingdomService.UpgradeFiefBuilding(req, res));
+    router.post('/territory/repair-building', authenticateToken, (req, res) => KingdomService.RepairBuilding(req, res));
 
     // ============================================
     // MILITARY RECRUITMENT

@@ -108,7 +108,8 @@ class KingdomService {
     async GetBuildings(req, res) {
         const client = await pool.connect();
         try {
-            const buildings = await KingdomModel.GetAllBuildings(client);
+            const culture_id = await KingdomModel.GetPlayerCulture(client, req.user.player_id);
+            const buildings = await KingdomModel.GetAllBuildings(client, culture_id);
             res.json({ success: true, buildings });
         } catch (error) {
             Logger.error(error, { endpoint: '/territory/buildings', method: 'GET', userId: req.user?.player_id });
@@ -135,6 +136,60 @@ class KingdomService {
             }
             Logger.error(error, { endpoint: '/territory/construct', method: 'POST', userId: req.user?.player_id, payload: req.body });
             res.status(500).json({ success: false, message: 'Error al iniciar construcción' });
+        } finally {
+            client.release();
+        }
+    }
+    async RepairBuilding(req, res) {
+        const client = await pool.connect();
+        try {
+            const { h3_index } = req.body;
+            const player_id = req.user.player_id;
+            if (!h3_index) return res.status(400).json({ success: false, message: 'h3_index requerido' });
+
+            await client.query('BEGIN');
+
+            // Ownership check
+            const owner = await KingdomModel.CheckTerritoryOwnership(client, h3_index);
+            if (owner?.player_id !== player_id) {
+                await client.query('ROLLBACK');
+                return res.status(403).json({ success: false, message: 'No posees este territorio' });
+            }
+
+            // Get building with conservation and gold_cost
+            const fbResult = await client.query(`
+                SELECT fb.conservation, b.gold_cost
+                FROM fief_buildings fb
+                JOIN buildings b ON fb.building_id = b.id
+                WHERE fb.h3_index = $1 AND fb.is_under_construction = FALSE
+            `, [h3_index]);
+            if (fbResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'No hay edificio construido en este feudo' });
+            }
+            const { conservation, gold_cost } = fbResult.rows[0];
+            if (conservation >= 100) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'El edificio ya está en perfecto estado' });
+            }
+
+            const repair_cost = Math.ceil((100 - conservation) / 100 * gold_cost);
+            const player = await KingdomModel.GetPlayerGold(client, player_id);
+            if ((player?.gold ?? 0) < repair_cost) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: `Oro insuficiente. Necesitas ${repair_cost} 💰` });
+            }
+
+            await KingdomModel.DeductGold(client, player_id, repair_cost);
+            await KingdomModel.RepairBuilding(client, h3_index);
+            await client.query('COMMIT');
+
+            Logger.action(`[ACTION] Jugador ${player_id} reparó edificio en ${h3_index} (-${repair_cost}💰)`);
+            res.json({ success: true, message: `Edificio reparado (-${repair_cost} 💰)`, repair_cost });
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            Logger.error(error, { endpoint: '/territory/repair-building', method: 'POST', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al reparar el edificio' });
         } finally {
             client.release();
         }
@@ -228,6 +283,8 @@ class KingdomService {
                         type_name: row.fief_building_type_name,
                         is_under_construction: row.fief_building_constructing,
                         turns_left: row.fief_building_constructing ? row.fief_building_turns_left : null,
+                        conservation: row.fief_building_conservation ?? 100,
+                        repair_cost: Math.ceil((100 - (row.fief_building_conservation ?? 100)) / 100 * (row.fief_building_gold_cost ?? 0)),
                         upgrade: (!row.fief_building_constructing && row.upgrade_building_id) ? {
                             id:        row.upgrade_building_id,
                             name:      row.upgrade_building_name,

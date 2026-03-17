@@ -3,6 +3,7 @@ const { auditEvent, TOPICS } = require('../infrastructure/kafkaFacade');
 const { determineDiscoveredResource } = require('./discovery');
 const { processTaxCollection } = require('./tax_collector');
 const { processTithe } = require('./tithe_system');
+const { processBuildingDecay } = require('./building_decay');
 const { processGraceTurns } = require('./conquest_system');
 const { processWorkerMovements } = require('./workerMovement');
 const GAME_CONFIG = require('../config/constants');
@@ -1264,6 +1265,9 @@ async function processGameTurn(pool, config) {
         // Tithe system (day 10 of each game month, same as tax collection)
         // processTithe has its own guards: day-of-month check + DB idempotency key
         await processTithe(client, newTurn, gameDate);
+
+        // Building decay (day 5 of each game month)
+        await processBuildingDecay(client, newTurn, gameDate);
 
         await client.query('COMMIT');
 

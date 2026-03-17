@@ -296,38 +296,11 @@ async function initializePlayer(player_id, { forceCultureId = null, randomBonus 
         }
         await ArmyModel.refreshDetectionRange(client, armyId);
 
-        // ── 7. Build completed Fortaleza in capital ───────────────────────────
-        // Fortaleza satisfies both the military-building check (recruitment) and
-        // the HasFortress check (required to proclaim a Señorío).
-        // fief_buildings uses h3_index as PK, so only one building per hex.
-        const fortressResult = await client.query(
-            "SELECT id FROM buildings WHERE LOWER(name) IN ('fortaleza', 'fortress') LIMIT 1"
-        );
-        const fortressId = fortressResult.rows[0]?.id;
-
-        if (fortressId) {
-            await client.query(
-                `INSERT INTO fief_buildings (h3_index, building_id, remaining_construction_turns, is_under_construction)
-                 VALUES ($1, $2, 0, FALSE)
-                 ON CONFLICT (h3_index) DO UPDATE
-                   SET building_id = EXCLUDED.building_id,
-                       remaining_construction_turns = 0,
-                       is_under_construction = FALSE`,
-                [capitalHex, fortressId]
-            );
-        } else {
-            // Fallback: build barracks if no fortaleza exists in DB
-            const barracksResult = await client.query(
-                "SELECT id FROM buildings WHERE LOWER(name) IN ('cuartel', 'barracks') LIMIT 1"
-            );
-            if (barracksResult.rows.length > 0) {
-                await client.query(
-                    `INSERT INTO fief_buildings (h3_index, building_id, remaining_construction_turns, is_under_construction)
-                     VALUES ($1, $2, 0, FALSE)
-                     ON CONFLICT DO NOTHING`,
-                    [capitalHex, barracksResult.rows[0].id]
-                );
-            }
+        // ── 7. Place completed level-2 military building in capital ──────────
+        // Uses the cultural level-2 military building (type=military, has prerequisite).
+        const lvl2Military = await KingdomModel.GetMilitaryLvl2Building(client, cultureId);
+        if (lvl2Military) {
+            await KingdomModel.PlaceBuildingCompleted(client, capitalHex, lvl2Military.id);
         }
 
         // ── 8. Create starting character and assign to army ──────────────────

@@ -82,16 +82,18 @@ tax_amount = floor(gold_stored × tasa_efectiva / 100)
 
 ## 3. Diezmo — día 10 de cada mes (opcional)
 
-Si el jugador tiene activado `players.tithe_active`, el **10 % del oro almacenado** en cada feudo secundario (no capital) se transfiere al almacén de la capital.
+Si el jugador tiene activado `players.tithe_active`, el **10 % de la comida almacenada** en cada feudo secundario (no capital) se transfiere a la capital correspondiente.
 
 ```
-diezmo_feudo = floor(gold_stored × 0.10)
+diezmo_feudo = floor(food_stored × 0.10)
 ```
 
-- Se descuenta de `territory_details.gold_stored` del feudo de origen.
-- Se añade a `territory_details.gold_stored` de la capital.
+- Se descuenta de `territory_details.food_stored` del feudo de origen.
+- Destino según el tipo de feudo:
+  - Feudo de un **señorío** → `political_divisions.capital_h3` del señorío
+  - Feudo **libre** (sin señorío) → `players.capital_h3` del jugador
 - Se ejecuta el mismo día 10, después del cobro de impuestos.
-- También mueve comida (desactivada), madera, piedra y hierro (desactivados).
+- Solo afecta a comida; el oro y materiales no se diezman.
 
 ---
 
@@ -100,7 +102,7 @@ diezmo_feudo = floor(gold_stored × 0.10)
 ```
 Día 1   → Solidaridad comida · Consumo civil · Cálculo felicidad · Producción mensual
 Día 10  → Cobro de impuestos (gold_stored → players.gold)
-Día 10  → Diezmo (gold_stored feudo → gold_stored capital) [si tithe_active]
+Día 10  → Diezmo (food_stored feudo → capital señorío o capital jugador) [si tithe_active]
 Día 75  → Cosecha de primavera (producción + soldadas → players.gold)
 Día 180 → Cosecha de otoño   (producción + soldadas → players.gold)
 ```

@@ -146,6 +146,23 @@ class AIManagerService {
             await KingdomModel.InsertTerritoryDetails(client, spawnHex, capitalEco);
             await KingdomModel.SetCapital(client, spawnHex, aiPlayerId);
 
+            // Assign random culture to bot
+            const cultureResult = await client.query(
+                'SELECT id FROM cultures ORDER BY RANDOM() LIMIT 1'
+            );
+            const aiCultureId = cultureResult.rows[0]?.id ?? null;
+            if (aiCultureId) {
+                await client.query(
+                    'UPDATE players SET culture_id = $1 WHERE player_id = $2',
+                    [aiCultureId, aiPlayerId]
+                );
+                // Place completed level-2 military building in capital
+                const lvl2Military = await KingdomModel.GetMilitaryLvl2Building(client, aiCultureId);
+                if (lvl2Military) {
+                    await KingdomModel.PlaceBuildingCompleted(client, spawnHex, lvl2Military.id);
+                }
+            }
+
             const ring1     = h3.gridDisk(spawnHex, 2).filter(n => n !== spawnHex);
             const neighbors = await KingdomModel.GetColonizableNeighbors(client, ring1);
             for (const neighbor of neighbors) {

@@ -97,7 +97,18 @@ export function generateCellPopupContent(cell, config) {
         const turnsLeft = cell.fief_building.turns_left ?? '?';
         popupContent += `<div class="popup-building-status popup-building-progress">🏗️ En construcción: <strong>${cell.fief_building.name}</strong> (${turnsLeft} turno${turnsLeft !== 1 ? 's' : ''})</div>`;
       } else {
-        popupContent += `<div class="popup-building-status popup-building-done">🏛️ Edificio: <strong>${cell.fief_building.name}</strong></div>`;
+        const cons = cell.fief_building.conservation ?? 100;
+        const consColor = cons >= 70 ? '#4caf50' : cons >= 40 ? '#ff9800' : '#f44336';
+        popupContent += `<div class="popup-building-status popup-building-done">
+          🏛️ Edificio: <strong>${cell.fief_building.name}</strong>
+          <div style="margin-top:4px;display:flex;align-items:center;gap:6px;">
+            <span style="font-size:11px;color:#aaa;">Conservación</span>
+            <div style="flex:1;height:6px;background:#333;border-radius:3px;overflow:hidden;">
+              <div style="width:${cons}%;height:100%;background:${consColor};border-radius:3px;transition:width .3s;"></div>
+            </div>
+            <span style="font-size:11px;color:${consColor};min-width:30px;">${cons}%</span>
+          </div>
+        </div>`;
       }
     }
   }
@@ -108,6 +119,13 @@ export function generateCellPopupContent(cell, config) {
   // Build button - for own fief with no building
   if (cell.player_id === playerId && !cell.fief_building) {
     popupContent += `<button id="build-btn-${h3_index}" class="btn-popup btn-build" title="Construir un edificio en este feudo">🏗️ Construir</button>`;
+  }
+
+  // Repair button - for own fief with a completed building not at 100% conservation
+  if (cell.player_id === playerId && cell.fief_building && !cell.fief_building.is_under_construction &&
+      (cell.fief_building.conservation ?? 100) < 100) {
+    const cost = cell.fief_building.repair_cost ?? 0;
+    popupContent += `<button id="repair-btn-${h3_index}" class="btn-popup btn-repair" title="Reparar edificio (${cost} 💰)">🔧 Reparar (${cost} 💰)</button>`;
   }
 
   // Upgrade button - for own fief with a completed building that has an upgrade

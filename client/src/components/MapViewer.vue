@@ -880,7 +880,6 @@
               <div class="build-card-stats">
                 <span class="build-stat">💰 {{ building.gold_cost }}</span>
                 <span class="build-stat">⏱️ {{ building.construction_time_turns }}t</span>
-                <span v-if="building.food_bonus > 0" class="build-stat build-stat-food">🌾 +{{ building.food_bonus }}%</span>
               </div>
             </div>
             <button
@@ -4175,6 +4174,17 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
       }, 100);
     }
 
+    // Add event listener to repair button (own fief with building conservation < 100)
+    if (cell.player_id === playerId.value && cell.fief_building &&
+        !cell.fief_building.is_under_construction && (cell.fief_building.conservation ?? 100) < 100) {
+      setTimeout(() => {
+        const repairBtn = document.getElementById(`repair-btn-${h3_index}`);
+        if (repairBtn) {
+          repairBtn.addEventListener('click', () => repairBuildingFromPopup(h3_index));
+        }
+      }, 100);
+    }
+
     // Add event listener to upgrade button (own fief with completed building that has an upgrade)
     if (cell.player_id === playerId.value && cell.fief_building && !cell.fief_building.is_under_construction && cell.fief_building.upgrade) {
       setTimeout(() => {
@@ -5326,6 +5336,21 @@ const buildBridgeFromPopup = async (h3_index) => {
     }
   } catch (err) {
     const msg = err?.response?.data?.message || 'Error al iniciar la construcción';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
+const repairBuildingFromPopup = async (h3_index) => {
+  try {
+    const result = await mapApi.repairBuilding({ h3_index });
+    if (result.success) {
+      showToast(`🔧 ${result.message}`, 'success');
+      playerGold.value = Math.max(0, playerGold.value - (result.repair_cost || 0));
+      map.closePopup();
+      await fetchHexagonData();
+    }
+  } catch (err) {
+    const msg = err?.response?.data?.message || 'Error al reparar el edificio';
     showToast(`❌ ${msg}`, 'error');
   }
 };

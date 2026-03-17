@@ -99,16 +99,22 @@ class KingdomModel {
         const result = await client.query('SELECT is_exiled FROM players WHERE player_id = $1', [player_id]);
         return result.rows[0]?.is_exiled ?? false;
     }
-    async GetAllBuildings(client) {
+    async GetAllBuildings(client, culture_id) {
         const result = await client.query(
             `SELECT b.id, b.name, b.gold_cost, b.construction_time_turns,
-                    b.required_building_id, b.food_bonus, b.description,
+                    b.required_building_id, b.description, b.culture_id,
                     bt.name AS type_name
              FROM buildings b
              JOIN building_types bt ON b.type_id = bt.building_type_id
-             ORDER BY b.type_id, b.id`
+             WHERE ($1::int IS NULL OR b.culture_id = $1)
+             ORDER BY b.type_id, b.id`,
+            [culture_id ?? null]
         );
         return result.rows;
+    }
+    async GetPlayerCulture(client, player_id) {
+        const result = await client.query('SELECT culture_id FROM players WHERE player_id = $1', [player_id]);
+        return result.rows[0]?.culture_id ?? null;
     }
     async GetBuildingDefinition(client, building_id) {
         const result = await client.query(
@@ -143,6 +149,38 @@ class KingdomModel {
             [h3_index, building_id]
         );
         return result.rows[0] || null;
+    }
+    /**
+     * Devuelve el edificio militar de nivel 2 (type_id=1, required_building_id NOT NULL)
+     * de la cultura indicada. Si no existe, devuelve null.
+     */
+    async GetMilitaryLvl2Building(client, culture_id) {
+        const result = await client.query(
+            `SELECT id, name FROM buildings
+             WHERE type_id = (SELECT building_type_id FROM building_types WHERE LOWER(name) = 'military' LIMIT 1)
+               AND required_building_id IS NOT NULL
+               AND culture_id = $1
+             LIMIT 1`,
+            [culture_id]
+        );
+        return result.rows[0] || null;
+    }
+    async PlaceBuildingCompleted(client, h3_index, building_id) {
+        await client.query(
+            `INSERT INTO fief_buildings (h3_index, building_id, remaining_construction_turns, is_under_construction)
+             VALUES ($1, $2, 0, FALSE)
+             ON CONFLICT (h3_index) DO UPDATE
+               SET building_id = EXCLUDED.building_id,
+                   remaining_construction_turns = 0,
+                   is_under_construction = FALSE`,
+            [h3_index, building_id]
+        );
+    }
+    async RepairBuilding(client, h3_index) {
+        await client.query(
+            `UPDATE fief_buildings SET conservation = 100 WHERE h3_index = $1 AND is_under_construction = FALSE`,
+            [h3_index]
+        );
     }
     async StartConstruction(client, h3_index, building_id, construction_turns) {
         await client.query(
@@ -199,6 +237,8 @@ class KingdomModel {
                 bld.name                  AS fief_building_name,
                 fb.is_under_construction  AS fief_building_constructing,
                 fb.remaining_construction_turns AS fief_building_turns_left,
+                fb.conservation           AS fief_building_conservation,
+                bld.gold_cost             AS fief_building_gold_cost,
                 bt.name                   AS fief_building_type_name,
                 upgrade_bld.id            AS upgrade_building_id,
                 upgrade_bld.name          AS upgrade_building_name,

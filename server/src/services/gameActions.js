@@ -260,6 +260,12 @@ async function executeConstruction(client, playerId, { h3_index, building_id }, 
         throw new GameActionError('Edificio no encontrado');
     }
 
+    // ── 3b. Culture check ─────────────────────────────────────────────────────
+    const playerCulture = await KingdomModel.GetPlayerCulture(client, playerId);
+    if (building.culture_id !== null && building.culture_id !== playerCulture) {
+        throw new GameActionError('Este edificio no pertenece a tu cultura');
+    }
+
     // ── 4. Exclusion radius: no same building type within EXCLUSION_RADIUS hexes ─
     const exclusionRadius = GAME_CONFIG.BUILDINGS.EXCLUSION_RADIUS;
     const nearbyHexes = h3.gridDisk(h3_index, exclusionRadius);

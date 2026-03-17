@@ -1,25 +1,25 @@
 const { Logger } = require('../utils/logger');
 const NotificationService = require('../services/NotificationService');
 
-// Fixed tithe rate: 10 % of each resource per non-capital fief
+// Fixed tithe rate: 10% of food_stored per non-capital fief
 const TITHE_RATE = 0.10;
 
 /**
- * Transfiere el diezmo (10% de cada recurso) de los feudos secundarios a la capital.
+ * Transfiere el diezmo de comida (10% de food_stored) de los feudos secundarios
+ * a la capital correspondiente:
+ *   - Feudos de un señorío → capital del señorío (political_divisions.capital_h3)
+ *   - Feudos libres        → capital del jugador (players.capital_h3)
  *
  * Solo se ejecuta el día 10 de cada mes del calendario de juego,
  * cuando config.gameplay.tithe_active === true.
- * Incluye guardia de idempotencia (igual que el cobrador de impuestos) para evitar
- * doble ejecución si el servidor se reinicia el mismo día 10.
- *
- * Debe llamarse DENTRO de una transacción activa (el client ya tiene BEGIN).
+ * Incluye guardia de idempotencia para evitar doble ejecución.
  *
  * @param {Object} client   - Cliente PostgreSQL (dentro de transacción)
- * @param {number} turn     - Turno actual (para logs y notificaciones)
+ * @param {number} turn     - Turno actual
  * @param {Date}   gameDate - Fecha actual del calendario de juego
  */
 async function processTithe(client, turn, gameDate) {
-    // ── Safety check 1: solo el día 10 del mes del calendario de juego ──────
+    // ── Safety check 1: solo el día 10 del mes ───────────────────────────────
     const gd = new Date(gameDate);
     const dayOfMonth = gd.getDate();
     if (dayOfMonth !== 10) {
@@ -27,23 +27,21 @@ async function processTithe(client, turn, gameDate) {
         return;
     }
 
-    // ── Safety check 2: evitar doble ejecución en caso de reinicio del servidor ──
+    // ── Safety check 2: idempotencia mensual ─────────────────────────────────
     const gameYearMonth = `${gd.getFullYear()}-${String(gd.getMonth() + 1).padStart(2, '0')}`;
 
     const lastRunResult = await client.query(
         `SELECT value FROM game_config WHERE "group" = 'system' AND key = 'last_tithe_month'`
     );
-    const lastRunMonth = lastRunResult.rows[0]?.value ?? null;
-
-    if (lastRunMonth === gameYearMonth) {
+    if (lastRunResult.rows[0]?.value === gameYearMonth) {
         Logger.engine(`[TURN ${turn}] Tithe skipped (already collected for game month ${gameYearMonth})`);
         return;
     }
 
-    Logger.engine(`[TURN ${turn}] Tithe collection started — game month ${gameYearMonth} (rate: ${TITHE_RATE * 100}%)`);
+    Logger.engine(`[TURN ${turn}] Tithe collection started — game month ${gameYearMonth} (rate: ${TITHE_RATE * 100}%, food only)`);
 
     try {
-        // Only players who own territories AND have a capital defined
+        // Players with at least one territory and a capital defined
         const playersResult = await client.query(`
             SELECT DISTINCT p.player_id, p.username, p.capital_h3, p.tithe_active
             FROM players p
@@ -57,89 +55,70 @@ async function processTithe(client, turn, gameDate) {
         for (const player of playersResult.rows) {
             if (!player.tithe_active) continue;
             try {
-                const capitalH3 = player.capital_h3;
+                const playerCapital = player.capital_h3;
 
-                // Verify the capital territory_details row actually exists
-                const capitalCheck = await client.query(
-                    'SELECT h3_index FROM territory_details WHERE h3_index = $1',
-                    [capitalH3]
-                );
-                if (capitalCheck.rows.length === 0) continue;
-
-                // Fetch all NON-capital territories for this player
-                const nonCapitalResult = await client.query(`
+                // Fetch all non-capital fiefs with their señorío capital (if any)
+                const fiefsResult = await client.query(`
                     SELECT td.h3_index,
-                           td.food_stored, td.wood_stored, td.stone_stored,
-                           td.iron_stored, td.gold_stored
+                           td.food_stored,
+                           pd.capital_h3 AS division_capital
                     FROM territory_details td
                     JOIN h3_map m ON td.h3_index = m.h3_index
+                    LEFT JOIN political_divisions pd ON td.division_id = pd.id
                     WHERE m.player_id = $1
                       AND td.h3_index != $2
-                `, [player.player_id, capitalH3]);
+                `, [player.player_id, playerCapital]);
 
-                if (nonCapitalResult.rows.length === 0) continue;
+                if (fiefsResult.rows.length === 0) continue;
 
-                // Accumulate totals transferred to capital
-                let titheFood = 0, titheWood = 0, titheStone = 0;
-                let titheIron = 0, titheGold = 0;
+                // Accumulate food per destination capital
+                // Map: destinationH3 → totalFood
+                const foodByDest = {};
 
-                for (const fief of nonCapitalResult.rows) {
-                    // FLOOR on all amounts to avoid decimal issues in INT columns
-                    const food  = Math.floor((parseFloat(fief.food_stored)  || 0) * TITHE_RATE);
-                    const wood  = Math.floor((parseFloat(fief.wood_stored)  || 0) * TITHE_RATE);
-                    const stone = Math.floor((parseFloat(fief.stone_stored) || 0) * TITHE_RATE);
-                    const iron  = Math.floor((parseFloat(fief.iron_stored)  || 0) * TITHE_RATE);
-                    const gold  = Math.floor((parseFloat(fief.gold_stored)  || 0) * TITHE_RATE);
+                for (const fief of fiefsResult.rows) {
+                    const food = Math.floor((parseFloat(fief.food_stored) || 0) * TITHE_RATE);
+                    if (food === 0) continue;
 
-                    // Skip fiefs that yield nothing (all stocks at 0)
-                    if (food + wood + stone + iron + gold === 0) continue;
+                    // Destination: señorío capital > player capital
+                    const dest = fief.division_capital || playerCapital;
 
                     // Deduct from source fief
                     await client.query(`
                         UPDATE territory_details
-                        SET food_stored  = food_stored  - $1,
-                            wood_stored  = wood_stored  - $2,
-                            stone_stored = stone_stored - $3,
-                            iron_stored  = iron_stored  - $4,
-                            gold_stored  = gold_stored  - $5
-                        WHERE h3_index = $6
-                    `, [food, wood, stone, iron, gold, fief.h3_index]);
+                        SET food_stored = food_stored - $1
+                        WHERE h3_index = $2
+                    `, [food, fief.h3_index]);
 
-                    titheFood  += food;
-                    titheWood  += wood;
-                    titheStone += stone;
-                    titheIron  += iron;
-                    titheGold  += gold;
+                    foodByDest[dest] = (foodByDest[dest] || 0) + food;
                 }
 
-                const totalTransferred = titheFood + titheWood + titheStone + titheIron + titheGold;
-                if (totalTransferred === 0) continue;
+                const destinations = Object.entries(foodByDest);
+                if (destinations.length === 0) continue;
 
-                // Add all collected resources to the capital's storehouse
-                await client.query(`
-                    UPDATE territory_details
-                    SET food_stored  = food_stored  + $1,
-                        wood_stored  = wood_stored  + $2,
-                        stone_stored = stone_stored + $3,
-                        iron_stored  = iron_stored  + $4,
-                        gold_stored  = gold_stored  + $5
-                    WHERE h3_index = $6
-                `, [titheFood, titheWood, titheStone, titheIron, titheGold, capitalH3]);
+                // Add food to each destination capital
+                for (const [destH3, food] of destinations) {
+                    await client.query(`
+                        UPDATE territory_details
+                        SET food_stored = food_stored + $1
+                        WHERE h3_index = $2
+                    `, [food, destH3]);
+                }
 
-                // Notification for this player
+                // Notification
+                const totalFood = destinations.reduce((s, [, f]) => s + f, 0);
+                const destList = destinations
+                    .map(([h3, f]) => `• ${h3}: +${f} 🌾`)
+                    .join('\n');
+
                 const lines = [
                     `⛪ **Diezmo Recaudado — Turno ${turn}**`,
                     ``,
-                    `Feudos tributarios: ${nonCapitalResult.rows.length}`,
-                    `Destino: Capital (${capitalH3})`,
+                    `Feudos tributarios: ${fiefsResult.rows.length}`,
+                    `Total comida recaudada: **+${totalFood} 🌾**`,
                     ``,
-                    `**Recursos transferidos:**`,
+                    `**Destinos:**`,
+                    destList,
                 ];
-                if (titheFood  > 0) lines.push(`• 🌾 Comida:  +${titheFood}`);
-                if (titheWood  > 0) lines.push(`• 🌲 Madera:  +${titheWood}`);
-                if (titheStone > 0) lines.push(`• ⛰️ Piedra:   +${titheStone}`);
-                if (titheIron  > 0) lines.push(`• ⛏️ Hierro:   +${titheIron}`);
-                if (titheGold  > 0) lines.push(`• 💰 Oro:      +${titheGold}`);
 
                 await NotificationService.createSystemNotification(
                     player.player_id,
@@ -148,11 +127,10 @@ async function processTithe(client, turn, gameDate) {
                     turn
                 );
 
-                Logger.engine(`[TURN ${turn}] Tithe collected for player ${player.player_id} (${player.username}): Food ${titheFood}, Wood ${titheWood}, Stone ${titheStone}, Iron ${titheIron}, Gold ${titheGold} → capital ${capitalH3}`);
+                Logger.engine(`[TURN ${turn}] Tithe collected for player ${player.player_id} (${player.username}): ${totalFood} food → ${destinations.length} capital(s)`);
                 totalPlayers++;
 
             } catch (playerError) {
-                // Resilient: log and continue with next player
                 Logger.error(playerError, {
                     context: 'tithe_system.processTithe',
                     phase: 'player_tithe',
@@ -162,7 +140,7 @@ async function processTithe(client, turn, gameDate) {
             }
         }
 
-        // ── Mark this month as collected (prevents double-execution on restart) ──
+        // Mark month as collected
         await client.query(
             `INSERT INTO game_config ("group", "key", "value")
              VALUES ('system', 'last_tithe_month', $1)
