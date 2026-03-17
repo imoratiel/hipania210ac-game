@@ -804,6 +804,7 @@ const handleResetGame = async () => {
   try {
     const data = await resetGame();
     showResetConfirm.value = false;
+    localStorage.setItem('feudos_transparency', '40');
     messageType.value = 'msg-ok';
     message.value = data.message || 'Partida reseteada correctamente.';
     await fetchStatus();

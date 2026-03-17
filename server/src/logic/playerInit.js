@@ -24,9 +24,11 @@ const MapService     = require('../services/MapService.js');
 const { suggestDivisionName } = require('../logic/contiguitySearch.js');
 const { getUniqueDivisionName } = require('../logic/NamingService.js');
 const { assignCultureByLocation, getStartingTroopsByCulture } = require('../services/PlayerService.js');
-const NameGenerator = require('../logic/NameGenerator.js');
+const NameGenerator          = require('../logic/NameGenerator.js');
+const CharacterNameGenerator = require('../logic/CharacterNameGenerator.js');
 
-const ISOLATION_RADIUS  = 10; // min hex distance from any occupied territory
+const ISOLATION_RADIUS         = 10; // min hex distance preferred
+const ISOLATION_RADIUS_FALLBACK = [7, 5]; // fallbacks if map is dense
 
 /**
  * Force-initializes territory_details for a hex during player init.
@@ -59,13 +61,13 @@ const SEA_TERRAIN_ID   = 1;
  * Finds a free colonizable hex that is at least ISOLATION_RADIUS cells away
  * from every currently occupied hex.
  */
-async function findIsolatedFreeHex(client, cultureId = null) {
+async function findIsolatedFreeHex(client, cultureId = null, radius = ISOLATION_RADIUS) {
     const occupiedResult = await client.query(
         'SELECT h3_index FROM h3_map WHERE player_id IS NOT NULL'
     );
     const forbidden = new Set();
     for (const hex of occupiedResult.rows.map(r => r.h3_index)) {
-        for (const near of h3.gridDisk(hex, ISOLATION_RADIUS)) {
+        for (const near of h3.gridDisk(hex, radius)) {
             forbidden.add(near);
         }
     }
@@ -86,7 +88,7 @@ async function findIsolatedFreeHex(client, cultureId = null) {
             WHERE m.player_id IS NULL
               AND t.is_colonizable = TRUE
             ORDER BY RANDOM()
-            LIMIT 800
+            LIMIT 2000
         `, [cultureId]);
 
         const valid = weighted.rows.filter(r => !forbidden.has(r.h3_index));
@@ -114,7 +116,7 @@ async function findIsolatedFreeHex(client, cultureId = null) {
         WHERE m.player_id IS NULL
           AND t.is_colonizable = TRUE
         ORDER BY RANDOM()
-        LIMIT 500
+        LIMIT 2000
     `);
 
     for (const row of candidatesResult.rows) {
@@ -187,7 +189,7 @@ async function bfsExpandTerritory(client, capitalHex, targetCount) {
  * Returns { alreadyInitialized: true } if the player was already initialized,
  * or { success: true, capitalHex, allHexes, senorio } on first-time initialization.
  */
-async function initializePlayer(player_id, { forceCultureId = null, randomBonus = false } = {}) {
+async function initializePlayer(player_id, { forceCultureId = null, randomBonus = false, linaje = 'Desconocido' } = {}) {
     const client = await pool.connect();
     let divisionId = null;
     try {
@@ -209,7 +211,14 @@ async function initializePlayer(player_id, { forceCultureId = null, randomBonus 
         const targetFiefCount = senorioRankMeta?.min_fiefs_required ?? 40;
 
         // ── 1. Find capital hex ──────────────────────────────────────────────
-        const capitalHex = await findIsolatedFreeHex(client, forceCultureId);
+        let capitalHex = await findIsolatedFreeHex(client, forceCultureId, ISOLATION_RADIUS);
+        if (!capitalHex) {
+            for (const fallbackRadius of ISOLATION_RADIUS_FALLBACK) {
+                Logger.action(`[Init] Mapa denso — reintentando spawn con radio ${fallbackRadius}`, null);
+                capitalHex = await findIsolatedFreeHex(client, forceCultureId, fallbackRadius);
+                if (capitalHex) break;
+            }
+        }
         if (!capitalHex) {
             throw new Error('No hay feudos disponibles suficientemente alejados. Contacta al administrador.');
         }
@@ -280,6 +289,12 @@ async function initializePlayer(player_id, { forceCultureId = null, randomBonus 
         const startingTroopsBase = getStartingTroopsByCulture(cultureId);
         const startingTroops = startingTroopsBase.map(t => ({ ...t, quantity: t.quantity * troopMultiplier }));
 
+        // Save linaje as display_name
+        await client.query(
+            'UPDATE players SET display_name = $1 WHERE player_id = $2',
+            [linaje, player_id]
+        );
+
         if (cultureId) {
             const rankLvl1Result = await client.query(
                 'SELECT id FROM noble_ranks WHERE culture_id = $1 AND level_order = 1 LIMIT 1',
@@ -312,13 +327,14 @@ async function initializePlayer(player_id, { forceCultureId = null, randomBonus 
 
         // ── 8. Create starting character and assign to army ──────────────────
         const playerResult = await client.query(
-            'SELECT username FROM players WHERE player_id = $1',
+            'SELECT gender FROM players WHERE player_id = $1',
             [player_id]
         );
-        const username = playerResult.rows[0]?.username ?? 'Señor';
+        const gender        = playerResult.rows[0]?.gender ?? 'M';
+        const characterName = CharacterNameGenerator.generate(cultureId, gender, linaje);
         const character = await CharacterModel.create(client, {
             player_id,
-            name:               username,
+            name:               characterName,
             age:                25,
             health:             100,
             level:              1,
@@ -381,6 +397,10 @@ async function initializePlayer(player_id, { forceCultureId = null, randomBonus 
 
     } catch (err) {
         await client.query('ROLLBACK').catch(() => {});
+        // Unique constraint on display_name (linaje) violated
+        if (err.code === '23505' && err.constraint === 'players_linaje_uniq') {
+            return { linajeTaken: true };
+        }
         throw err;
     } finally {
         client.release();

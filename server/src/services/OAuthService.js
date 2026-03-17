@@ -51,7 +51,7 @@ async function handleGoogleCallback(req, res) {
             idToken: tokens.id_token,
             audience: process.env.GOOGLE_CLIENT_ID
         });
-        const { sub: googleId, email, name } = ticket.getPayload();
+        const { sub: googleId, email, name, given_name, family_name } = ticket.getPayload();
 
         // 3. Buscar cuenta OAuth existente
         const existing = await PlayerModel.FindOAuthAccount('google', googleId);
@@ -70,6 +70,8 @@ async function handleGoogleCallback(req, res) {
                 playerId = await PlayerModel.CreateOAuthPlayer(dbClient, {
                     username,
                     display_name: name,
+                    first_name:   given_name ?? name,
+                    last_name:    family_name ?? '',
                     email,
                     provider: 'google',
                     provider_id: googleId

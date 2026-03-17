@@ -1,5 +1,6 @@
 const { Logger, logGameEvent } = require('../utils/logger');
 const { initializePlayer } = require('../logic/playerInit.js');
+const { isProfane } = require('../utils/profanityFilter.js');
 const KingdomModel = require('../models/KingdomModel.js');
 const ArmyModel = require('../models/ArmyModel.js');
 const CombatModel = require('../models/CombatModel.js');
@@ -934,14 +935,30 @@ class KingdomService {
     }
 
     async InitializePlayer(req, res) {
-        const player_id   = req.user.player_id;
+        const player_id      = req.user.player_id;
         const forceCultureId = req.query?.culture_id ? parseInt(req.query.culture_id, 10) : null;
         const randomBonus    = req.query?.random_bonus === 'true';
-        console.log(`[Init] player=${player_id} culture_id=${forceCultureId} random_bonus=${randomBonus} | query:`, req.query);
+        const linaje         = (req.query?.linaje ?? '').trim();
+
+        // Validate linaje
+        if (!linaje || linaje.length < 3 || linaje.length > 30) {
+            return res.status(400).json({ success: false, message: 'El nombre del linaje debe tener entre 3 y 30 caracteres.' });
+        }
+        if (!/^[\p{L}\s\-']+$/u.test(linaje)) {
+            return res.status(400).json({ success: false, message: 'El linaje solo puede contener letras, espacios y guiones.' });
+        }
+        if (isProfane(linaje)) {
+            return res.status(400).json({ success: false, message: 'Ese nombre no está permitido.' });
+        }
+
+        console.log(`[Init] player=${player_id} culture_id=${forceCultureId} random_bonus=${randomBonus} linaje=${linaje} | query:`, req.query);
         try {
-            const result = await initializePlayer(player_id, { forceCultureId, randomBonus });
+            const result = await initializePlayer(player_id, { forceCultureId, randomBonus, linaje });
             if (result.alreadyInitialized) {
                 return res.status(409).json({ success: false, message: 'El jugador ya ha sido inicializado' });
+            }
+            if (result.linajeTaken) {
+                return res.status(409).json({ success: false, message: `El linaje "${linaje}" ya está en uso. Elige otro nombre.` });
             }
             Logger.action(
                 `✅ Inicialización completada. Capital: ${result.capitalHex}, feudos: ${result.allHexes.length}, señorío: ${result.senorioName ?? 'ninguno'}`,

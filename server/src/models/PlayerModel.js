@@ -54,12 +54,12 @@ class PlayerModel {
      * transacción ya iniciada por el caller.
      * Lanza error con code '23505' si el email ya está registrado (anti-multicuenta).
      */
-    async CreateOAuthPlayer(client, { username, display_name, email, provider, provider_id }) {
+    async CreateOAuthPlayer(client, { username, display_name, first_name = '', last_name = '', email, provider, provider_id }) {
         const playerResult = await client.query(
-            `INSERT INTO players (username, display_name, role, gold)
-             VALUES ($1, $2, 'player', 100000)
+            `INSERT INTO players (username, display_name, first_name, last_name, role, gold)
+             VALUES ($1, $2, $3, $4, 'player', 100000)
              RETURNING player_id`,
-            [username, display_name]
+            [username, display_name, first_name, last_name]
         );
         const playerId = playerResult.rows[0].player_id;
 

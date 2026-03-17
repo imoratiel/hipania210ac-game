@@ -226,10 +226,11 @@ export async function getCapital() {
  * Trigger Epic Initialization for a new player (first-time setup).
  * Idempotent — safe to call multiple times; returns 409 if already initialized.
  */
-export async function initializePlayer(cultureId = null, randomBonus = false) {
+export async function initializePlayer(cultureId = null, randomBonus = false, linaje = '') {
   const params = {};
   if (cultureId !== null) params.culture_id = cultureId;
   if (randomBonus) params.random_bonus = true;
+  if (linaje) params.linaje = linaje;
   const response = await axios.post(`${API_URL}/api/game/initialize`, null, { params });
   return response.data;
 }

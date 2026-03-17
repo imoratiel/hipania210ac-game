@@ -15,3 +15,7 @@ CREATE TABLE IF NOT EXISTS oauth_accounts (
 
 -- El campo password pasa a ser opcional (usuarios OAuth no tienen contraseña)
 ALTER TABLE players ALTER COLUMN password DROP NOT NULL;
+
+INSERT INTO schema_migrations (script_name)
+VALUES ('057_oauth_accounts.sql')
+ON CONFLICT DO NOTHING;

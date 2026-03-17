@@ -62,7 +62,11 @@
       "Bash(rtk ls:*)",
       "Bash(rtk log:*)",
       "Bash(rtk npm:*)",
-      "Bash(rtk docker:*)"
+      "Bash(rtk docker:*)",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Read(//d/claude/mediev-h3-game/**)",
+      "Bash(done)"
     ]
   }
 }

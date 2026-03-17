@@ -60,6 +60,22 @@
 
       <div class="welcome-divider">✦ ✦ ✦</div>
 
+      <!-- ── Linaje input ── -->
+      <div class="linaje-section">
+        <div class="culture-section-label">— Nombre de tu Linaje —</div>
+        <input
+          v-model="linaje"
+          class="linaje-input"
+          maxlength="30"
+          placeholder="ej. Barcino, de Lusitania…"
+          @input="validateLinaje"
+        />
+        <p class="linaje-hint">Todos tus personajes llevarán este nombre.</p>
+        <p v-if="linajeError" class="linaje-error">{{ linajeError }}</p>
+      </div>
+
+      <div class="welcome-divider">✦ ✦ ✦</div>
+
       <!-- Grants -->
       <div class="welcome-grants">
         <div class="grant-item">
@@ -68,17 +84,17 @@
         </div>
         <div class="grant-item">
           <span class="grant-icon">⚔️</span>
-          Guardia del Señor según el linaje elegido
+          Guardia personal según el linaje elegido
           <span v-if="selectedCulture?.id === 'random'" class="bonus-tag">×2</span>
         </div>
         <div class="grant-item">
           <span class="grant-icon">💰</span>
-          Oro inicial para tu señorío
+          Oro inicial para tu expansión
           <span v-if="selectedCulture?.id === 'random'" class="bonus-tag">×2</span>
         </div>
         <div class="grant-item">
           <span class="grant-icon">🏯</span>
-          Fortaleza erigida en tu capital
+          Acuartelamiento erigido en tu capital
         </div>
       </div>
 
@@ -86,7 +102,7 @@
 
       <button
         class="welcome-btn"
-        :disabled="loading || !selectedCulture"
+        :disabled="loading || !selectedCulture || !linajeValid"
         @click="begin"
       >
         <span v-if="loading" class="welcome-btn-inner">
@@ -94,6 +110,9 @@
         </span>
         <span v-else-if="!selectedCulture" class="welcome-btn-inner">
           ⚜️ &nbsp;Elige tu linaje para comenzar
+        </span>
+        <span v-else-if="!linajeValid" class="welcome-btn-inner">
+          ⚜️ &nbsp;Escribe el nombre de tu linaje
         </span>
         <span v-else class="welcome-btn-inner">
           ⚜️ &nbsp;Comenzar mi camino
@@ -105,14 +124,39 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { initializePlayer } from '../services/mapApi.js';
 
 const emit = defineEmits(['done']);
 
-const loading        = ref(false);
-const error          = ref('');
+const loading         = ref(false);
+const error           = ref('');
 const selectedCulture = ref(null);
+const linaje          = ref('');
+const linajeError     = ref('');
+
+function validateLinaje() {
+  const val = linaje.value.trim();
+  if (!val) {
+    linajeError.value = '';
+    return false;
+  }
+  if (val.length < 3) {
+    linajeError.value = 'El linaje debe tener al menos 3 caracteres.';
+    return false;
+  }
+  if (!/^[\p{L}\s\-']+$/u.test(val)) {
+    linajeError.value = 'Solo letras, espacios y guiones.';
+    return false;
+  }
+  linajeError.value = '';
+  return true;
+}
+
+const linajeValid = computed(() => {
+  const val = linaje.value.trim();
+  return val.length >= 3 && /^[\p{L}\s\-']+$/u.test(val);
+});
 
 const cultures = [
   {
@@ -163,13 +207,13 @@ const cultures = [
 ];
 
 async function begin() {
-  if (loading.value || !selectedCulture.value) return;
+  if (loading.value || !selectedCulture.value || !linajeValid.value) return;
   loading.value = true;
   error.value   = '';
   try {
     const isRandom  = selectedCulture.value.id === 'random';
     const cultureId = isRandom ? null : selectedCulture.value.id;
-    const data = await initializePlayer(cultureId, isRandom);
+    const data = await initializePlayer(cultureId, isRandom, linaje.value.trim());
     if (data.success || data.message?.includes('inicializado')) {
       emit('done', { capital_h3: data.capital_h3 });
     } else {
@@ -417,6 +461,48 @@ async function begin() {
   font-weight: bold;
   padding: 1px 6px;
   letter-spacing: 1px;
+}
+
+/* ── Linaje ──────────────────────────────────────────────────────────────── */
+.linaje-section {
+  margin-bottom: 4px;
+}
+
+.linaje-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid #5a4820;
+  border-radius: 6px;
+  color: #e8d5b5;
+  font-family: 'Georgia', serif;
+  font-size: 0.95rem;
+  padding: 9px 14px;
+  outline: none;
+  transition: border-color 0.2s;
+  margin-bottom: 6px;
+}
+
+.linaje-input::placeholder {
+  color: #5a4820;
+}
+
+.linaje-input:focus {
+  border-color: #c9a84c;
+}
+
+.linaje-hint {
+  font-size: 0.76rem;
+  color: #7a6240;
+  font-family: sans-serif;
+  margin: 0 0 4px;
+}
+
+.linaje-error {
+  font-size: 0.76rem;
+  color: #f87171;
+  font-family: sans-serif;
+  margin: 0 0 4px;
 }
 
 /* ── Error / Button ──────────────────────────────────────────────────────── */
