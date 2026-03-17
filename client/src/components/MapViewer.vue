@@ -148,11 +148,11 @@
         </button>
       </div>
       <div class="legal-links">
-        <a href="/legal/privacidad" target="_blank" rel="noopener">Privacidad</a>
+        <a href="/legal/privacidad.html" target="_blank" rel="noopener">Privacidad</a>
         <span class="legal-sep">·</span>
-        <a href="/legal/terminos" target="_blank" rel="noopener">Términos</a>
+        <a href="/legal/terminos.html" target="_blank" rel="noopener">Términos</a>
         <span class="legal-sep">·</span>
-        <a href="/legal/aviso-legal" target="_blank" rel="noopener">Aviso Legal</a>
+        <a href="/legal/aviso-legal.html" target="_blank" rel="noopener">Aviso Legal</a>
       </div>
     </aside>
 

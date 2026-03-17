@@ -103,9 +103,9 @@
           <input type="checkbox" v-model="termsAccepted" class="legal-checkbox" />
           <span>
             He leído y acepto los
-            <a href="/legal/terminos" target="_blank" rel="noopener">Términos de Uso</a>
+            <a href="/legal/terminos.html" target="_blank" rel="noopener">Términos de Uso</a>
             y la
-            <a href="/legal/privacidad" target="_blank" rel="noopener">Política de Privacidad</a>.
+            <a href="/legal/privacidad.html" target="_blank" rel="noopener">Política de Privacidad</a>.
             Declaro tener al menos 14 años.
           </span>
         </label>

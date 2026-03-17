@@ -7,7 +7,7 @@
             <strong>Hispania 210aC</strong> utiliza únicamente una cookie técnica estrictamente necesaria
             (<code>access_token</code>) para mantener tu sesión activa. No usamos cookies de publicidad
             ni analítica.
-            <a href="/legal/privacidad" target="_blank" rel="noopener">Más información</a>
+            <a href="/legal/privacidad.html" target="_blank" rel="noopener">Más información</a>
           </div>
           <div class="cookie-actions">
             <button class="cookie-btn cookie-btn--secondary" @click="showDetails = !showDetails">
