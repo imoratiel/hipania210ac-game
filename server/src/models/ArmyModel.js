@@ -198,7 +198,7 @@ class ArmyModel {
     async GetTerritoryForRecruitment(client, h3_index) {
         const result = await client.query(
             `SELECT td.h3_index, td.population, td.wood_stored, td.stone_stored, td.iron_stored,
-                    m.player_id, p.capital_h3
+                    m.player_id, p.capital_h3, p.culture_id
              FROM territory_details td
              JOIN h3_map m ON td.h3_index = m.h3_index
              LEFT JOIN players p ON m.player_id = p.player_id

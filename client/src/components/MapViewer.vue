@@ -716,7 +716,7 @@
                   @click="activeKingdomTab = 'divisions'"
                   title="Gestionar divisiones politicas y rangos nobiliarios"
                 >
-                  📜 Fueros y Leyes
+                  📜 Edictos
                 </button>
               </div>
             </div>
@@ -788,7 +788,7 @@
             />
           </div>
 
-          <!-- Fueros y Leyes Tab -->
+          <!-- Edictos Tab -->
           <div v-if="activeKingdomTab === 'divisions'" class="divisions-panel">
             <DivisionsTab />
           </div>
@@ -978,7 +978,7 @@
       @done="onInitDone"
     />
 
-    <!-- Fueros y Leyes Panel -->
+    <!-- Edictos Panel -->
     <FueroPanel
       v-if="showFueroPanel"
       :h3_index="fueroPanelH3"
@@ -1206,7 +1206,7 @@ const transferPanelArmyBId   = ref(null);
 const transferPanelHex       = ref('');
 const transferPanelFiefName  = ref('');
 
-// Fueros y Leyes panel state
+// Edictos panel state
 const showFueroPanel    = ref(false);
 const fueroPanelH3      = ref('');
 const fueroPanelFiefName = ref('');
@@ -1221,7 +1221,7 @@ const panelTitle = computed(() => {
     economy: '💰 Economía',
     layers: '🗺️ Capas del Mapa',
     troops: '⚔️ Tropas',
-    market: '🏪 Mercado',
+    market: '⚖️ Mercado',
     kingdom: '🏰 Dominio',
     messages: '📜 Mensajes',
     notifications: '🔔 Notificaciones',
@@ -2659,7 +2659,8 @@ const loadExplorationConfig = async () => {
 };
 
 /**
- * Format date to Spanish format: "1 de marzo de 1039"
+ * Format date to Spanish format: "1 de Enero, 210 a.C."
+ * All dates are in the BC era (game starts in 210 BC).
  */
 const formatDate = (date) => {
   const months = [
@@ -2669,7 +2670,7 @@ const formatDate = (date) => {
   const day = date.getDate();
   const month = months[date.getMonth()];
   const year = date.getFullYear();
-  return `${day} de ${month}, ${year}`;
+  return `${day} de ${month}, ${year} a.C.`;
 };
 
 /**
@@ -3409,7 +3410,7 @@ const closeActionPanel = () => {
 };
 
 /**
- * Open the Fueros y Leyes panel for a given fief
+ * Open the Edictos panel for a given fief
  */
 const openFueroPanel = (h3_index, fiefName = '') => {
   fueroPanelH3.value = h3_index;
@@ -4221,7 +4222,7 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
       }, 100);
     }
 
-    // Add event listener to Fueros y Leyes button (own fief with completed Fortaleza)
+    // Add event listener to Edictos button (own fief with completed Fortaleza)
     if (cell.player_id === playerId.value && cell.fief_building &&
         !cell.fief_building.is_under_construction && cell.fief_building.name === 'Fortaleza') {
       setTimeout(() => {
@@ -4627,7 +4628,7 @@ const getBuildingIcon = (name = '') => {
   if (n.includes('granja') || n.includes('farm')) return '🌾';
   if (n.includes('cuartel') || n.includes('barrack')) return '⚔️';
   if (n.includes('iglesia') || n.includes('church') || n.includes('catedral')) return '⛪';
-  if (n.includes('mercado') || n.includes('market')) return '🏪';
+  if (n.includes('mercado') || n.includes('market') || n.includes('foro') || n.includes('factor') || n.includes('lonja') || n.includes('feria')) return '⚖️';
   if (n.includes('fortaleza') || n.includes('fortress') || n.includes('castillo')) return '🏯';
   if (n.includes('astillero') || n.includes('shipyard')) return '⛵';
   if (n.includes('mina') || n.includes('mine')) return '⛏️';

@@ -68,14 +68,15 @@ class DivisionModel {
      * Devuelve el rango de Senorio (level_order = 2), que es el primer rango
      * con el que se puede fundar una division politica.
      */
-    async GetSenorioRank(client) {
+    async GetSenorioRank(client, culture_id = null) {
         const result = await (client || pool).query(`
             SELECT id, title_male, title_female, territory_name,
                    min_fiefs_required, max_fiefs_limit
             FROM noble_ranks
             WHERE level_order = 2
+              AND ($1::int IS NULL OR culture_id = $1)
             LIMIT 1
-        `);
+        `, [culture_id ?? null]);
         return result.rows[0] ?? null;
     }
 

@@ -26,6 +26,8 @@ const aiProxy            = require('./AIProxyService');
 const { executeRecruitment, executeConstruction, GameActionError } = require('./gameActions');
 const { getSpawnCoordinates } = require('./BotService');
 const { calcMilitiaPower, processCapitalCollapse, GRACE_TURNS_DEFAULT } = require('../logic/conquest_system');
+const { bfsExpandTerritory } = require('../logic/playerInit');
+const DivisionModel = require('../models/DivisionModel');
 
 // ── Constantes del perfil Agricultor ─────────────────────────────────────────
 // ── Constantes del perfil Expansionista ──────────────────────────────────────
@@ -146,15 +148,20 @@ class AIManagerService {
             await KingdomModel.InsertTerritoryDetails(client, spawnHex, capitalEco);
             await KingdomModel.SetCapital(client, spawnHex, aiPlayerId);
 
-            // Assign random culture to bot
+            // Assign random culture to bot + matching noble rank (level 1)
             const cultureResult = await client.query(
                 'SELECT id FROM cultures ORDER BY RANDOM() LIMIT 1'
             );
             const aiCultureId = cultureResult.rows[0]?.id ?? null;
             if (aiCultureId) {
+                const rankResult = await client.query(
+                    'SELECT id FROM noble_ranks WHERE culture_id = $1 AND level_order = 1 LIMIT 1',
+                    [aiCultureId]
+                );
+                const aiRankId = rankResult.rows[0]?.id ?? null;
                 await client.query(
-                    'UPDATE players SET culture_id = $1 WHERE player_id = $2',
-                    [aiCultureId, aiPlayerId]
+                    'UPDATE players SET culture_id = $1, noble_rank_id = $2 WHERE player_id = $3',
+                    [aiCultureId, aiRankId, aiPlayerId]
                 );
                 // Place completed level-2 military building in capital
                 const lvl2Military = await KingdomModel.GetMilitaryLvl2Building(client, aiCultureId);
@@ -163,28 +170,31 @@ class AIManagerService {
                 }
             }
 
-            const ring1     = h3.gridDisk(spawnHex, 2).filter(n => n !== spawnHex);
-            const neighbors = await KingdomModel.GetColonizableNeighbors(client, ring1);
-            for (const neighbor of neighbors) {
+            // BFS expansion — same target count as human players (from noble_ranks level 2)
+            const senorioRank = await DivisionModel.GetSenorioRank(client, aiCultureId);
+            const targetFiefCount = senorioRank?.min_fiefs_required ?? 40;
+            const { bonusHexes } = await bfsExpandTerritory(client, spawnHex, targetFiefCount);
+            for (const hex of bonusHexes) {
                 const eco = generateInitialEconomy();
-                await KingdomModel.ClaimHex(client, neighbor.h3_index, aiPlayerId);
-                await KingdomModel.InsertTerritoryDetails(client, neighbor.h3_index, eco);
+                await KingdomModel.ClaimHex(client, hex, aiPlayerId);
+                await KingdomModel.InsertTerritoryDetails(client, hex, eco);
             }
 
             await client.query('COMMIT');
 
+            const totalHexes = 1 + bonusHexes.length;
             const nearLabel = playerTarget
                 ? `cerca de ${playerTarget.display_name} (jugador #${playerTarget.player_id})`
                 : 'en posición aleatoria';
             Logger.action(
-                `[ACTION][${aiName}]: Agente ${LABEL[profile]} fundado en ${spawnHex} (${neighbors.length + 1} hexes, ${nearLabel})`,
+                `[ACTION][${aiName}]: Agente ${LABEL[profile]} fundado en ${spawnHex} (${totalHexes} hexes, ${nearLabel})`,
                 { player_id: aiPlayerId, h3_index: spawnHex }
             );
             Logger.bot(aiPlayerId,
-                `========== AGENTE CREADO: ${aiName} (${LABEL[profile]}) | Capital: ${spawnHex} | Hexes: ${neighbors.length + 1} | Spawn: ${nearLabel} ==========`
+                `========== AGENTE CREADO: ${aiName} (${LABEL[profile]}) | Capital: ${spawnHex} | Hexes: ${totalHexes} | Spawn: ${nearLabel} ==========`
             );
             return { success: true, player_id: aiPlayerId, name: aiName,
-                     h3_index: spawnHex, hexes_claimed: neighbors.length + 1 };
+                     h3_index: spawnHex, hexes_claimed: totalHexes };
         } catch (error) {
             await client.query('ROLLBACK').catch(() => {});
             Logger.error(error, { context: `AIManagerService._spawnAgent[${profile}]`, targetH3 });

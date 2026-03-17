@@ -24,6 +24,7 @@ const MapService     = require('../services/MapService.js');
 const { suggestDivisionName } = require('../logic/contiguitySearch.js');
 const { getUniqueDivisionName } = require('../logic/NamingService.js');
 const { assignCultureByLocation, getStartingTroopsByCulture } = require('../services/PlayerService.js');
+const NameGenerator = require('../logic/NameGenerator.js');
 
 const ISOLATION_RADIUS  = 10; // min hex distance from any occupied territory
 
@@ -203,7 +204,8 @@ async function initializePlayer(player_id, { forceCultureId = null, randomBonus 
         }
 
         // ── 0. Fetch target fief count from DB (max_fiefs_limit of Señorío rank) ──
-        const senorioRankMeta = await DivisionModel.GetSenorioRank(client);
+        // Use forceCultureId if available so we get the rank title for the right culture.
+        const senorioRankMeta = await DivisionModel.GetSenorioRank(client, forceCultureId);
         const targetFiefCount = senorioRankMeta?.min_fiefs_required ?? 40;
 
         // ── 1. Find capital hex ──────────────────────────────────────────────
@@ -279,15 +281,20 @@ async function initializePlayer(player_id, { forceCultureId = null, randomBonus 
         const startingTroops = startingTroopsBase.map(t => ({ ...t, quantity: t.quantity * troopMultiplier }));
 
         if (cultureId) {
+            const rankLvl1Result = await client.query(
+                'SELECT id FROM noble_ranks WHERE culture_id = $1 AND level_order = 1 LIMIT 1',
+                [cultureId]
+            );
+            const rankLvl1Id = rankLvl1Result.rows[0]?.id ?? null;
             await client.query(
-                'UPDATE players SET culture_id = $1 WHERE player_id = $2',
-                [cultureId, player_id]
+                'UPDATE players SET culture_id = $1, noble_rank_id = $2 WHERE player_id = $3',
+                [cultureId, rankLvl1Id, player_id]
             );
         }
 
         // ── 6. Create starting army ──────────────────────────────────────────
         const armyResult = await ArmyModel.CreateArmy(
-            client, 'Guardia del Señor', player_id, capitalHex, false
+            client, NameGenerator.generate(cultureId), player_id, capitalHex, false
         );
         const armyId = armyResult.rows[0].army_id;
 
@@ -380,4 +387,4 @@ async function initializePlayer(player_id, { forceCultureId = null, randomBonus 
     }
 }
 
-module.exports = { initializePlayer };
+module.exports = { initializePlayer, bfsExpandTerritory };

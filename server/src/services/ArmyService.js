@@ -72,9 +72,12 @@ class ArmyService {
         try {
             const player_id = req.user.player_id;
             const { h3_index, unit_type_id, quantity } = req.body;
-            const army_name = req.body.army_name || NameGenerator.generate();
 
             await client.query('BEGIN');
+
+            const cultureRow = await client.query('SELECT culture_id FROM players WHERE player_id = $1', [player_id]);
+            const culture_id = cultureRow.rows[0]?.culture_id ?? null;
+            const army_name = req.body.army_name || NameGenerator.generate(culture_id);
             const result = await executeRecruitment(client, player_id, { h3_index, unit_type_id, quantity, army_name });
             await client.query('COMMIT');
 
@@ -364,7 +367,7 @@ class ArmyService {
             }
 
             // Create army
-            resolvedName = (army_name || '').trim() || NameGenerator.generate();
+            resolvedName = (army_name || '').trim() || NameGenerator.generate(territory.culture_id);
             const armyResult = await ArmyModel.CreateArmy(client, resolvedName, player_id, h3_index);
             army_id = armyResult.rows[0].army_id;
 

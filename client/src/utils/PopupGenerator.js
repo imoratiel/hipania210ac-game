@@ -142,7 +142,7 @@ export function generateCellPopupContent(cell, config) {
   // Fueros y Leyes button - for own fief with a completed Fortaleza
   if (cell.player_id === playerId && cell.fief_building &&
       !cell.fief_building.is_under_construction && cell.fief_building.name === 'Fortaleza') {
-    popupContent += `<button id="fueros-btn-${h3_index}" class="btn-popup btn-fueros" title="Gestionar Fueros y Leyes de este feudo">📜 Fueros y Leyes</button>`;
+    popupContent += `<button id="fueros-btn-${h3_index}" class="btn-popup btn-fueros" title="Gestionar Edictos de este feudo">📜 Edictos</button>`;
   }
 
   // "Fundar Capital" button:

@@ -1,6 +1,6 @@
 /**
  * DivisionService.js
- * Handlers HTTP para el sistema de divisiones politicas (Fueros y Leyes).
+ * Handlers HTTP para el sistema de divisiones politicas (Edictos).
  *
  * Endpoints:
  *   GET  /territory/:h3_index/laws     → estado de division del feudo + feudos contiguos libres
@@ -11,6 +11,7 @@
 const pool = require('../../db.js');
 const { Logger } = require('../utils/logger');
 const DivisionModel = require('../models/DivisionModel.js');
+const KingdomModel  = require('../models/KingdomModel.js');
 const MapService = require('./MapService.js');
 const { findContiguousFiefs, suggestDivisionName } = require('../logic/contiguitySearch.js');
 const { getUniqueDivisionName } = require('../logic/NamingService.js');
@@ -79,7 +80,8 @@ class DivisionService {
             }
 
             // 4. Caso B: feudo libre → BFS
-            const senorioRank = await DivisionModel.GetSenorioRank(client);
+            const playerCulture = await KingdomModel.GetPlayerCulture(client, player_id);
+            const senorioRank = await DivisionModel.GetSenorioRank(client, playerCulture);
             if (!senorioRank) {
                 return res.status(500).json({ success: false, message: 'Configuracion de rangos no encontrada' });
             }
@@ -193,7 +195,8 @@ class DivisionService {
             }
 
             // 2. Obtener rango Senorio y validar limite de feudos
-            const senorioRank = await DivisionModel.GetSenorioRank(client);
+            const playerCulture = await KingdomModel.GetPlayerCulture(client, player_id);
+            const senorioRank = await DivisionModel.GetSenorioRank(client, playerCulture);
             if (!senorioRank) {
                 await client.query('ROLLBACK');
                 return res.status(500).json({ success: false, message: 'Configuracion de rangos no encontrada' });

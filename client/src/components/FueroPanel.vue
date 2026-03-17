@@ -7,7 +7,7 @@
         <div class="fuero-header-left">
           <span class="fuero-icon">📜</span>
           <div>
-            <h2 class="fuero-title">Fueros y Leyes</h2>
+            <h2 class="fuero-title">Edictos</h2>
             <p class="fuero-subtitle">{{ fiefName || h3_index }}</p>
           </div>
         </div>
@@ -72,7 +72,7 @@
 
         <div class="fuero-info-note">
           <span>🏰</span>
-          <span>Este feudo forma parte del <strong>{{ lawsData.division.name }}</strong>. Las leyes y fueros que rigen este territorio han sido proclamados por su señor.</span>
+          <span>Este feudo forma parte del <strong>{{ lawsData.division.name }}</strong>. Los edictos que rigen este territorio han sido proclamados por su señor.</span>
         </div>
 
         <div class="fuero-info-note fuero-info-recruit">
@@ -94,7 +94,7 @@
           <div class="fuero-rank-banner">
             <div class="rank-banner-icon">⚜️</div>
             <div>
-              <p class="rank-banner-title">Declarar fueros para el <strong>{{ lawsData.suggested_name }}</strong></p>
+              <p class="rank-banner-title">Emitir edicto para el <strong>{{ lawsData.suggested_name }}</strong></p>
               <p class="rank-banner-sub">Maximo {{ lawsData.rank.max_fiefs_limit }} feudos por {{ lawsData.rank.territory_name }}</p>
             </div>
           </div>
