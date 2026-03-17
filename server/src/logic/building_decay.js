@@ -1,5 +1,5 @@
 const { Logger } = require('../utils/logger');
-const { GAME_CONFIG } = require('../config/constants');
+const GAME_CONFIG = require('../config/constants');
 
 /**
  * Degrada la conservación de todos los edificios en un % mensual (día 5).

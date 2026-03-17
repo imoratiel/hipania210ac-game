@@ -23,6 +23,7 @@ module.exports = function () {
     const DivisionService = require('../src/services/DivisionService.js');
     const MapService = require('../src/services/MapService.js');
     const CharacterService = require('../src/services/CharacterService.js');
+    const OAuthService = require('../src/services/OAuthService.js');
 
     // ============================================
     // AUTHENTICATION ENDPOINTS
@@ -31,6 +32,10 @@ module.exports = function () {
     router.post('/auth/logout', authenticateToken, LoginService.Logout);
     router.get('/auth/me', authenticateToken, LoginService.AuthMe);
     router.put('/auth/profile', authenticateToken, (req, res) => LoginService.UpdateProfile(req, res));
+
+    // OAuth — Google
+    router.get('/auth/google',          OAuthService.redirectToGoogle);
+    router.get('/auth/google/callback', OAuthService.handleGoogleCallback);
 
     // ============================================
     // MAP AND GAME ENDPOINTS

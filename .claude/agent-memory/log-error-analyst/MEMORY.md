@@ -22,6 +22,15 @@
 - No bloquea el motor; el turno sigue procesándose
 - Causa: bot expansionista intenta reclutar cuando ya tiene 3 ejércitos y no cumple la ratio feudos/ejércitos
 
+## Docker Crash-Loop por Módulo No Instalado
+- Ver [project_docker_crash_pattern.md](project_docker_crash_pattern.md)
+- Síntoma: "SERVER STARTED" en logs pero NUNCA "[CONFIG] Configuration loaded", crash-loop ~1min
+- Causa raíz A: módulo npm añadido en host sin reconstruir imagen Docker
+- Causa raíz B (CONFIRMADA 2026-03-17): imagen reconstruida con --no-cache pero volumen anónimo /app/node_modules persiste del contenedor anterior → tapa los node_modules instalados en la nueva imagen
+- Error exacto: `Cannot find module 'google-auth-library'` en OAuthService.js
+- Fix CORRECTO: `docker compose down -v && docker compose build --no-cache backend && docker compose up -d`
+- El flag `-v` borra solo volúmenes anónimos (node_modules). El volumen nombrado `pgdata` NO se borra.
+
 ## Archivos Clave
 
 - Motor: `server/src/logic/turn_engine.js`

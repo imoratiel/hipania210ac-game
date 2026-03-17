@@ -5464,10 +5464,13 @@ const saveProfile = async () => {
  */
 const onInitDone = ({ capital_h3 } = {}) => {
   showWelcomePanel.value = false;
-  if (currentUser.value) {
-    currentUser.value.is_initialized = true;
-    localStorage.setItem('user', JSON.stringify(currentUser.value));
-  }
+  // Re-fetch full user data from server so culture_id, culture_name, etc. are up to date
+  mapApi.getAuthMe().then(response => {
+    if (response.success) {
+      currentUser.value = response.user;
+      localStorage.setItem('user', JSON.stringify(response.user));
+    }
+  }).catch(() => {});
   // Center map on the new capital and refresh data
   if (capital_h3) {
     import('h3-js').then(({ cellToLatLng }) => {

@@ -58,7 +58,11 @@
       "Bash(grep -E \"\\\\.\\(js\\)$\")",
       "mcp__notion__API-post-page",
       "mcp__notion__API-patch-block-children",
-      "Bash(rtk git:*)"
+      "Bash(rtk git:*)",
+      "Bash(rtk ls:*)",
+      "Bash(rtk log:*)",
+      "Bash(rtk npm:*)",
+      "Bash(rtk docker:*)"
     ]
   }
 }
