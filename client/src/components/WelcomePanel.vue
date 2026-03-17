@@ -98,11 +98,24 @@
         </div>
       </div>
 
+      <div class="legal-consent">
+        <label class="legal-checkbox-label">
+          <input type="checkbox" v-model="termsAccepted" class="legal-checkbox" />
+          <span>
+            He leído y acepto los
+            <a href="/legal/terminos" target="_blank" rel="noopener">Términos de Uso</a>
+            y la
+            <a href="/legal/privacidad" target="_blank" rel="noopener">Política de Privacidad</a>.
+            Declaro tener al menos 14 años.
+          </span>
+        </label>
+      </div>
+
       <div v-if="error" class="welcome-error">{{ error }}</div>
 
       <button
         class="welcome-btn"
-        :disabled="loading || !selectedCulture || !linajeValid"
+        :disabled="loading || !selectedCulture || !linajeValid || !termsAccepted"
         @click="begin"
       >
         <span v-if="loading" class="welcome-btn-inner">
@@ -134,6 +147,7 @@ const error           = ref('');
 const selectedCulture = ref(null);
 const linaje          = ref('');
 const linajeError     = ref('');
+const termsAccepted   = ref(false);
 
 function validateLinaje() {
   const val = linaje.value.trim();
@@ -507,6 +521,43 @@ async function begin() {
   font-family: sans-serif;
   margin: 0 0 4px;
 }
+
+/* ── Legal consent ───────────────────────────────────────────────────────── */
+.legal-consent {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(197, 160, 89, 0.2);
+  border-radius: 5px;
+}
+
+.legal-checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  font-family: sans-serif;
+  font-size: 0.78rem;
+  color: #a89875;
+  line-height: 1.5;
+}
+
+.legal-checkbox {
+  flex-shrink: 0;
+  margin-top: 2px;
+  accent-color: #c5a059;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.legal-checkbox-label a {
+  color: #c5a059;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.legal-checkbox-label a:hover { color: #e8d5b5; }
 
 /* ── Error / Button ──────────────────────────────────────────────────────── */
 .welcome-error {

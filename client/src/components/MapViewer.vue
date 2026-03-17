@@ -147,6 +147,13 @@
           <span class="footer-icon">🚪</span>
         </button>
       </div>
+      <div class="legal-links">
+        <a href="/legal/privacidad" target="_blank" rel="noopener">Privacidad</a>
+        <span class="legal-sep">·</span>
+        <a href="/legal/terminos" target="_blank" rel="noopener">Términos</a>
+        <span class="legal-sep">·</span>
+        <a href="/legal/aviso-legal" target="_blank" rel="noopener">Aviso Legal</a>
+      </div>
     </aside>
 
     <!-- Context Panel -->
@@ -6134,8 +6141,32 @@ onBeforeUnmount(() => {
 }
 
 /* Sidebar Footer */
+.legal-links {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 8px 4px;
+  flex-wrap: wrap;
+}
+
+.legal-links a {
+  font-size: 0.6rem;
+  color: #3a2e20;
+  text-decoration: none;
+  letter-spacing: 0.3px;
+  transition: color 0.2s;
+  font-family: var(--font-sans);
+}
+
+.legal-links a:hover { color: #6a5a40; }
+
+.legal-sep {
+  font-size: 0.6rem;
+  color: #2a2015;
+}
+
 .sidebar-footer {
-  padding: 12px;
+  padding: 12px 12px 4px;
   border-top: 2px solid var(--color-accent-gold);
   display: flex;
   flex-direction: column;
