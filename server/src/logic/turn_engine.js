@@ -376,7 +376,7 @@ async function processMonthlyProduction(client, turn, config) {
                 const territories = await client.query(`
                     SELECT
                         td.*,
-                        tt.wood_output, tt.stone_output, tt.iron_output, tt.fishing_output,
+                        tt.wood_output, tt.stone_output, tt.iron_output,
                         m.player_id
                     FROM territory_details td
                     JOIN h3_map m ON td.h3_index = m.h3_index
@@ -387,7 +387,6 @@ async function processMonthlyProduction(client, turn, config) {
                 let totalWoodProduced = 0;
                 let totalStoneProduced = 0;
                 let totalIronProduced = 0;
-                let totalFishingProduced = 0;
 
                 // Process each territory
                 for (const territory of territories.rows) {
@@ -395,7 +394,6 @@ async function processMonthlyProduction(client, turn, config) {
                     let woodProduction = territory.wood_output || 0;
                     let stoneProduction = territory.stone_output || 0;
                     let ironProduction = territory.iron_output || 0;
-                    let fishingProduction = territory.fishing_output || 0;
 
                     // Apply building multipliers
                     const lumberMultiplier = 1 + ((territory.lumber_level || 0) * (config.infrastructure?.prod_multiplier_per_level || 0.20));
@@ -404,34 +402,14 @@ async function processMonthlyProduction(client, turn, config) {
                     woodProduction = Math.floor(woodProduction * lumberMultiplier);
                     stoneProduction = Math.floor(stoneProduction * mineMultiplier);
                     ironProduction = Math.floor(ironProduction * mineMultiplier);
-                    // Fishing is constant (no multiplier building yet)
-                    fishingProduction = Math.floor(fishingProduction);
 
                     // DISABLED: wood/stone/iron monthly production temporarily disabled
-                    // totalWoodProduced += woodProduction;   // DISABLED
-                    // totalStoneProduced += stoneProduction; // DISABLED
-                    // totalIronProduced += ironProduction;   // DISABLED
-
-                    // DISABLED: fishing food production temporarily disabled
-                    // await client.query(`
-                    //     UPDATE territory_details
-                    //     SET food_stored = food_stored + $1
-                    //     WHERE h3_index = $2
-                    // `, [fishingProduction, territory.h3_index]);
-                    // totalFishingProduced += fishingProduction;
+                    // totalWoodProduced += woodProduction;
+                    // totalStoneProduced += stoneProduction;
+                    // totalIronProduced += ironProduction;
                 }
 
-                // Generate monthly production notification
-                const messageBody = `
-🎣 **Producción Pesquera:**
-• Comida (Pesca): +${totalFishingProduced}
-
-${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.length}` : '⚠️ No tienes territorios productivos este turno'}
-                `.trim();
-
-                await NotificationService.createSystemNotification(player.player_id, 'Económico', messageBody, turn);
-
-                Logger.engine(`[TURN ${turn}] Monthly production for player ${player.player_id} (${player.username}): Wood ${totalWoodProduced}, Stone ${totalStoneProduced}, Iron ${totalIronProduced}, Fishing ${totalFishingProduced}`);
+                Logger.engine(`[TURN ${turn}] Monthly production for player ${player.player_id} (${player.username}): Wood ${totalWoodProduced}, Stone ${totalStoneProduced}, Iron ${totalIronProduced}`);
                 auditEvent('MONTHLY_PRODUCTION', {
                     player_id:       player.player_id,
                     turn,
@@ -439,7 +417,6 @@ ${territories.rows.length > 0 ? `Territorios productivos: ${territories.rows.len
                     wood_produced:   totalWoodProduced,
                     stone_produced:  totalStoneProduced,
                     iron_produced:   totalIronProduced,
-                    fishing_produced: totalFishingProduced,
                 }, TOPICS.HARVEST);
             } catch (playerError) {
                 Logger.error(playerError, {
