@@ -10,6 +10,18 @@
         <p>❌ Error: {{ error }}</p>
       </div>
       <div id="map" ref="mapContainer"></div>
+
+      <!-- H3 Search Widget (flotante sobre el mapa, esquina superior izquierda) -->
+      <div class="h3-search-widget">
+        <input
+          type="text"
+          v-model="searchH3Input"
+          placeholder="Índice H3..."
+          @keyup.enter="goToH3Index"
+          class="h3-search-input"
+        />
+        <button @click="goToH3Index" class="h3-search-btn">🔍</button>
+      </div>
     </div>
 
     <!-- Main Sidebar -->
@@ -278,25 +290,6 @@
             </div>
           </div>
 
-          <!-- Navigation -->
-          <div class="navigation-section">
-            <h4 class="section-title">Navegación</h4>
-            <div class="search-container">
-              <input
-                type="text"
-                v-model="searchH3Input"
-                placeholder="Índice H3..."
-                @keyup.enter="goToH3Index"
-                class="search-input"
-              />
-              <button @click="goToH3Index" class="search-button">
-                🔍
-              </button>
-            </div>
-            <button @click="goToCapital" class="capital-button">
-              Ir a la Capital ⭐
-            </button>
-          </div>
         </div>
 
         <!-- Kingdom Management Panel - MOVED TO FULLSCREEN OVERLAY -->
@@ -3638,8 +3631,10 @@ const togglePoliticalView = () => {
 
   if (isPoliticalView.value) {
     console.log('✓ Vista Política activada: resaltando territorios de jugadores');
+    if (divisionBoundaryLayer) map.addLayer(divisionBoundaryLayer);
   } else {
     console.log('✓ Vista Política desactivada: mostrando vista normal');
+    if (divisionBoundaryLayer) map.removeLayer(divisionBoundaryLayer);
   }
 
   // Redibujar el mapa con los nuevos estilos
@@ -10391,5 +10386,52 @@ onBeforeUnmount(() => {
 /* The troops slot — pointer-events come from inline style, but ensure cursor */
 :deep(.hex-stacker .hs-troops) {
   cursor: pointer;
+}
+
+/* H3 Search Widget */
+.h3-search-widget {
+  position: fixed;
+  top: 12px;
+  left: 272px; /* 260px sidebar + 12px gap */
+  z-index: 1000;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.h3-search-input {
+  width: 160px;
+  padding: 5px 8px;
+  background: rgba(17, 15, 13, 0.85);
+  border: 1px solid #5a4a2a;
+  border-radius: 4px;
+  color: #d4b483;
+  font-size: 12px;
+  outline: none;
+  backdrop-filter: blur(4px);
+}
+
+.h3-search-input::placeholder {
+  color: #7a6a4a;
+}
+
+.h3-search-input:focus {
+  border-color: #c8a96e;
+}
+
+.h3-search-btn {
+  padding: 5px 8px;
+  background: rgba(17, 15, 13, 0.85);
+  border: 1px solid #5a4a2a;
+  border-radius: 4px;
+  color: #d4b483;
+  font-size: 12px;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: border-color 0.15s;
+}
+
+.h3-search-btn:hover {
+  border-color: #c8a96e;
 }
 </style>
