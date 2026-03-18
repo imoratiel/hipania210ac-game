@@ -1084,9 +1084,19 @@ async function processGameTurn(pool, config) {
                 game_date = game_date + INTERVAL '1 day',
                 last_updated = CURRENT_TIMESTAMP
             WHERE id = 1
-            RETURNING current_turn, game_date, days_per_year
+            RETURNING
+                current_turn,
+                days_per_year,
+                EXTRACT(DAY   FROM game_date)::int AS day,
+                EXTRACT(MONTH FROM game_date)::int AS month,
+                CASE WHEN EXTRACT(YEAR FROM game_date) < 1
+                     THEN -EXTRACT(YEAR FROM game_date)::int
+                     ELSE  EXTRACT(YEAR FROM game_date)::int
+                END AS year,
+                CASE WHEN game_date < '0001-01-01' THEN 'BC' ELSE 'AD' END AS era
         `);
-        const { current_turn: newTurn, game_date: newDate, days_per_year } = newState.rows[0];
+        const { current_turn: newTurn, days_per_year, day, month, year, era } = newState.rows[0];
+        const newDate = { day, month, year, era };
         const dayOfYear = newTurn % (days_per_year || 365);
 
         Logger.engine(`[TURN ${newTurn}] Started processing - Date: ${newDate}`);

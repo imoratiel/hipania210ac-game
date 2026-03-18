@@ -24,7 +24,7 @@ class TurnService {
             res.json({
                 success: true,
                 turn: state.current_turn,
-                date: state.game_date,
+                date: { day: state.day, month: state.month, year: state.year, era: state.era },
                 is_paused: state.is_paused
             });
         } catch (error) {

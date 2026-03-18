@@ -95,7 +95,7 @@ async function resetGame() {
         `);
 
         // 11. Reset world date and turn counter
-        await client.query(`UPDATE world_state SET current_turn = 0, game_date = '0210-01-01' WHERE id = 1`);
+        await client.query(`UPDATE world_state SET current_turn = 0, game_date = '0210-01-01 BC' WHERE id = 1`);
 
         await client.query('COMMIT');
     } catch (err) {

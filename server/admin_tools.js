@@ -20,7 +20,7 @@ const commands = {
 
         console.log('📊 Estado Mundial:');
         console.log(`   Turno Actual: ${state.current_turn}`);
-        console.log(`   Fecha: ${new Date(state.game_date).toLocaleDateString()}`);
+        console.log(`   Fecha: ${state.game_date}`);
         console.log(`   Última Actualización: ${new Date(state.last_updated).toLocaleString()}`);
         console.log(`   Estado: ${state.is_paused ? '⏸️  PAUSADO' : '▶️  ACTIVO'}`);
         console.log(`\n⚙️  Configuración:`);

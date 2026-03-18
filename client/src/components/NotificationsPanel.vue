@@ -74,7 +74,7 @@ const props = defineProps({
   notifications: { type: Array, default: () => [] },
   loading:       { type: Boolean, default: false },
   currentTurn:   { type: Number, default: 0 },
-  gameDate:      { type: Date,   default: null },
+  gameDate:      { type: Object, default: null },
 });
 
 // ── Categorías — orden: críticas primero ──────────────────────────────────────
@@ -88,12 +88,37 @@ const CATEGORIES = [
 
 const validKeys = new Set(CATEGORIES.map(c => c.key));
 
-const MONTHS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const MONTHS = ['Ian','Feb','Mar','Apr','Mai','Iun','Qui','Sex','Sep','Oct','Nov','Dec'];
+
+// BC-safe date arithmetic using a +3000-year shift to keep JS Date in a safe range.
+// Converts historical {day,month,year,era} ↔ astronomical year (year 0 = 1 BC).
+// PostgreSQL returns EXTRACT(YEAR) = -year_bc for BC dates (e.g. -210 for 210 BC).
+// So historical_bc_year = -astro (no +1 offset).
+const toAstro = ({ year, era }) => era === 'BC' ? -year : year;
+const fromAstro = (astro, month, day) => astro < 0
+  ? { day, month, year: -astro, era: 'BC' }
+  : { day, month, year: astro,  era: 'AD' };
+
+const toRoman = (n) => {
+  const vals = [1000,900,500,400,100,90,50,40,10,9,5,4,1];
+  const syms = ['M','CM','D','CD','C','XC','L','XL','X','IX','V','IV','I'];
+  let r = '';
+  for (let i = 0; i < vals.length; i++) {
+    while (n >= vals[i]) { r += syms[i]; n -= vals[i]; }
+  }
+  return r;
+};
+
 const turnToGameDate = (n) => {
   if (!props.currentTurn || !props.gameDate || !n) return n ? `Turno ${n}` : '';
-  const d = new Date(props.gameDate);
+  const SHIFT = 3000;
+  const astro = toAstro(props.gameDate);
+  const d = new Date(astro + SHIFT, props.gameDate.month - 1, props.gameDate.day);
   d.setDate(d.getDate() - (props.currentTurn - n));
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  const result = fromAstro(d.getFullYear() - SHIFT, d.getMonth() + 1, d.getDate());
+  const suffix = result.era === 'BC' ? 'a.C.' : 'd.C.';
+  const auc = result.era === 'BC' ? 753 - result.year : 753 + result.year;
+  return `${result.day} ${MONTHS[result.month - 1]}, anno ${toRoman(auc)} AUC (${result.year} ${suffix})`;
 };
 
 const emit = defineEmits(['read', 'readAll']);

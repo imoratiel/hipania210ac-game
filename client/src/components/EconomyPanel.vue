@@ -132,6 +132,7 @@
                   <col class="col-terreno" />
                   <col class="col-pop" />
                   <col class="col-food" />
+                  <col class="col-autonomy" />
                   <col class="col-farm" />
                   <col class="col-cost" />
                   <col class="col-action" />
@@ -142,6 +143,7 @@
                     <th>Terreno</th>
                     <th>👥 Pob.</th>
                     <th>🌾 Comida</th>
+                    <th>⏳ Autonomía</th>
                     <th>Nivel Granja</th>
                     <th>Coste Mejora</th>
                     <th>Acción</th>
@@ -160,6 +162,14 @@
                     <td class="td-terrain">{{ fief.terrain_name }}</td>
                     <td class="td-number">{{ fmt(fief.population) }}</td>
                     <td class="td-number">{{ fmt(fief.food_stored) }}</td>
+                    <td class="td-number">
+                      <span class="autonomy-val"
+                        :class="{
+                          'autonomy-ok':  fiefAutonomy(fief) > 365,
+                          'autonomy-low': fiefAutonomy(fief) < 30
+                        }"
+                      >{{ fiefAutonomy(fief) === Infinity ? '∞' : fiefAutonomy(fief) }}</span>
+                    </td>
                     <td class="td-number">
                       <span class="farm-level" :class="{ 'level-max': (fief.farm_level || 0) >= 5 }">
                         {{ fief.farm_level || 0 }}/5
@@ -266,6 +276,13 @@ const fmt = (n) => Number(n ?? 0).toLocaleString('es-ES');
 
 // Farm upgrade cost: 3000 * 2^currentLevel
 const farmCost = (currentLevel) => 3000 * Math.pow(2, currentLevel);
+
+// Autonomy in days: food / daily consumption (floor(pop/100) * 0.1), matches backend
+const fiefAutonomy = (fief) => {
+  const consumption = Math.floor(Number(fief.population || 0) / 100) * 0.1;
+  if (consumption <= 0) return Infinity;
+  return Math.floor(Number(fief.food_stored || 0) / consumption);
+};
 
 // ── Methods ───────────────────────────────────────────────
 async function fetchSummary() {
@@ -655,12 +672,17 @@ onMounted(() => {
 
 /* Column widths */
 .col-feudo   { width: 180px; }
-.col-terreno { width: 110px; }
-.col-pop     { width: 80px; }
-.col-food    { width: 90px; }
-.col-farm    { width: 90px; }
-.col-cost    { width: 110px; }
-.col-action  { width: 110px; }
+.col-terreno  { width: 110px; }
+.col-pop      { width: 80px; }
+.col-food     { width: 90px; }
+.col-autonomy { width: 90px; }
+.col-farm     { width: 90px; }
+.col-cost     { width: 110px; }
+.col-action   { width: 110px; }
+
+.autonomy-val      { font-weight: 600; }
+.autonomy-val.autonomy-ok  { color: #4caf50; }
+.autonomy-val.autonomy-low { color: #ff6b6b; }
 
 .eco-table thead th {
   background: #1a1208;

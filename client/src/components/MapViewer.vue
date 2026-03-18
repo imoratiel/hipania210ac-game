@@ -382,6 +382,15 @@
                   <span class="fief-icon">🌾</span>
                   <span class="fief-value fief-food">{{ Number(fief.food_stored || 0).toFixed(1) }}</span>
                 </span>
+                <span class="fief-stat">
+                  <span class="fief-icon">⏳</span>
+                  <span class="fief-value fief-autonomy"
+                    :class="{
+                      'fief-autonomy--ok':  (() => { const c = Math.floor(Number(fief.population||0)/100)*0.1; return c>0 && Math.floor(Number(fief.food_stored||0)/c) >= 200; })(),
+                      'fief-autonomy--low': (() => { const c = Math.floor(Number(fief.population||0)/100)*0.1; return c>0 && Math.floor(Number(fief.food_stored||0)/c) < 30; })()
+                    }"
+                  >{{ (() => { const c = Math.floor(Number(fief.population||0)/100)*0.1; return c > 0 ? Math.floor(Number(fief.food_stored||0)/c) + 'd' : '∞'; })() }}</span>
+                </span>
               </div>
             </div>
             <div v-if="loadingMoreFiefs" class="loading-more">
@@ -1045,7 +1054,7 @@ const explorationConfig = ref({ turns_required: 5, gold_cost: 100 }); // Configu
 
 // World state (turn and date)
 const currentTurn = ref(1);
-const gameDate = ref(new Date('1039-03-01'));
+const gameDate = ref({ day: 1, month: 1, year: 210, era: 'BC' });
 const formattedDate = ref('1 de marzo de 1039');
 
 // Day of year based on current turn (1-365)
@@ -2620,7 +2629,7 @@ const fetchWorldState = async () => {
     const data = await mapApi.getWorldState();
     if (data.success) {
       currentTurn.value = data.turn;
-      gameDate.value = new Date(data.date);
+      gameDate.value = data.date;
       formattedDate.value = formatDate(gameDate.value);
       dayOfYear.value = currentTurn.value % 365;
       console.log(`✓ World state loaded: Turn ${currentTurn.value}, Day ${dayOfYear.value}/365, Date ${formattedDate.value}`);
@@ -2663,13 +2672,22 @@ const loadExplorationConfig = async () => {
  */
 const formatDate = (date) => {
   const months = [
-    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    'Ianuarius', 'Februarius', 'Martius', 'Aprilis', 'Maius', 'Iunius',
+    'Quintilis', 'Sextilis', 'September', 'October', 'November', 'December'
   ];
-  const day = date.getDate();
-  const month = months[date.getMonth()];
-  const year = date.getFullYear();
-  return `${day} de ${month}, ${year} a.C.`;
+  const month = months[date.month - 1];
+  const suffix = date.era === 'BC' ? 'a.C.' : 'd.C.';
+  const auc = date.era === 'BC' ? 753 - date.year : 753 + date.year;
+  const toRoman = (n) => {
+    const vals = [1000,900,500,400,100,90,50,40,10,9,5,4,1];
+    const syms = ['M','CM','D','CD','C','XC','L','XL','X','IX','V','IV','I'];
+    let r = '';
+    for (let i = 0; i < vals.length; i++) {
+      while (n >= vals[i]) { r += syms[i]; n -= vals[i]; }
+    }
+    return r;
+  };
+  return `${date.day} de ${month}, anno ${toRoman(auc)} AUC (${date.year} ${suffix})`;
 };
 
 /**
@@ -2687,7 +2705,7 @@ const syncWithServer = async () => {
 
     if (response.success) {
       const serverTurn = response.turn;
-      const serverDate = new Date(response.date);
+      const serverDate = response.date;
 
       // Check if turn has changed
       if (serverTurn !== currentTurn.value) {
@@ -5951,7 +5969,7 @@ onBeforeUnmount(() => {
   position: fixed;
   left: 0;
   top: 0;
-  width: 260px; /* Ancho amplio para legibilidad */
+  width: 300px; /* Ancho amplio para legibilidad */
   height: 100vh; /* Ocupa todo el alto */
   background: #110f0d; /* Fondo oscuro medieval */
   background-image:
@@ -6994,6 +7012,18 @@ onBeforeUnmount(() => {
 
 .fief-food {
   color: var(--color-accent-gold);
+}
+
+.fief-autonomy {
+  color: #a0c4a0;
+}
+
+.fief-autonomy--ok {
+  color: #6fcf97;
+}
+
+.fief-autonomy--low {
+  color: #e74c3c;
 }
 
 .loading-more {
@@ -10391,7 +10421,7 @@ onBeforeUnmount(() => {
 .h3-search-widget {
   position: fixed;
   top: 12px;
-  left: 272px; /* 260px sidebar + 12px gap */
+  left: 312px; /* 300px sidebar + 12px gap */
   z-index: 1000;
   display: flex;
   gap: 4px;
