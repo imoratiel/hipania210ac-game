@@ -55,30 +55,30 @@
       <nav class="sidebar-nav">
         <button
           class="nav-button"
+          :class="{ active: activeOverlay === 'reino' }"
+          @click="openOverlay('reino')"
+          title="Dominio"
+        >
+          <span class="nav-icon">🏰</span>
+          <span class="nav-label">Dominio</span>
+        </button>
+        <button
+          class="nav-button"
+          :class="{ active: activeOverlay === 'characters' }"
+          @click="openOverlay('characters')"
+          title="Personajes y Dinastía"
+        >
+          <span class="nav-icon">👑</span>
+          <span class="nav-label">Dinastía</span>
+        </button>
+        <button
+          class="nav-button"
           :class="{ active: activeOverlay === 'economy' }"
           @click="openOverlay('economy')"
           title="Economía"
         >
           <span class="nav-icon">💰</span>
           <span class="nav-label">Economía</span>
-        </button>
-        <button
-          class="nav-button"
-          :class="{ active: activeOverlay === 'layers' }"
-          @click="openOverlay('layers')"
-          title="Capas del Mapa"
-        >
-          <span class="nav-icon">🗺️</span>
-          <span class="nav-label">Capas</span>
-        </button>
-        <button
-          class="nav-button"
-          :class="{ active: activeOverlay === 'troops' }"
-          @click="openOverlay('troops')"
-          title="Tropas"
-        >
-          <span class="nav-icon">⚔️</span>
-          <span class="nav-label">Tropas</span>
         </button>
         <button
           class="nav-button"
@@ -91,12 +91,12 @@
         </button>
         <button
           class="nav-button"
-          :class="{ active: activeOverlay === 'reino' }"
-          @click="openOverlay('reino')"
-          title="Dominio"
+          :class="{ active: activeOverlay === 'troops' }"
+          @click="openOverlay('troops')"
+          title="Tropas"
         >
-          <span class="nav-icon">🏰</span>
-          <span class="nav-label">Dominio</span>
+          <span class="nav-icon">⚔️</span>
+          <span class="nav-label">Tropas</span>
         </button>
         <button
           class="nav-button"
@@ -120,12 +120,12 @@
         </button>
         <button
           class="nav-button"
-          :class="{ active: activeOverlay === 'characters' }"
-          @click="openOverlay('characters')"
-          title="Personajes y Dinastía"
+          :class="{ active: activeOverlay === 'layers' }"
+          @click="openOverlay('layers')"
+          title="Mapa"
         >
-          <span class="nav-icon">👑</span>
-          <span class="nav-label">Dinastía</span>
+          <span class="nav-icon">🗺️</span>
+          <span class="nav-label">Mapa</span>
         </button>
       </nav>
 
@@ -2721,7 +2721,7 @@ const syncWithServer = async () => {
         console.log(`[Sync] ✓ Updated to Turn ${serverTurn}, Day ${dayOfYear.value}/365`);
 
         // Notify turn change
-        showToast(`⏳ Comienza un nuevo día: ${formattedDate.value}`, 'info');
+        showToast(`⏳ Comienza un nuevo día\n${formattedDate.value}`, 'info');
 
         // Check if it's a harvest day
         if (dayOfYear.value === 75 || dayOfYear.value === 180) {
@@ -9258,6 +9258,7 @@ onBeforeUnmount(() => {
 .toast-message {
   flex: 1;
   line-height: 1.5;
+  white-space: pre-line;
 }
 
 .toast-success {
