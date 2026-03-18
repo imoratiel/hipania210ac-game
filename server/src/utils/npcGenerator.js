@@ -1,64 +1,70 @@
 /**
  * NPC Name Generator for AI agents.
- * Generates medieval Hispanic ruler names fitting the "Marca Hispana" setting.
+ * Generates ancient-era names fitting the Punic Wars / Republican Rome setting
+ * (Romans, Carthaginians, Iberians, Celts — circa III–II century BC).
  */
 
-const FIRST_NAMES_MALE = [
-    'Rodrigo', 'Alfonso', 'García', 'Sancho', 'Ramiro', 'Fernando', 'Pelayo',
-    'Álvaro', 'Diego', 'Gonzalo', 'Bermudo', 'Ordoño', 'Froilán', 'Nuño',
-    'Jimeno', 'Vela', 'Lope', 'Fortún', 'Aznar', 'Blasco', 'Íñigo', 'Galindo',
+// ── Farmer profile — Iberian / Hispanic names ────────────────────────────────
+
+const FARMER_FIRST_NAMES_MALE = [
+    'Indibil', 'Mandonio', 'Culcas', 'Attenes', 'Turro', 'Viriato',
+    'Retogenes', 'Luxinio', 'Thurro', 'Burco', 'Olcades', 'Beles',
+    'Isturgi', 'Salduie', 'Nertobis',
 ];
 
-const FIRST_NAMES_FEMALE = [
-    'Elvira', 'Urraca', 'Teresa', 'Sancha', 'Jimena', 'Aldara', 'Fronilde',
-    'Ermesinda', 'Constanza', 'Munia', 'Toda', 'Velasquita', 'Gelvira', 'Adosinda',
+const FARMER_FIRST_NAMES_FEMALE = [
+    'Ibérica', 'Salgana', 'Adora', 'Belestria', 'Urke', 'Salba',
+    'Neitia', 'Letondo', 'Iltira',
 ];
 
 const FARMER_EPITHETS = [
-    'el Labrador', 'el Cosechador', 'la Próspera', 'el del Arado',
-    'la Fecunda', 'el Pacífico', 'el Cultivador', 'de la Tierra',
-    'el Ganadero', 'de los Campos', 'el Campesino', 'la del Trigal',
-    'el de la Dehesa', 'el Hortelano', 'la del Vergel',
+    'el Labrador', 'el del Arado', 'el Próspero', 'el Cosechador',
+    'la Fecunda', 'el Ganadero', 'de los Campos', 'el Pacífico',
+    'el Cultivador', 'la del Trigal', 'el Hortelano', 'el de la Vega',
+    'el Campesino', 'la del Vergel',
 ];
 
 const FARMER_DOMAINS = [
-    'de Villagrande', 'de Campofrío', 'del Vergel', 'de Tierralba',
-    'de Pradoverde', 'del Cortijo', 'de Labranza', 'de la Dehesa',
-    'de Campollano', 'del Huerto', 'de las Eras',
+    'de Saguntum', 'de Carthago Nova', 'de Numantia', 'de Toletum',
+    'de Caesaraugusta', 'de Ilipa', 'de Emerita', 'de Baecula',
+    'de Gades', 'de Malaca', 'de Hispalis',
 ];
 
-// ── Expansionist profile ────────────────────────────────────────────────────
+// ── Expansionist profile — Carthaginian / North African names ────────────────
 
 const EXPANSIONIST_FIRST_NAMES = [
-    'Ragnar', 'Varg', 'Hilda', 'Sigrid', 'Kael', 'Bjorn', 'Ivar', 'Astrid',
-    'Gunnar', 'Freya', 'Ulf', 'Ragnhild', 'Leif', 'Thyra', 'Sven', 'Gorm',
+    'Hamilcar', 'Hasdrubal', 'Hannibal', 'Mago', 'Himilco', 'Bomilcar',
+    'Adherbal', 'Gisco', 'Maharbal', 'Hanno', 'Syphax', 'Masinissa',
+    'Jugurtha', 'Sofónisba', 'Azzubaal', 'Imilce',
 ];
 
 const EXPANSIONIST_EPITHETS = [
-    'el Conquistador', 'el Terrible', 'el Martillo', 'de las Cenizas',
+    'el Conquistador', 'el Terrible', 'el Fulminante', 'el Tronador',
     'el Devastador', 'la Implacable', 'el Sanguinario', 'el Temido',
-    'el Arrasador', 'la Feroz', 'el Inclemente', 'el de la Espada',
-    'el Despiadado', 'la de Hierro', 'el que no perdona',
+    'el Arrasador', 'la Feroz', 'el de las Cenizas', 'el de la Espada',
+    'el Despiadado', 'la de Hierro', 'el que no perdona', 'el Barca',
 ];
 
-// ── Balanced profile ────────────────────────────────────────────────────────
+// ── Balanced profile — Roman / Greco-Roman names ─────────────────────────────
 
 const BALANCED_FIRST_NAMES = [
-    'Cedric', 'Aveline', 'Osric', 'Gisela', 'Baudouin', 'Aldric', 'Matilde',
-    'Renaud', 'Hildegard', 'Bertrand', 'Isolde', 'Thierry', 'Adela', 'Godfrey',
+    'Scipio', 'Fabius', 'Flaminius', 'Marcellus', 'Aemilius', 'Gracchus',
+    'Paullus', 'Crassus', 'Metellus', 'Servilius', 'Claudius', 'Varro',
+    'Regulus', 'Postumius', 'Livius', 'Lucretia', 'Cornelia', 'Hortensia',
 ];
 
 const BALANCED_EPITHETS = [
-    'el Sabio', 'el Vigilante', 'el Grande', 'de la Corona', 'el Prudente',
-    'la Ecuánime', 'el Justo', 'la Magnánima', 'el Estratega', 'de la Paz',
-    'el Moderado', 'el Previsor', 'la Astuta', 'el Equilibrado',
+    'el Sabio', 'el Grande', 'el Prudente', 'el Estratega', 'el Vigilante',
+    'la Ecuánime', 'el Justo', 'la Magnánima', 'de la República',
+    'el Moderado', 'el Previsor', 'la Astuta', 'el Cónsul',
+    'el Africano', 'el Macedónico', 'el Hispano',
 ];
 
-// ── Name generator ──────────────────────────────────────────────────────────
+// ── Name generator ────────────────────────────────────────────────────────────
 
 /**
- * Generate a medieval name for an AI agent.
- * @param {string} profile - AI profile type ('farmer' | 'expansionist')
+ * Generate an ancient-era name for an AI agent.
+ * @param {string} profile - AI profile type ('farmer' | 'expansionist' | 'balanced')
  * @returns {string} Generated name
  */
 function generateAIName(profile = 'farmer') {
@@ -74,11 +80,11 @@ function generateAIName(profile = 'farmer') {
         return `${first} ${epithet}`;
     }
 
-    // farmer (default): Hispanic medieval names
+    // farmer (default): Iberian / Hispanic names
     const useMale = Math.random() < 0.6;
     const firstName = useMale
-        ? FIRST_NAMES_MALE[Math.floor(Math.random() * FIRST_NAMES_MALE.length)]
-        : FIRST_NAMES_FEMALE[Math.floor(Math.random() * FIRST_NAMES_FEMALE.length)];
+        ? FARMER_FIRST_NAMES_MALE[Math.floor(Math.random() * FARMER_FIRST_NAMES_MALE.length)]
+        : FARMER_FIRST_NAMES_FEMALE[Math.floor(Math.random() * FARMER_FIRST_NAMES_FEMALE.length)];
 
     const useEpithet = Math.random() < 0.6;
     const suffix = useEpithet
