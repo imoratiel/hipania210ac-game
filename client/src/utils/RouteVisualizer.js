@@ -17,26 +17,27 @@
  */
 
 import L from 'leaflet';
+import 'leaflet-polylinedecorator';
 import { cellToLatLng } from 'h3-js';
 
 // Máximo de casillas que recorre un ejército por turno (debe coincidir con backend)
 const MAX_CELLS_PER_TURN = 4;
 
-// Segmento del turno actual: negro sólido
+// Segmento del turno actual: negro fino
 const ROUTE_STYLE_CURRENT = {
   color: '#000000',
-  weight: 3,
+  weight: 2,
   opacity: 0.9,
   dashArray: '5, 8',
   pane: 'routePane'
 };
 
-// Segmento de turnos futuros: negro tenue y fino
+// Segmento de turnos futuros: mismo estilo que el actual
 const ROUTE_STYLE_FUTURE = {
   color: '#000000',
   weight: 2,
-  opacity: 0.35,
-  dashArray: '4, 10',
+  opacity: 0.9,
+  dashArray: '5, 8',
   pane: 'routePane'
 };
 
@@ -45,11 +46,20 @@ class RouteVisualizer {
     /** @type {L.LayerGroup|null} Capa Leaflet que contiene todas las polylines */
     this._routeLayer = null;
 
+    /** @type {L.Map|null} Referencia al mapa Leaflet */
+    this._map = null;
+
     /**
      * armyId → { current: L.Polyline|null, future: L.Polyline|null }
      * @type {Map<number|string, {current: L.Polyline|null, future: L.Polyline|null}>}
      */
     this._armyPolylines = new Map();
+
+    /**
+     * armyId → L.PolylineDecorator|null
+     * @type {Map<number|string, L.PolylineDecorator|null>}
+     */
+    this._armyArrows = new Map();
   }
 
   /**
@@ -73,6 +83,7 @@ class RouteVisualizer {
       pane.style.pointerEvents = 'none'; // las líneas no deben interceptar clics en hexágonos
     }
 
+    this._map = map;
     // L.layerGroup NO propaga pane a sus hijos — el pane va en cada L.polyline (via ROUTE_STYLE_*)
     this._routeLayer = L.layerGroup().addTo(map);
     console.log('[RouteVisualizer] Inicializado');
@@ -120,6 +131,26 @@ class RouteVisualizer {
 
     this._armyPolylines.set(armyId, { current: currentPolyline, future: futurePolyline });
 
+    // ── Flecha en el destino final ────────────────────────────────────────────
+    const lastPolyline = futurePolyline || currentPolyline;
+    const arrowDecorator = L.polylineDecorator(lastPolyline, {
+      patterns: [{
+        offset: '100%',
+        repeat: 0,
+        symbol: L.Symbol.arrowHead({
+          pixelSize: 10,
+          polygon: false,
+          pathOptions: {
+            color: '#000000',
+            opacity: 0.9,
+            weight: 2,
+            pane: 'routePane'
+          }
+        })
+      }]
+    }).addTo(this._map);
+    this._armyArrows.set(armyId, arrowDecorator);
+
     console.log(
       `[RouteVisualizer] Ejército ${armyId}: ${currentSegmentHexes.length - 1} casillas este turno` +
       (futurePolyline ? `, ${h3Path.length - MAX_CELLS_PER_TURN} casillas en turnos futuros` : '')
@@ -136,6 +167,11 @@ class RouteVisualizer {
       if (existing.current) this._routeLayer.removeLayer(existing.current);
       if (existing.future)  this._routeLayer.removeLayer(existing.future);
       this._armyPolylines.delete(armyId);
+    }
+    const arrow = this._armyArrows.get(armyId);
+    if (arrow && this._routeLayer) {
+      this._routeLayer.removeLayer(arrow);
+      this._armyArrows.delete(armyId);
     }
   }
 
@@ -158,6 +194,10 @@ class RouteVisualizer {
       this._routeLayer.clearLayers();
     }
     this._armyPolylines.clear();
+    if (this._map) {
+      this._armyArrows.forEach(arrow => this._map.removeLayer(arrow));
+    }
+    this._armyArrows.clear();
   }
 }
 
