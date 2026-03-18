@@ -169,8 +169,8 @@ class RouteVisualizer {
       this._armyPolylines.delete(armyId);
     }
     const arrow = this._armyArrows.get(armyId);
-    if (arrow && this._routeLayer) {
-      this._routeLayer.removeLayer(arrow);
+    if (arrow && this._map) {
+      this._map.removeLayer(arrow);
       this._armyArrows.delete(armyId);
     }
   }
