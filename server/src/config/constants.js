@@ -4,6 +4,13 @@
  */
 
 const GAME_CONFIG = {
+    // 🐛 Modo DEBUG — desactivar en producción
+    DEBUG: {
+        ENABLED:             true,   // false en producción
+        GOLD_MULTIPLIER:     100,    // Multiplicador de oro inicial cuando DEBUG está activo
+    },
+
+
     // 🌍 Configuración del Mapa y Navegación
     MAP: {
         MAX_MOVEMENT_DISTANCE: 100,       // Máximo de hexágonos para seleccionar destino (radio)

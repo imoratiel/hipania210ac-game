@@ -26,6 +26,7 @@ const { getUniqueDivisionName } = require('../logic/NamingService.js');
 const { assignCultureByLocation, getStartingTroopsByCulture } = require('../services/PlayerService.js');
 const NameGenerator          = require('../logic/NameGenerator.js');
 const CharacterNameGenerator = require('../logic/CharacterNameGenerator.js');
+const CONFIG                 = require('../config/constants.js');
 
 const ISOLATION_RADIUS         = 10; // min hex distance preferred
 const ISOLATION_RADIUS_FALLBACK = [7, 5]; // fallbacks if map is dense
@@ -428,7 +429,8 @@ async function initializePlayer(player_id, { forceCultureId = null, randomBonus 
         }
 
         // ── 10. Mark player as initialized and set starting gold ─────────────
-        const startingGold = randomBonus ? 200000 : 100000;
+        const debugMult    = CONFIG.DEBUG.ENABLED ? CONFIG.DEBUG.GOLD_MULTIPLIER : 1;
+        const startingGold = (randomBonus ? 200000 : 100000) * debugMult;
         await client.query(
             'UPDATE players SET is_initialized = TRUE, gold = $1 WHERE player_id = $2',
             [startingGold, player_id]
