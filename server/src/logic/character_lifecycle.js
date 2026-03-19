@@ -52,12 +52,15 @@ async function getCharacterLimit(client, playerId) {
 // ── Ciclo anual ───────────────────────────────────────────────────────────────
 
 /**
- * Procesa el ciclo anual de personajes para todos los jugadores humanos activos.
+ * Procesa los cumpleaños del mes actual: envejece a todos los personajes cuyo
+ * birth_month coincide con el mes de juego actual.
+ * Se llama el día 15 de cada mes desde turn_engine.
  *
- * @param {Object} client      - Cliente PostgreSQL dentro de transacción
- * @param {number} currentTurn - Turno actual
+ * @param {Object} client       - Cliente PostgreSQL dentro de transacción
+ * @param {number} currentTurn  - Turno actual
+ * @param {number} currentMonth - Mes de juego actual (1-12)
  */
-async function processCharacterLifecycle(client, currentTurn) {
+async function processCharacterLifecycle(client, currentTurn, currentMonth) {
     // Solo jugadores humanos no exiliados
     const playersResult = await client.query(`
         SELECT p.player_id, p.culture_id,
@@ -67,14 +70,17 @@ async function processCharacterLifecycle(client, currentTurn) {
     `);
 
     for (const player of playersResult.rows) {
-        await _processPlayerCharacters(client, player, currentTurn);
+        await _processPlayerCharacters(client, player, currentTurn, currentMonth);
     }
 }
 
-async function _processPlayerCharacters(client, player, currentTurn) {
+async function _processPlayerCharacters(client, player, currentTurn, currentMonth) {
     const { player_id, culture_id, linaje } = player;
 
-    const characters = await CharacterModel.getAllAliveByPlayer(client, player_id);
+    const allAlive = await CharacterModel.getAllAliveByPlayer(client, player_id);
+
+    // Solo los personajes que cumplen años este mes
+    const characters = allAlive.filter(c => (c.birth_month ?? 1) === currentMonth);
 
     for (const char of characters) {
         // 1. Envejecer
@@ -97,8 +103,10 @@ async function _processPlayerCharacters(client, player, currentTurn) {
         }
     }
 
-    // 4. Posible nacimiento (si está bajo el límite)
-    await _tryBirth(client, player, characters, currentTurn);
+    // 4. Posible nacimiento (si está bajo el límite y hay personajes procesados hoy)
+    if (characters.length > 0) {
+        await _tryBirth(client, player, allAlive, currentTurn);
+    }
 }
 
 async function _handleNaturalDeath(client, player_id, char, currentTurn) {

@@ -31,10 +31,9 @@
           :data-selected="selectedId === mainCharacter.id"
         >
           <div class="node-crown">👑</div>
-          <div class="node-name">{{ firstName(mainCharacter.name) }}</div>
-          <div class="node-surname">{{ surname(mainCharacter.name) }}</div>
+          <div class="node-fullname">{{ mainCharacter.name }}</div>
           <div class="node-badges">
-            <span class="badge badge-age">{{ mainCharacter.age }}a</span>
+            <span class="badge badge-age">Edad {{ mainCharacter.age }}</span>
             <span class="badge badge-level">Nv.{{ displayLevel(mainCharacter.level) }}</span>
             <span v-if="mainCharacter.army_id" class="badge badge-war">⚔</span>
           </div>
@@ -60,14 +59,21 @@
             @click="selectChar(char)"
           >
             <div class="node-icon">{{ nodeIcon(char) }}</div>
-            <div class="node-name">{{ firstName(char.name) }}</div>
-            <div class="node-surname">{{ surname(char.name) }}</div>
+            <div class="node-fullname">{{ char.name }}</div>
             <div class="node-badges">
-              <span class="badge badge-age">{{ char.age }}a</span>
+              <span class="badge badge-age">Edad {{ char.age }}</span>
               <span v-if="char.age >= 16" class="badge badge-level">Nv.{{ displayLevel(char.level) }}</span>
-              <span v-if="char.is_heir" class="badge badge-heir">Hered.</span>
+              <span v-if="char.is_heir" class="badge badge-heir">Heredero</span>
               <span v-if="char.army_id" class="badge badge-war">⚔</span>
             </div>
+            <!-- Botón nombrar heredero directo en la tarjeta -->
+            <button
+              v-if="char.age >= 16 && !char.is_heir && !char.is_main_character"
+              class="char-btn char-btn-secondary char-btn-xs node-heir-btn"
+              @click.stop="setHeir(char)"
+            >
+              Nombrar heredero
+            </button>
           </div>
         </div>
       </div>
@@ -427,9 +433,8 @@ const confirmAdopt = async () => {
   transform: translateX(-50%);
   height: 2px;
   background: rgba(197,160,89,0.35);
-  /* width set dynamically via JS would be ideal but CSS approximation works */
   width: 80%;
-  max-width: 240px;
+  max-width: 320px;
 }
 
 /* Each branch in gen1 */
@@ -451,14 +456,14 @@ const confirmAdopt = async () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 6px 8px 5px;
-  border-radius: 8px;
+  padding: 10px 12px 9px;
+  border-radius: 10px;
   border: 1px solid rgba(197,160,89,0.2);
   background: rgba(0,0,0,0.28);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, transform 0.1s;
-  width: 74px;
-  min-width: 74px;
+  width: 110px;
+  min-width: 110px;
   user-select: none;
 }
 
@@ -471,13 +476,13 @@ const confirmAdopt = async () => {
 .tree-node[data-selected="true"] {
   border-color: #c5a059;
   background: rgba(197,160,89,0.12);
-  box-shadow: 0 0 8px rgba(197,160,89,0.2);
+  box-shadow: 0 0 10px rgba(197,160,89,0.25);
 }
 
 /* Leader node — slightly larger */
 .node-leader {
-  width: 88px;
-  min-width: 88px;
+  width: 130px;
+  min-width: 130px;
   border-color: rgba(197,160,89,0.4);
   background: rgba(197,160,89,0.06);
 }
@@ -498,36 +503,34 @@ const confirmAdopt = async () => {
 
 /* Icons */
 .node-crown {
-  font-size: 1.05rem;
+  font-size: 1.5rem;
   line-height: 1;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 
 .node-icon {
-  font-size: 0.9rem;
+  font-size: 1.3rem;
   line-height: 1;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 
-/* Name lines */
-.node-name {
-  font-size: 0.7rem;
+/* Name — una sola línea completa */
+.node-fullname {
+  font-size: 0.82rem;
   font-weight: 700;
   color: #e8d5a3;
   text-align: center;
-  line-height: 1.2;
+  line-height: 1.3;
   word-break: break-word;
   max-width: 100%;
+  margin-bottom: 4px;
 }
 
-.node-surname {
-  font-size: 0.6rem;
-  color: #8a7050;
-  text-align: center;
-  line-height: 1.2;
-  margin-bottom: 3px;
-  word-break: break-word;
-  max-width: 100%;
+/* Botón nombrar heredero dentro de la tarjeta */
+.node-heir-btn {
+  margin-top: 5px;
+  width: 100%;
+  white-space: nowrap;
 }
 
 /* Badges row */
@@ -535,14 +538,14 @@ const confirmAdopt = async () => {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 2px;
-  margin-top: 1px;
+  gap: 3px;
+  margin-top: 2px;
 }
 
 .badge {
-  font-size: 0.56rem;
-  padding: 1px 4px;
-  border-radius: 3px;
+  font-size: 0.68rem;
+  padding: 2px 6px;
+  border-radius: 4px;
   line-height: 1.4;
   font-weight: 600;
 }

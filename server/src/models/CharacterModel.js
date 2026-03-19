@@ -63,17 +63,19 @@ class CharacterModel {
     async create(client, { player_id, name, age = 20, health = 100, level = 1,
                             personal_guard = 25, is_heir = false,
                             is_main_character = false, parent_character_id = null,
-                            h3_index = null, birth_turn = 0, xp = 0 }) {
+                            h3_index = null, birth_turn = 0, xp = 0,
+                            birth_month = null }) {
+        const month = birth_month ?? (Math.floor(Math.random() * 12) + 1);
         const r = await (client || pool).query(`
             INSERT INTO characters
                 (player_id, name, age, health, level, personal_guard,
                  is_heir, is_main_character, parent_character_id, h3_index,
-                 birth_turn, xp)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                 birth_turn, xp, birth_month)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING *
         `, [player_id, name, age, health, level, personal_guard,
             is_heir, is_main_character, parent_character_id, h3_index,
-            birth_turn, xp]);
+            birth_turn, xp, month]);
         return r.rows[0];
     }
 

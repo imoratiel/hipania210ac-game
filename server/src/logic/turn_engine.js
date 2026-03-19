@@ -1211,10 +1211,7 @@ async function processGameTurn(pool, config) {
         // Personal guard regeneration (+1/turno, máx 25) — fuera de transacción, usa pool propio
         await CharacterService.processGuardRegeneration();
 
-        // Character aging + mortality — solo una vez por año de juego (día 1 del año)
-        if (dayOfYear === 0) {
-            await CharacterService.processAging();
-        }
+
 
         // Military food consumption (every turn, after movements so no lock conflict)
         await processMilitaryConsumption(client, newTurn, config);
@@ -1253,9 +1250,9 @@ async function processGameTurn(pool, config) {
         // Building decay (day 5 of each game month)
         await processBuildingDecay(client, newTurn, gameDate);
 
-        // Character lifecycle: aging, natural death, births (once per year)
-        if (dayOfYear === 1) {
-            await processCharacterLifecycle(client, newTurn);
+        // Character lifecycle: día 15 de cada mes, procesa los cumpleaños del mes
+        if (dayOfMonth === 15) {
+            await processCharacterLifecycle(client, newTurn, newDate.month);
         }
 
         await client.query('COMMIT');

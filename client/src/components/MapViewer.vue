@@ -6377,9 +6377,9 @@ onBeforeUnmount(() => {
 #context-panel,
 .context-panel {
   position: fixed;
-  left: 260px; /* Justo después del sidebar de 260px */
+  left: 300px; /* Justo después del sidebar de 300px */
   top: 0;
-  width: calc(50vw - 260px); /* Ocupa la mitad del espacio restante */
+  width: calc(50vw - 300px); /* Ocupa la mitad del espacio restante */
   height: 100vh;
   background: #1c1814; /* Marrón oscuro (estilo pergamino viejo) */
   background-image:
@@ -9419,7 +9419,7 @@ onBeforeUnmount(() => {
 .game-overlay {
   position: fixed;
   top: 0;
-  left: 260px; /* After sidebar */
+  left: 300px; /* After sidebar */
   right: 0;
   bottom: 0;
   background: linear-gradient(135deg,
