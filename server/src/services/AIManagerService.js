@@ -24,14 +24,19 @@ const { generateInitialEconomy } = require('../logic/conquest');
 const recruitmentNetwork = require('../logic/recruitmentNetwork');
 const aiProxy            = require('./AIProxyService');
 const { executeRecruitment, executeConstruction, GameActionError } = require('./gameActions');
-const { getSpawnCoordinates } = require('./BotService');
+const { getSpawnCoordinates, getNearbySpawnHex } = require('./BotService');
 const { calcMilitiaPower, processCapitalCollapse, GRACE_TURNS_DEFAULT } = require('../logic/conquest_system');
 const { bfsExpandTerritory } = require('../logic/playerInit');
 const DivisionModel = require('../models/DivisionModel');
 const infrastructure = require('../logic/infrastructure');
 const CONFIG         = require('../config.js');
 
-// ── Constantes del perfil Agricultor ─────────────────────────────────────────
+// ── Constantes del perfil Dummy (no hace nada, solo ocupa territorio) ────────
+const DUMMY = {
+    STARTING_GOLD: 100_000,
+    COLORS: ['#555555','#666666','#777777','#888888','#999999','#aaaaaa','#bbbbbb','#cccccc'],
+};
+
 // ── Constantes del perfil Expansionista ──────────────────────────────────────
 const EXPANSIONIST = {
     STARTING_GOLD:      100_000,
@@ -86,6 +91,20 @@ class AIManagerService {
     // ─────────────────────────────────────────────────────────────────────────
     // PÚBLICO: Spawning de agentes
     // ─────────────────────────────────────────────────────────────────────────
+
+    async spawnDummyAgent(callerPlayerId) {
+        const playerRes = await pool.query(
+            'SELECT capital_h3 FROM players WHERE player_id = $1',
+            [callerPlayerId]
+        );
+        const callerCapital = playerRes.rows[0]?.capital_h3;
+        if (!callerCapital) return { success: false, message: 'El jugador invocador no tiene capital definida' };
+
+        const spawnHex = await getNearbySpawnHex(callerCapital, 9);
+        if (!spawnHex) return { success: false, message: 'No hay hexágonos libres a menos de 10 casillas' };
+
+        return this._spawnAgent('dummy', DUMMY, spawnHex);
+    }
 
     async spawnFarmerAgent(targetH3 = null) {
         return this._spawnAgent('farmer', FARMER, targetH3);

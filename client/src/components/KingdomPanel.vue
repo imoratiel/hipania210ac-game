@@ -13,7 +13,6 @@
             <th class="col-number">Auton.</th>
             <th class="col-farm">Nivel Granja</th>
             <th class="col-division">Pagus</th>
-            <th class="col-number">Dist.</th>
             <th class="col-number">⚔️</th>
             <th class="col-edificio">🏛️</th>
             <th class="col-actions">Acciones</th>
@@ -67,7 +66,6 @@
               </span>
               <span v-else class="dimmed-dash">—</span>
             </td>
-            <td class="text-right">{{ fief.distance }}</td>
             <td class="text-right troops-cell">{{ fief.total_troops || 0 }}</td>
             <td class="text-center building-cell">
               <template v-if="fief.fief_building">

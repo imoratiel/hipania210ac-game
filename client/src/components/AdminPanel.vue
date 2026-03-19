@@ -117,6 +117,23 @@
           </div>
         </section>
 
+        <!-- ── TESTING: CREAR PAGUS ──────────────────────────────────────── -->
+        <section class="admin-section">
+          <h3 class="section-title">🏛️ Testing</h3>
+          <p class="force-hint">Crea un Pagus completo adyacente a tu territorio (centurias colonizadas + fortaleza + capital).</p>
+          <div class="controls-row">
+            <button class="ctrl-btn btn-force" :disabled="creatingPagus" @click="handleCreatePagus">
+              {{ creatingPagus ? '⏳ Creando...' : '🏛️ Crear Pagus' }}
+            </button>
+            <button class="ctrl-btn btn-force" :disabled="spawningDummy" @click="handleSpawnDummy">
+              {{ spawningDummy ? '⏳ Invocando...' : '🪆 Invocar DUMMY' }}
+            </button>
+          </div>
+          <p v-if="pagusMsg" class="force-hint" :style="{ color: pagusOk ? '#86efac' : '#f87171', marginTop: '6px' }">
+            {{ pagusOk ? '✅' : '❌' }} {{ pagusMsg }}
+          </p>
+        </section>
+
         <!-- ── FORCE OPERATIONS ──────────────────────────────────────────── -->
         <section class="admin-section">
           <h3 class="section-title">⚡ Forzar Procesos</h3>
@@ -448,6 +465,7 @@ import {
   getAISettings, updateAISetting, getAIUsageStats, resetAIUsageStats, testAIConnection,
   deleteAIAgent, resetGame,
   getAuditStatus, testKafkaEvent,
+  createAdminPagus,
 } from '../services/mapApi.js';
 
 const emit = defineEmits(['close', 'go-to-hex']);
@@ -485,6 +503,11 @@ const auditEnabled   = ref(false);
 const auditConnected = ref(false);
 const auditBrokers   = ref([]);
 const kafkaTesting   = ref(null); // 'tax' | 'military' | null
+
+const creatingPagus = ref(false);
+const pagusMsg      = ref('');
+const pagusOk       = ref(false);
+const spawningDummy = ref(false);
 
 let refreshTimer = null;
 
@@ -795,6 +818,45 @@ const handleResume      = () => runAction(resumeGame,       'Juego reanudado');
 const handleForceTurn   = () => runAction(forceTurn,        'Turno procesado');
 const handleForceHarvest     = () => runAction(forceHarvest,    'Cosecha procesada');
 const handleForceExploration = () => runAction(forceExploration,'Exploraciones procesadas');
+
+const handleSpawnDummy = async () => {
+  if (spawningDummy.value) return;
+  spawningDummy.value = true;
+  pagusMsg.value = '';
+  try {
+    const data = await spawnAIAgent('dummy');
+    pagusOk.value  = data.success;
+    pagusMsg.value = data.success
+      ? `DUMMY "${data.name}" invocado en ${data.h3_index} (${data.hexes_claimed} centurias)`
+      : data.message || 'Error desconocido';
+  } catch (err) {
+    pagusOk.value  = false;
+    pagusMsg.value = err?.response?.data?.message || 'Error de conexión';
+  } finally {
+    spawningDummy.value = false;
+  }
+};
+
+const handleCreatePagus = async () => {
+  if (creatingPagus.value) return;
+  creatingPagus.value = true;
+  pagusMsg.value = '';
+  try {
+    const data = await createAdminPagus();
+    if (data.success) {
+      pagusOk.value  = true;
+      pagusMsg.value = `"${data.division_name}" creado — ${data.hex_count} centurias (capital: ${data.capital_h3})`;
+    } else {
+      pagusOk.value  = false;
+      pagusMsg.value = data.message || 'Error desconocido';
+    }
+  } catch (err) {
+    pagusOk.value  = false;
+    pagusMsg.value = err?.response?.data?.message || 'Error de conexión';
+  } finally {
+    creatingPagus.value = false;
+  }
+};
 
 const handleResetGame = async () => {
   if (acting.value) return;

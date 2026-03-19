@@ -623,6 +623,12 @@ export async function forceExploration() {
   return response.data;
 }
 
+export async function createAdminPagus(player_id = null) {
+  const body = player_id ? { player_id } : {};
+  const response = await axios.post(`${API_URL}/api/admin/create-pagus`, body);
+  return response.data;
+}
+
 // ============================================
 // ADMIN AI AGENTS
 // ============================================

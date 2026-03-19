@@ -139,4 +139,30 @@ async function _randomFreeHex() {
     return rows[0]?.h3_index || null;
 }
 
-module.exports = { getSpawnCoordinates };
+/**
+ * Devuelve un hex libre y colonizable dentro de maxDist casillas de callerCapitalH3.
+ * Usado por el perfil DUMMY para spawnear cerca del jugador que lo invoca.
+ *
+ * @param {string} callerCapitalH3  Capital del jugador invocador
+ * @param {number} maxDist          Distancia máxima en hexes (exclusiva)
+ * @returns {Promise<string|null>}
+ */
+async function getNearbySpawnHex(callerCapitalH3, maxDist = 9) {
+    const candidates = h3.gridDisk(callerCapitalH3, maxDist)
+        .filter(hex => hex !== callerCapitalH3);
+
+    const { rows } = await pool.query(`
+        SELECT m.h3_index FROM h3_map m
+        JOIN terrain_types tt ON m.terrain_type_id = tt.terrain_type_id
+        WHERE m.h3_index = ANY($1::text[])
+          AND m.player_id IS NULL
+          AND COALESCE(tt.is_colonizable, TRUE) = TRUE
+          AND tt.food_output > 0
+        ORDER BY RANDOM()
+        LIMIT 1
+    `, [candidates]);
+
+    return rows[0]?.h3_index || null;
+}
+
+module.exports = { getSpawnCoordinates, getNearbySpawnHex };

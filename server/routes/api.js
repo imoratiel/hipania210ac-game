@@ -161,6 +161,7 @@ module.exports = function () {
             return res.status(500).json({ ok: false, message: err.message });
         }
     });
+    router.post('/admin/create-pagus', authenticateToken, requireAdmin, (req, res) => AdminService.CreateAdminPagus(req, res));
     router.post('/admin/reset-explorations', authenticateToken, requireAdmin, AdminService.ResetExplorations);
     router.post('/admin/config', authenticateToken, requireAdmin, AdminService.UpdateConfig);
     router.get('/admin/game-config', authenticateToken, requireAdmin, AdminService.GetGameConfig);
@@ -249,6 +250,13 @@ module.exports = function () {
         try {
             const { type = 'farmer', h3_index, count = 1 } = req.body;
             const spawnCount = Math.max(1, Math.min(10, parseInt(count) || 1));
+
+            // dummy ignores h3_index/count — spawns near the invoking admin
+            if (type === 'dummy') {
+                const result = await AIManagerService.spawnDummyAgent(req.user.player_id);
+                if (result.success) return res.json(result);
+                return res.status(400).json(result);
+            }
 
             const spawnerFn = type === 'expansionist'
                 ? (h3) => AIManagerService.spawnExpansionistAgent(h3)

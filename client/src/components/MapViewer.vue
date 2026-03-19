@@ -57,10 +57,10 @@
           class="nav-button"
           :class="{ active: activeOverlay === 'reino' }"
           @click="openOverlay('reino')"
-          title="Dominio"
+          title="Imperium"
         >
           <span class="nav-icon">🏰</span>
-          <span class="nav-label">Dominio</span>
+          <span class="nav-label">Imperium</span>
         </button>
         <button
           class="nav-button"
@@ -700,7 +700,7 @@
       <div class="overlay-container">
         <!-- Header -->
         <div class="overlay-header">
-          <h1 class="overlay-title">🏰 Gestión del Dominio</h1>
+          <h1 class="overlay-title">🏰 Gestión del Imperium</h1>
           <button class="overlay-close" @click="closeOverlay" title="Cerrar">✕</button>
         </div>
 
@@ -1144,10 +1144,6 @@ const kingdomFilters = ref({
   division: '',
 });
 const myDivisions = ref([]); // Player's señoríos for the filter dropdown
-const kingdomSort = ref({
-  field: 'distance', // Default: sort by distance
-  asc: true
-});
 
 // Fiefs pagination state (server-side)
 const fiefsPage       = ref(1);
@@ -1233,7 +1229,7 @@ const panelTitle = computed(() => {
     layers: '🗺️ Capas del Mapa',
     troops: '⚔️ Tropas',
     market: '⚖️ Mercado',
-    kingdom: '🏰 Dominio',
+    kingdom: '🏰 Imperium',
     messages: '📜 Mensajes',
     notifications: '🔔 Notificaciones',
     profile: '👤 Perfil'
@@ -1276,17 +1272,6 @@ const filteredAndSortedFiefs = computed(() => {
     // We use a base of 1.185 from the weighted average of harvests
     const estimatedDailyYield = consumption * 1.185;
     const foodBalance = estimatedDailyYield - consumption;
-
-    // Calculate distance to capital using H3
-    let distance = 0;
-    if (capitalH3Index.value && fief.h3_index) {
-      try {
-        distance = gridDistance(fief.h3_index, capitalH3Index.value);
-      } catch (error) {
-        // Fallback: if H3 fails, use 0
-        distance = 0;
-      }
-    }
 
     // Determine exploration status
     const isExplored = fief.discovered_resource !== null && fief.discovered_resource !== undefined;
@@ -1372,7 +1357,6 @@ const filteredAndSortedFiefs = computed(() => {
       fertility,
       consumption,
       autonomy,
-      distance,
       explorationStatus,
       explorationStatusIcon,
       explorationStatusShort,
@@ -1389,6 +1373,7 @@ const filteredAndSortedFiefs = computed(() => {
       can_recruit: fief.can_recruit || false,
       farm_level: Number(fief.farm_level || 0),
       food_output: Number(fief.food_output || 0),
+      division_name: fief.division_name || null,
     };
   });
 
@@ -4066,20 +4051,6 @@ const formatGold = (value) => {
   return Number(value).toFixed(2);
 };
 
-/**
- * Sort kingdom fiefs by field
- * @param {string} field - Field to sort by
- */
-const sortKingdomBy = (field) => {
-  if (kingdomSort.value.field === field) {
-    // Toggle sort direction
-    kingdomSort.value.asc = !kingdomSort.value.asc;
-  } else {
-    // New field, default to ascending
-    kingdomSort.value.field = field;
-    kingdomSort.value.asc = true;
-  }
-};
 
 /**
  * Focus on fief and close kingdom panel
