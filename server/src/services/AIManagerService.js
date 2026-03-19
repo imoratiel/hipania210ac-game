@@ -28,6 +28,8 @@ const { getSpawnCoordinates } = require('./BotService');
 const { calcMilitiaPower, processCapitalCollapse, GRACE_TURNS_DEFAULT } = require('../logic/conquest_system');
 const { bfsExpandTerritory } = require('../logic/playerInit');
 const DivisionModel = require('../models/DivisionModel');
+const infrastructure = require('../logic/infrastructure');
+const CONFIG         = require('../config.js');
 
 // ── Constantes del perfil Agricultor ─────────────────────────────────────────
 // ── Constantes del perfil Expansionista ──────────────────────────────────────
@@ -72,6 +74,8 @@ const FARMER = {
     MIN_TROOPS_DEFEND:   50,      // Si hay amenaza y tiene < este valor, recluta
     MIN_TROOPS_EXPAND:   30,      // No expandir sin al menos estas tropas en casa
     RECRUIT_QUANTITY:    50,      // Tropas a reclutar en respuesta a amenaza
+    FARM_MAX_LEVEL:      5,        // Nivel máximo de granja
+    GOLD_TO_UPGRADE_FARM: 5_000,  // Gold mínimo para iniciar mejora de granja
     COLORS: ['#8B7355','#6B8E23','#A0522D','#556B2F','#8FBC8F','#BC8F5F','#9ACD32','#DEB887'],
     // Cell scoring weights: strong resource preference (food focus), moderate gap-fill
     SCORE_WEIGHTS: { resource: 1.0, adjacency: 2.0 },
@@ -303,6 +307,19 @@ class AIManagerService {
         } finally {
             clientC.release();
         }
+
+        // ── Paso D: Mejora de granjas ─────────────────────────────────────────
+        const clientD = await pool.connect();
+        try {
+            await clientD.query('BEGIN');
+            await this._farmerUpgradeFarms(clientD, playerId, state, turn);
+            await clientD.query('COMMIT');
+        } catch (error) {
+            await clientD.query('ROLLBACK').catch(() => {});
+            Logger.error(error, { context: 'AIManagerService._processFarmerTurn.D', playerId, turn });
+        } finally {
+            clientD.release();
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -323,6 +340,7 @@ class AIManagerService {
                     m.h3_index,
                     td.population,
                     td.food_stored,
+                    td.farm_level,
                     tt.food_output,
                     tt.name               AS terrain_name,
                     p.gold,
@@ -393,10 +411,16 @@ class AIManagerService {
                   .forEach(n => candidateSet.add(n));
             }
 
+            // Feudos con producción de comida y granja por debajo del máximo (candidatos a mejora)
+            const farmUpgradeCandidates = territories.filter(t =>
+                parseInt(t.food_output) > 0 && parseInt(t.farm_level || 0) < FARMER.FARM_MAX_LEVEL
+            );
+
             return {
                 gold, capitalH3, territories, ownedSet, territoriesWithoutBuilding,
                 totalTroops, recruitLocations, isThreatened,
                 candidateSet: [...candidateSet],
+                farmUpgradeCandidates,
             };
         } finally {
             client.release();
@@ -448,6 +472,37 @@ class AIManagerService {
                 Logger.bot(playerId, `[TURN ${turn}] ⚠️ Construcción rechazada: ${err.message}`);
             } else { throw err; }
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PRIVADO: Fase D — Mejora de granjas
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Fase D — Mejora de granjas: sube el nivel de la granja en el feudo con mayor
+     * food_output entre los candidatos (terreno fértil y nivel < FARM_MAX_LEVEL).
+     * Solo una mejora por turno para simular toma de decisión gradual.
+     */
+    async _farmerUpgradeFarms(client, playerId, state, turn) {
+        if (state.gold < FARMER.GOLD_TO_UPGRADE_FARM) return;
+        if (state.farmUpgradeCandidates.length === 0) return;
+
+        // Objetivo: feudo con mayor food_output base (más rentable mejorar)
+        const target = state.farmUpgradeCandidates.reduce((best, t) =>
+            parseInt(t.food_output) > parseInt(best.food_output) ? t : best
+        );
+
+        const currentLevel = parseInt(target.farm_level || 0);
+        const cost = infrastructure.calculateFarmUpgradeCost(currentLevel, CONFIG);
+
+        if (state.gold - cost < FARMER.GOLD_RESERVE) return;
+
+        // Validar que el terreno tiene producción de alimentos
+        const validationError = infrastructure.validateUpgrade('farm', { food_output: target.food_output });
+        if (validationError) return;
+
+        await KingdomModel.ApplyUpgrade(client, target.h3_index, playerId, 'farm', currentLevel + 1, cost);
+        Logger.bot(playerId, `[TURN ${turn}] 🌾 Granja mejorada al nivel ${currentLevel + 1} en ${target.h3_index} (coste: ${cost.toLocaleString()} oro)`);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
