@@ -110,16 +110,37 @@
         <!-- Jugador destinatario -->
         <div class="form-group">
           <label>Jugador destinatario</label>
-          <input
-            v-model="form.to_player_id_search"
-            type="number"
-            class="dip-input"
-            placeholder="ID del jugador"
-            min="1"
-            required
-            @input="form.to_player_id = Number(form.to_player_id_search) || null"
-          />
-          <p class="form-hint">Puedes ver el ID de un jugador en el mapa al hacer clic en su territorio.</p>
+          <div class="player-search-wrap">
+            <input
+              v-model="playerSearch"
+              type="text"
+              class="dip-input"
+              :class="{ 'input-selected': selectedPlayer }"
+              placeholder="Buscar jugador por nombre…"
+              autocomplete="off"
+              @input="onPlayerSearchInput"
+            />
+            <button v-if="selectedPlayer" class="clear-player" type="button" @click="clearPlayer" title="Limpiar">✕</button>
+            <div v-if="playerResults.length" class="player-dropdown">
+              <button
+                v-for="p in playerResults"
+                :key="p.player_id"
+                type="button"
+                class="player-option"
+                @click="selectPlayer(p)"
+              >
+                <span class="player-option-name">{{ p.name }}</span>
+                <span class="player-option-user">@{{ p.username }}</span>
+              </button>
+            </div>
+            <div v-else-if="searchingPlayer" class="player-dropdown">
+              <span class="player-searching">Buscando…</span>
+            </div>
+            <div v-else-if="playerSearch.length >= 2 && !selectedPlayer" class="player-dropdown">
+              <span class="player-searching">Sin resultados</span>
+            </div>
+          </div>
+          <p v-if="selectedPlayer" class="form-hint selected-hint">✓ {{ selectedPlayer.name }} (ID {{ selectedPlayer.player_id }})</p>
         </div>
 
         <!-- Términos según el tipo -->
@@ -161,7 +182,7 @@
         </template>
 
         <!-- Preview del juramento -->
-        <div v-if="selectedType && form.to_player_id" class="oath-preview">
+        <div v-if="selectedType && selectedPlayer" class="oath-preview">
           <span class="oath-label">Tu juramento:</span>
           <em>{{ resolveOath(selectedType.oath_payer_template, 'ti', 'el destinatario') }}</em>
         </div>
@@ -193,7 +214,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import {
   getMyRelations, getPendingRelations, getRelationTypes,
-  proposeRelation, acceptRelation, breakRelation,
+  proposeRelation, acceptRelation, breakRelation, searchPlayers,
 } from '@/services/mapApi.js';
 
 const props = defineProps({
@@ -223,11 +244,47 @@ const proposeOk    = ref('');
 const form = ref({
   type_code:             null,
   to_player_id:          null,
-  to_player_id_search:   '',
   terms_rate_pct:        5,
   terms_duration_months: 12,
   terms_fixed_pay:       500,
 });
+
+// ── Búsqueda de jugador ────────────────────────────────────────
+const playerSearch    = ref('');
+const playerResults   = ref([]);
+const selectedPlayer  = ref(null);  // { player_id, name }
+const searchingPlayer = ref(false);
+
+let searchTimer = null;
+async function onPlayerSearchInput() {
+  selectedPlayer.value = null;
+  form.value.to_player_id = null;
+  clearTimeout(searchTimer);
+  if (playerSearch.value.length < 2) { playerResults.value = []; return; }
+  searchTimer = setTimeout(async () => {
+    searchingPlayer.value = true;
+    try {
+      const res = await searchPlayers(playerSearch.value);
+      playerResults.value = res.players ?? [];
+    } finally {
+      searchingPlayer.value = false;
+    }
+  }, 300);
+}
+
+function selectPlayer(p) {
+  selectedPlayer.value = p;
+  form.value.to_player_id = p.player_id;
+  playerSearch.value = p.name;
+  playerResults.value = [];
+}
+
+function clearPlayer() {
+  selectedPlayer.value = null;
+  form.value.to_player_id = null;
+  playerSearch.value = '';
+  playerResults.value = [];
+}
 
 // ── Computed ──────────────────────────────────────────────────
 const selectedType = computed(() => types.value.find(t => t.code === form.value.type_code) ?? null);
@@ -313,9 +370,11 @@ async function doPropose() {
     }
     const res = await proposeRelation(payload);
     proposeOk.value = `Propuesta de "${res.type_name}" enviada correctamente.`;
-    form.value.to_player_id        = null;
-    form.value.to_player_id_search = '';
-    form.value.type_code           = null;
+    form.value.to_player_id = null;
+    form.value.type_code    = null;
+    selectedPlayer.value    = null;
+    playerSearch.value      = '';
+    playerResults.value     = [];
   } catch (e) {
     proposeError.value = e?.response?.data?.message ?? 'Error al enviar la propuesta.';
   } finally {
@@ -609,4 +668,67 @@ function typeTooltip(t) {
 /* ── Mensajes ── */
 .form-error, .dip-error { color: #e08080; font-size: 0.82rem; margin: 0; }
 .form-ok              { color: #80e090; font-size: 0.82rem; margin: 0; }
+
+/* ── Búsqueda de jugador ── */
+.player-search-wrap {
+  position: relative;
+}
+.dip-input.input-selected {
+  border-color: #40a060;
+  color: #80e090;
+}
+.clear-player {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #a08060;
+  cursor: pointer;
+  font-size: 0.82rem;
+  padding: 0 4px;
+}
+.clear-player:hover { color: #e08080; }
+.player-dropdown {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  right: 0;
+  background: #1a150e;
+  border: 1px solid #4a3820;
+  border-radius: 4px;
+  z-index: 100;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.player-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid #2a1e0e;
+  color: #e8d5a3;
+  cursor: pointer;
+  text-align: left;
+  gap: 8px;
+}
+.player-option:last-child { border-bottom: none; }
+.player-option:hover { background: rgba(201,168,76,0.1); }
+.player-option-name { font-size: 0.9rem; }
+.player-option-user { font-size: 0.75rem; color: #7a6040; }
+.player-searching {
+  display: block;
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  color: #7a6040;
+  font-style: italic;
+}
+.selected-hint {
+  color: #60c070 !important;
+  margin-top: 4px;
+}
 </style>

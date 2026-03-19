@@ -77,7 +77,9 @@
       "Bash(find /d/claude/mediev-h3-game/client/public -name login* -o -name *.html)",
       "Bash(find d:claudemediev-h3-gameserver -name config.js -not -path */node_modules/*)",
       "mcp__plugin_playwright_playwright__browser_console_messages",
-      "mcp__plugin_playwright_playwright__browser_navigate"
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "Bash(find d:/claude/mediev-h3-game/server/src -name routes* -o -name router*)",
+      "Bash(find d:/claude/mediev-h3-game/server/routes -name *.js)"
     ]
   }
 }

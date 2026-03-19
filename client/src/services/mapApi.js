@@ -807,6 +807,11 @@ export async function stopCharacter(characterId) {
 // RELACIONES POLÍTICAS
 // ============================================
 
+export async function searchPlayers(q) {
+  const response = await axios.get(`${API_URL}/api/players/search`, { params: { q } });
+  return response.data;
+}
+
 export async function getRelationTypes() {
   const response = await axios.get(`${API_URL}/api/relations/types`);
   return response.data;

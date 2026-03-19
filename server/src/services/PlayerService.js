@@ -117,6 +117,33 @@ class PlayerService {
     }
 
     /**
+     * GET /api/players/search?q=texto
+     * Busca jugadores por display_name o username (parcial, máx 10 resultados).
+     * Excluye al propio jugador si está autenticado.
+     */
+    async Search(req, res) {
+        const q = (req.query.q ?? '').trim();
+        if (q.length < 2) return res.json({ players: [] });
+        try {
+            const selfId = req.user?.player_id ?? null;
+            const result = await pool.query(`
+                SELECT player_id, COALESCE(display_name, username) AS name, username
+                FROM players
+                WHERE is_ai = FALSE
+                  AND (is_exiled IS NULL OR is_exiled = FALSE)
+                  AND (LOWER(display_name) LIKE $1 OR LOWER(username) LIKE $1)
+                  AND ($2::int IS NULL OR player_id <> $2)
+                ORDER BY display_name, username
+                LIMIT 10
+            `, [`%${q.toLowerCase()}%`, selfId]);
+            res.json({ players: result.rows });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/players/search', q });
+            res.status(500).json({ error: 'Error en la búsqueda' });
+        }
+    }
+
+    /**
      * GET /api/players/culture-cache/reload  (admin only)
      * Forces a cache reload without restarting the server.
      */

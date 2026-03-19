@@ -968,7 +968,7 @@
     </div>
 
     <!-- Full-Screen Diplomacy Overlay -->
-    <div v-if="activeOverlay === 'diplomacy'" class="overlay-fullscreen">
+    <div v-if="activeOverlay === 'diplomacy'" class="game-overlay title-overlay">
       <div class="overlay-container">
         <div class="overlay-header">
           <h1 class="overlay-title">⚖️ Diplomacia</h1>

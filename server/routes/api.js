@@ -61,7 +61,8 @@ module.exports = function () {
     // Get detailed army info for a specific hex (for popup)
     router.get('/map/army-details/:h3_index', authenticateToken, ArmyService.GetArmyDetails);
 
-    router.get('/players/:id', PlayerService.GetById);
+    router.get('/players/search',   authenticateToken, (req, res) => PlayerService.Search(req, res));
+    router.get('/players/:id',      PlayerService.GetById);
 
     router.get('/game/world-state', TurnService.GetWorldState);
     router.get('/game/my-fiefs', authenticateToken, KingdomService.GetMyFiefs);
