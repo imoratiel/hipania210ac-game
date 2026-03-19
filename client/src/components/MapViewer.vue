@@ -977,6 +977,7 @@
         <div class="overlay-content">
           <DiplomacyPanel
             :myPlayerId="currentUser?.player_id"
+            :myCultureId="currentUser?.culture_id ?? null"
             @refresh="fetchPendingRelations"
           />
         </div>

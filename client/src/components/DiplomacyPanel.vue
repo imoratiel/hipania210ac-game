@@ -93,7 +93,7 @@
           <label>Tipo de tratado</label>
           <div class="type-grid">
             <button
-              v-for="t in types"
+              v-for="t in availableTypes"
               :key="t.id"
               type="button"
               class="type-btn"
@@ -102,7 +102,7 @@
               @click="selectType(t)"
             >
               <span class="type-icon">{{ typeIcon(t.code) }}</span>
-              <span class="type-name">{{ t.name }}</span>
+              <span class="type-name">{{ typeLabel(t) }}</span>
             </button>
           </div>
         </div>
@@ -116,7 +116,7 @@
               type="text"
               class="dip-input"
               :class="{ 'input-selected': selectedPlayer }"
-              placeholder="Buscar jugador por nombre…"
+              placeholder="Buscar por linaje…"
               autocomplete="off"
               @input="onPlayerSearchInput"
             />
@@ -218,7 +218,8 @@ import {
 } from '@/services/mapApi.js';
 
 const props = defineProps({
-  myPlayerId: { type: Number, required: true },
+  myPlayerId:    { type: Number, required: true },
+  myCultureId:   { type: Number, default: null },
 });
 
 const emit = defineEmits(['refresh']);
@@ -288,6 +289,11 @@ function clearPlayer() {
 
 // ── Computed ──────────────────────────────────────────────────
 const selectedType = computed(() => types.value.find(t => t.code === form.value.type_code) ?? null);
+
+const availableTypes = computed(() => types.value.filter(t => {
+  if (!t.creator_cultures || t.creator_cultures.length === 0) return true;
+  return props.myCultureId !== null && t.creator_cultures.includes(props.myCultureId);
+}));
 
 // ── Carga inicial ─────────────────────────────────────────────
 onMounted(async () => {
@@ -395,6 +401,21 @@ function selectType(t) {
 function resolveOath(template, payerName, receiverName) {
   if (!template) return '';
   return template.replace('{payer}', payerName).replace('{receiver}', receiverName);
+}
+
+const TYPE_LABELS = {
+  devotio:      'Juramento de Lealtad',
+  clientela:    'Solicitar Protección',
+  hospitium:    'Hospitium',
+  rehenes:      'Exigir Rehenes',
+  mercenariado: 'Contratar Mercenario',
+  alianza:      'Firmar Alianza',
+  tributo:      'Exigir Tributo',
+  guerra:       'Declarar Guerra',
+};
+
+function typeLabel(t) {
+  return TYPE_LABELS[t.code] ?? t.name;
 }
 
 function typeIcon(code) {

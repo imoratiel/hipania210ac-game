@@ -131,7 +131,7 @@ class PlayerService {
                 FROM players
                 WHERE is_ai = FALSE
                   AND (is_exiled IS NULL OR is_exiled = FALSE)
-                  AND (LOWER(display_name) LIKE $1 OR LOWER(username) LIKE $1)
+                  AND LOWER(display_name) LIKE $1
                   AND ($2::int IS NULL OR player_id <> $2)
                 ORDER BY display_name, username
                 LIMIT 10
