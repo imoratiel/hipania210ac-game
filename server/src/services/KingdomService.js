@@ -618,6 +618,14 @@ class KingdomService {
             let cascadedFiefs = [];
             if (isCapital) {
                 cascadedFiefs = await processCapitalCollapse(client, h3_index, player_id, currentOwner, turn);
+            } else if (currentOwner !== null) {
+                // Si no era la capital del jugador pero sí la capital de algún señorío,
+                // transferir ese señorío al conquistador
+                await client.query(`
+                    UPDATE political_divisions
+                    SET player_id = $1
+                    WHERE player_id = $2 AND capital_h3 = $3
+                `, [player_id, currentOwner, h3_index]);
             }
 
             // 11. Saqueo (solo si el ejército sobrevivió)
@@ -855,6 +863,14 @@ class KingdomService {
                 isCapital = previousOwner !== null && hex.capital_h3 === h3_index;
                 if (isCapital) {
                     cascadedFiefs = await processCapitalCollapse(client, h3_index, player_id, previousOwner, turn);
+                } else if (previousOwner !== null) {
+                    // Si no era la capital del jugador pero sí la capital de algún señorío,
+                    // transferir ese señorío al conquistador
+                    await client.query(`
+                        UPDATE political_divisions
+                        SET player_id = $1
+                        WHERE player_id = $2 AND capital_h3 = $3
+                    `, [player_id, previousOwner, h3_index]);
                 }
             }
 

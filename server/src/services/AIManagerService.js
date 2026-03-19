@@ -28,6 +28,8 @@ const { getSpawnCoordinates, getNearbySpawnHex } = require('./BotService');
 const { calcMilitiaPower, processCapitalCollapse, GRACE_TURNS_DEFAULT } = require('../logic/conquest_system');
 const { bfsExpandTerritory } = require('../logic/playerInit');
 const DivisionModel = require('../models/DivisionModel');
+const { generateDivisionName } = require('../logic/CulturalNameGenerator');
+const MapService     = require('./MapService');
 const infrastructure = require('../logic/infrastructure');
 const CONFIG         = require('../config.js');
 
@@ -203,7 +205,38 @@ class AIManagerService {
                 await KingdomModel.InsertTerritoryDetails(client, hex, eco);
             }
 
+            // Crear señorío con todos los feudos conquistados
+            let divisionId = null;
+            if (senorioRank) {
+                const allFiefs = [spawnHex, ...bonusHexes];
+                const terrainRows = await client.query(`
+                    SELECT t.name AS terrain_name, COUNT(*) AS cnt
+                    FROM h3_map m
+                    JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
+                    WHERE m.h3_index = ANY($1::text[])
+                    GROUP BY t.name ORDER BY cnt DESC LIMIT 1
+                `, [allFiefs]);
+                const dominantTerrain = terrainRows.rows[0]?.terrain_name ?? null;
+                const divisionName = generateDivisionName(aiCultureId, spawnHex, dominantTerrain);
+
+                const division = await DivisionModel.CreateDivision(client, {
+                    player_id:     aiPlayerId,
+                    name:          divisionName,
+                    noble_rank_id: senorioRank.id,
+                    capital_h3:    spawnHex
+                });
+                if (division) {
+                    await DivisionModel.AssignFiefsToDivision(client, division.id, allFiefs);
+                    divisionId = division.id;
+                }
+            }
+
             await client.query('COMMIT');
+
+            // Calcular boundary GeoJSON (fuera de transacción)
+            if (divisionId) {
+                await MapService.generateDivisionBoundary(divisionId).catch(() => {});
+            }
 
             const totalHexes = 1 + bonusHexes.length;
             const nearLabel = playerTarget
