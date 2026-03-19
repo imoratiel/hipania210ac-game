@@ -960,6 +960,7 @@
     <!-- Full-Screen Economy Overlay -->
     <EconomyPanel
       v-if="activeOverlay === 'economy'"
+      :playerCultureId="currentUser?.culture_id ?? null"
       @close="closeOverlay"
       @gold-updated="onGoldUpdated"
     />

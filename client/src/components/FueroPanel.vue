@@ -52,7 +52,7 @@
         <!-- Tax rate slider -->
         <div class="fuero-tax-section">
           <div class="fuero-tax-header">
-            <span class="fuero-label">Tasa impositiva del señorío</span>
+            <span class="fuero-label">{{ taxLabel }} del señorío</span>
             <span class="fuero-tax-value">{{ divisionTaxRate }}%</span>
           </div>
           <input
@@ -66,7 +66,7 @@
           </div>
           <div v-if="taxMsg" class="fuero-result" :class="taxMsg.type">{{ taxMsg.text }}</div>
           <button class="fuero-btn fuero-btn-primary fuero-btn-sm" :disabled="taxSaving" @click="saveTax">
-            {{ taxSaving ? 'Guardando...' : 'Aplicar tasa' }}
+            {{ taxSaving ? 'Guardando...' : `Aplicar ${taxLabel}` }}
           </button>
         </div>
 
@@ -169,6 +169,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { getTerritoryLaws, proclaimDivision, proposeDivisionName, updateDivisionTax } from '@/services/mapApi.js';
+import { getTaxLabel } from '@/utils/culturalLabels.js';
 
 const props = defineProps({
   h3_index: { type: String, required: true },
@@ -201,6 +202,13 @@ const nobleTitle = computed(() => {
 
 // Artículo según género: "el" / "la"
 const nobleArticle = computed(() => props.gender === 'F' ? 'la' : 'el');
+
+// Denominación cultural del impuesto según la cultura del señorío activo
+const taxLabel = computed(() => {
+  const cultureId = lawsData.value?.division?.rank?.culture_id
+    ?? lawsData.value?.rank?.culture_id;
+  return getTaxLabel(cultureId);
+});
 
 // Genitivo: "de los Llanos" (extrae la parte tras el territory_name)
 const nameGenitivo = computed(() => {

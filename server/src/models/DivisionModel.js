@@ -71,7 +71,7 @@ class DivisionModel {
     async GetSenorioRank(client, culture_id = null) {
         const result = await (client || pool).query(`
             SELECT id, title_male, title_female, territory_name,
-                   min_fiefs_required, max_fiefs_limit
+                   min_fiefs_required, max_fiefs_limit, culture_id
             FROM noble_ranks
             WHERE level_order = 2
               AND ($1::int IS NULL OR culture_id = $1)
@@ -101,6 +101,7 @@ class DivisionModel {
                 nr.title_female AS rank_title_female,
                 nr.territory_name,
                 nr.max_fiefs_limit,
+                nr.culture_id   AS rank_culture_id,
                 COUNT(td2.h3_index)::int AS fief_count
             FROM territory_details td
             JOIN political_divisions pd ON td.division_id = pd.id
@@ -108,7 +109,7 @@ class DivisionModel {
             LEFT JOIN territory_details td2 ON td2.division_id = pd.id
             WHERE td.h3_index = $1
             GROUP BY pd.id, pd.name, pd.capital_h3, pd.created_at,
-                     nr.id, nr.title_male, nr.title_female, nr.territory_name, nr.max_fiefs_limit
+                     nr.id, nr.title_male, nr.title_female, nr.territory_name, nr.max_fiefs_limit, nr.culture_id
         `, [h3_index]);
         return result.rows[0] ?? null;
     }
@@ -139,16 +140,21 @@ class DivisionModel {
                 pd.name,
                 pd.capital_h3,
                 pd.created_at,
-                nr.title_male   AS rank_title_male,
-                nr.title_female AS rank_title_female,
+                pd.tax_rate,
+                nr.title_male    AS rank_title_male,
+                nr.title_female  AS rank_title_female,
                 nr.territory_name,
-                COUNT(td.h3_index)::int AS fief_count
+                nr.culture_id    AS rank_culture_id,
+                COUNT(td.h3_index)::int           AS fief_count,
+                COALESCE(SUM(td.gold_stored),0)::bigint   AS total_gold,
+                COALESCE(SUM(td.food_stored),0)::bigint   AS total_food,
+                COALESCE(SUM(td.population),0)::int       AS total_population
             FROM political_divisions pd
             JOIN noble_ranks nr        ON pd.noble_rank_id = nr.id
             LEFT JOIN territory_details td ON td.division_id = pd.id
             WHERE pd.player_id = $1
-            GROUP BY pd.id, pd.name, pd.capital_h3, pd.created_at,
-                     nr.title_male, nr.title_female, nr.territory_name
+            GROUP BY pd.id, pd.name, pd.capital_h3, pd.created_at, pd.tax_rate,
+                     nr.title_male, nr.title_female, nr.territory_name, nr.culture_id
             ORDER BY pd.created_at ASC
         `, [player_id]);
         return result.rows;

@@ -67,11 +67,12 @@ class DivisionService {
                         name:       existing.name,
                         capital_h3: existing.capital_h3,
                         rank: {
-                            id:            existing.rank_id,
-                            title_male:    existing.rank_title_male,
-                            title_female:  existing.rank_title_female,
-                            territory_name: existing.territory_name,
+                            id:              existing.rank_id,
+                            title_male:      existing.rank_title_male,
+                            title_female:    existing.rank_title_female,
+                            territory_name:  existing.territory_name,
                             max_fiefs_limit: existing.max_fiefs_limit,
+                            culture_id:      existing.rank_culture_id,
                         },
                         fief_count: existing.fief_count,
                         tax_rate:   parseFloat(existing.tax_rate ?? 10),
@@ -111,12 +112,13 @@ class DivisionService {
                 contiguous_fiefs: contiguous,
                 suggested_name:   suggestedName,
                 rank: {
-                    id:               senorioRank.id,
-                    title_male:       senorioRank.title_male,
-                    title_female:     senorioRank.title_female,
-                    territory_name:   senorioRank.territory_name,
+                    id:                 senorioRank.id,
+                    title_male:         senorioRank.title_male,
+                    title_female:       senorioRank.title_female,
+                    territory_name:     senorioRank.territory_name,
                     min_fiefs_required: minRequired,
-                    max_fiefs_limit:  senorioRank.max_fiefs_limit,
+                    max_fiefs_limit:    senorioRank.max_fiefs_limit,
+                    culture_id:         playerCulture,
                 }
             });
 

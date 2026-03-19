@@ -36,7 +36,7 @@
 
           <!-- Tax Settings -->
           <div class="eco-card">
-            <h4 class="eco-card-title">💰 Impuesto Fiscal</h4>
+            <h4 class="eco-card-title">💰 {{ taxLabelFor(playerCultureId) }}</h4>
             <p class="eco-hint">
               Cada turno, el <strong>{{ localTaxRate }}%</strong> del oro almacenado
               en cada feudo pasa al tesoro real.
@@ -61,13 +61,13 @@
 
           <!-- Tithe Settings -->
           <div class="eco-card">
-            <h4 class="eco-card-title">⛪ Diezmo</h4>
+            <h4 class="eco-card-title">⛪ {{ titheLabel }}</h4>
             <p class="eco-hint">
-              Cuando está activo, el <strong>10%</strong> de todos los recursos
-              de feudos secundarios se transfiere a la capital cada turno.
+              Cuando está activo, el <strong>10%</strong> de la comida
+              de cada centuria se transfiere a la capital cada mes.
             </p>
             <label class="eco-toggle-row">
-              <span class="eco-toggle-label">{{ localTitheActive ? 'Diezmo activo' : 'Diezmo inactivo' }}</span>
+              <span class="eco-toggle-label">{{ localTitheActive ? `${titheLabel} activo` : `${titheLabel} inactivo` }}</span>
               <div
                 class="eco-toggle"
                 :class="{ 'eco-toggle--on': localTitheActive }"
@@ -78,25 +78,6 @@
             </label>
           </div>
 
-          <!-- Terrain Filter -->
-          <div class="eco-card">
-            <h4 class="eco-card-title">🗺️ Filtrar por Terreno</h4>
-            <div class="terrain-filter-list">
-              <button
-                class="terrain-btn"
-                :class="{ active: filterTerrain === null }"
-                @click="filterTerrain = null"
-              >Todos</button>
-              <button
-                v-for="terrain in terrainOptions"
-                :key="terrain"
-                class="terrain-btn"
-                :class="{ active: filterTerrain === terrain }"
-                @click="filterTerrain = filterTerrain === terrain ? null : terrain"
-              >{{ terrain }}</button>
-            </div>
-          </div>
-
           <!-- Save Button -->
           <div class="eco-card eco-actions-card">
             <button
@@ -104,109 +85,88 @@
               :disabled="saving || !isDirty"
               @click="saveSettings"
             >
-              <span v-if="saving">⏳ Guardando...</span>
-              <span v-else-if="saveOk">✅ Guardado</span>
-              <span v-else>💾 Guardar Configuración</span>
+              <span v-if="saving">⏳ Emitiendo...</span>
+              <span v-else-if="saveOk">✅ Edicto emitido</span>
+              <span v-else>📜 Emitir Edicto</span>
             </button>
             <div v-if="saveError" class="eco-save-error">❌ {{ saveError }}</div>
           </div>
 
         </div>
 
-        <!-- Main Table Area -->
+        <!-- Pagus List -->
         <div class="eco-main">
           <div class="eco-table-header">
-            <h3 class="eco-table-title">🌾 Gestión Agrícola de Feudos</h3>
+            <h3 class="eco-table-title">🏛️ Tus Pagus</h3>
             <p class="eco-table-hint">
-              Mejora las granjas de tus feudos para aumentar la producción de alimentos en un <strong>10%</strong> por nivel.
+              Gestiona la recaudación de cada señorío de forma independiente.
             </p>
           </div>
 
-          <div v-if="loadingFiefs" class="eco-loading eco-loading-center">Cargando feudos...</div>
-          <div v-else-if="fiefsError" class="eco-error eco-error-center">{{ fiefsError }}</div>
-          <template v-else>
-            <div class="eco-table-wrap">
-              <table class="eco-table">
-                <colgroup>
-                  <col class="col-feudo" />
-                  <col class="col-terreno" />
-                  <col class="col-pop" />
-                  <col class="col-food" />
-                  <col class="col-autonomy" />
-                  <col class="col-farm" />
-                  <col class="col-cost" />
-                  <col class="col-action" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>Feudo</th>
-                    <th>Terreno</th>
-                    <th>👥 Pob.</th>
-                    <th>🌾 Comida</th>
-                    <th>⏳ Autonomía</th>
-                    <th>Nivel Granja</th>
-                    <th>Coste Mejora</th>
-                    <th>Acción</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="fief in filteredFiefs"
-                    :key="fief.h3_index"
-                    :class="{ 'row-capital': fief.h3_index === fief.capital_h3 }"
-                  >
-                    <td class="td-feudo">
-                      <span v-if="fief.h3_index === fief.capital_h3" class="capital-badge">👑</span>
-                      <span class="feudo-name">{{ fief.location_name || fief.h3_index }}</span>
-                    </td>
-                    <td class="td-terrain">{{ fief.terrain_name }}</td>
-                    <td class="td-number">{{ fmt(fief.population) }}</td>
-                    <td class="td-number">{{ fmt(fief.food_stored) }}</td>
-                    <td class="td-number">
-                      <span class="autonomy-val"
-                        :class="{
-                          'autonomy-ok':  fiefAutonomy(fief) > 365,
-                          'autonomy-low': fiefAutonomy(fief) < 30
-                        }"
-                      >{{ fiefAutonomy(fief) === Infinity ? '∞' : fiefAutonomy(fief) }}</span>
-                    </td>
-                    <td class="td-number">
-                      <span class="farm-level" :class="{ 'level-max': (fief.farm_level || 0) >= 5 }">
-                        {{ fief.farm_level || 0 }}/5
-                      </span>
-                    </td>
-                    <td class="td-number">
-                      <span v-if="(fief.farm_level || 0) >= 5" class="level-max-text">Máx</span>
-                      <span v-else class="cost-val">{{ fmt(farmCost(fief.farm_level || 0)) }} 💰</span>
-                    </td>
-                    <td class="td-action">
-                      <button
-                        v-if="(fief.farm_level || 0) < 5 && fief.food_output > 0"
-                        class="upgrade-btn"
-                        :class="{ 'upgrade-btn--disabled': upgradingHex === fief.h3_index }"
-                        :disabled="upgradingHex === fief.h3_index || playerGold < farmCost(fief.farm_level || 0)"
-                        @click="upgradeFarmFief(fief)"
-                        :title="playerGold < farmCost(fief.farm_level || 0) ? 'Oro insuficiente' : `Mejorar granja al nivel ${(fief.farm_level || 0) + 1}`"
-                      >
-                        <span v-if="upgradingHex === fief.h3_index">⏳</span>
-                        <span v-else>⬆️ Mejorar</span>
-                      </button>
-                      <span v-else-if="fief.food_output <= 0" class="no-farm-text">Sin terreno</span>
-                      <span v-else class="level-max-text">Máximo</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+          <div v-if="loadingDivisions" class="eco-loading eco-loading-center">Cargando señoríos...</div>
+          <div v-else-if="divisionsError" class="eco-error eco-error-center">{{ divisionsError }}</div>
+          <div v-else-if="divisions.length === 0" class="eco-empty">
+            Aún no has proclamado ningún señorío.
+          </div>
+          <div v-else class="pagus-list">
+            <div
+              v-for="div in divisions"
+              :key="div.id"
+              class="pagus-card"
+            >
+              <!-- Card header -->
+              <div class="pagus-header">
+                <div class="pagus-rank-badge">{{ div.territory_name }}</div>
+                <h4 class="pagus-name">{{ div.name }}</h4>
+                <span class="pagus-title">{{ div.rank_title_male }}</span>
+              </div>
 
-            <div class="eco-gold-bar">
-              <span class="eco-gold-label">Tu tesoro:</span>
-              <span class="eco-gold-val">{{ fmt(playerGold) }} 💰</span>
-            </div>
+              <!-- Stats row -->
+              <div class="pagus-stats">
+                <div class="pagus-stat">
+                  <span class="pstat-label">🏰 Feudos</span>
+                  <span class="pstat-value">{{ div.fief_count }}</span>
+                </div>
+                <div class="pagus-stat">
+                  <span class="pstat-label">👥 Población</span>
+                  <span class="pstat-value">{{ fmt(div.total_population) }}</span>
+                </div>
+                <div class="pagus-stat">
+                  <span class="pstat-label">💰 Oro</span>
+                  <span class="pstat-value gold">{{ fmt(div.total_gold) }}</span>
+                </div>
+                <div class="pagus-stat">
+                  <span class="pstat-label">🌾 Comida</span>
+                  <span class="pstat-value">{{ fmt(div.total_food) }}</span>
+                </div>
+              </div>
 
-            <div v-if="upgradeError" class="eco-upgrade-error">❌ {{ upgradeError }}</div>
-            <div v-if="upgradeOk" class="eco-upgrade-ok">{{ upgradeOk }}</div>
-          </template>
+              <!-- Tax slider -->
+              <div class="pagus-tax">
+                <div class="pagus-tax-header">
+                  <span class="pagus-tax-label">{{ taxLabelFor(div.rank_culture_id) }} <span class="pagus-tax-hint">(Impuestos)</span></span>
+                  <span class="pagus-tax-rate">{{ divTaxRates[div.id] ?? div.tax_rate }}%</span>
+                </div>
+                <input
+                  type="range" min="1" max="15" step="1"
+                  :value="divTaxRates[div.id] ?? div.tax_rate"
+                  @input="divTaxRates[div.id] = Number($event.target.value)"
+                  class="pagus-tax-slider"
+                />
+                <div class="pagus-tax-hints"><span>1%</span><span>15%</span></div>
+                <div v-if="divTaxMsg[div.id]" class="pagus-tax-msg" :class="divTaxMsg[div.id].type">
+                  {{ divTaxMsg[div.id].text }}
+                </div>
+                <button
+                  class="pagus-tax-btn"
+                  :disabled="divTaxSaving[div.id] || (divTaxRates[div.id] ?? div.tax_rate) == div.tax_rate"
+                  @click="saveDivisionTax(div)"
+                >
+                  {{ divTaxSaving[div.id] ? 'Guardando...' : `Aplicar ${taxLabelFor(div.rank_culture_id)}` }}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -215,8 +175,16 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
-import { getEconomySummary, updateEconomySettings, getEconomyFiefs, upgradeFarm } from '../services/mapApi.js';
+import { ref, computed, reactive, onMounted, watch } from 'vue';
+import { getEconomySummary, updateEconomySettings, getPlayerDivisions, updateDivisionTax } from '../services/mapApi.js';
+import { getTaxLabel, getTitheLabel } from '../utils/culturalLabels.js';
+
+const props = defineProps({
+  playerCultureId: { type: Number, default: null },
+});
+
+const taxLabelFor   = (cultureId) => getTaxLabel(cultureId);
+const titheLabel    = computed(() => getTitheLabel(props.playerCultureId));
 
 const emit = defineEmits(['close', 'gold-updated']);
 
@@ -238,16 +206,16 @@ const saving    = ref(false);
 const saveOk    = ref(false);
 const saveError = ref('');
 
-// ── Fiefs state ───────────────────────────────────────────
-const loadingFiefs  = ref(true);
-const fiefsError    = ref('');
-const fiefs         = ref([]);
-const playerGold    = ref(0);
-const filterTerrain = ref(null);
+// ── Divisions (Pagus) state ────────────────────────────────
+const loadingDivisions = ref(true);
+const divisionsError   = ref('');
+const divisions        = ref([]);
+const playerGold       = ref(0);
 
-const upgradingHex  = ref(null);
-const upgradeError  = ref('');
-const upgradeOk     = ref('');
+// Per-division tax editing: { [id]: rate }
+const divTaxRates  = reactive({});
+const divTaxSaving = reactive({});
+const divTaxMsg    = reactive({});
 
 // ── Computed ──────────────────────────────────────────────
 const estimatedTax = computed(() =>
@@ -260,29 +228,8 @@ const isDirty = computed(() =>
   localTaxRate.value !== serverTaxRate.value ||
   localTitheActive.value !== serverTitheActive.value
 );
-const terrainOptions = computed(() => {
-  const seen = new Set();
-  fiefs.value.forEach(f => { if (f.terrain_name) seen.add(f.terrain_name); });
-  return [...seen].sort();
-});
-const filteredFiefs = computed(() =>
-  filterTerrain.value
-    ? fiefs.value.filter(f => f.terrain_name === filterTerrain.value)
-    : fiefs.value
-);
-
 // ── Helpers ───────────────────────────────────────────────
 const fmt = (n) => Number(n ?? 0).toLocaleString('es-ES');
-
-// Farm upgrade cost: 3000 * 2^currentLevel
-const farmCost = (currentLevel) => 3000 * Math.pow(2, currentLevel);
-
-// Autonomy in days: food / daily consumption (floor(pop/100) * 0.1), matches backend
-const fiefAutonomy = (fief) => {
-  const consumption = Math.floor(Number(fief.population || 0) / 100) * 0.1;
-  if (consumption <= 0) return Infinity;
-  return Math.floor(Number(fief.food_stored || 0) / consumption);
-};
 
 // ── Methods ───────────────────────────────────────────────
 async function fetchSummary() {
@@ -307,20 +254,36 @@ async function fetchSummary() {
   }
 }
 
-async function fetchFiefs() {
-  loadingFiefs.value = true;
-  fiefsError.value   = '';
+async function fetchDivisions() {
+  loadingDivisions.value = true;
+  divisionsError.value   = '';
   try {
-    const data = await getEconomyFiefs();
-    if (data.fiefs) {
-      fiefs.value = data.fiefs;
+    const data = await getPlayerDivisions();
+    if (data.success) {
+      divisions.value = data.divisions ?? [];
     } else {
-      fiefsError.value = data.message || 'Error al cargar feudos';
+      divisionsError.value = data.message || 'Error al cargar señoríos';
     }
   } catch (err) {
-    fiefsError.value = err?.response?.data?.message || 'Error de conexión';
+    divisionsError.value = err?.response?.data?.message || 'Error de conexión';
   } finally {
-    loadingFiefs.value = false;
+    loadingDivisions.value = false;
+  }
+}
+
+async function saveDivisionTax(div) {
+  const rate = divTaxRates[div.id] ?? div.tax_rate;
+  divTaxSaving[div.id] = true;
+  divTaxMsg[div.id]    = null;
+  try {
+    await updateDivisionTax(div.id, rate);
+    div.tax_rate         = rate;
+    divTaxMsg[div.id]    = { type: 'success', text: `${taxLabelFor(div.rank_culture_id)} actualizado: ${rate}%` };
+    setTimeout(() => { divTaxMsg[div.id] = null; }, 2500);
+  } catch (err) {
+    divTaxMsg[div.id] = { type: 'error', text: err?.response?.data?.message || 'Error al guardar.' };
+  } finally {
+    divTaxSaving[div.id] = false;
   }
 }
 
@@ -352,38 +315,11 @@ async function saveSettings() {
   }
 }
 
-async function upgradeFarmFief(fief) {
-  if (upgradingHex.value) return;
-  upgradeError.value = '';
-  upgradeOk.value    = '';
-  upgradingHex.value = fief.h3_index;
-  try {
-    const data = await upgradeFarm(fief.h3_index);
-    if (data.success) {
-      fief.farm_level = (fief.farm_level || 0) + 1;
-      if (data.new_gold !== undefined) {
-        playerGold.value = data.new_gold;
-        emit('gold-updated', data.new_gold);
-      } else {
-        playerGold.value = Math.max(0, playerGold.value - farmCost((fief.farm_level || 1) - 1));
-      }
-      upgradeOk.value = data.message || `Granja mejorada al nivel ${fief.farm_level}`;
-      setTimeout(() => { upgradeOk.value = ''; }, 3000);
-    } else {
-      upgradeError.value = data.message || 'Error al mejorar';
-    }
-  } catch (err) {
-    upgradeError.value = err?.response?.data?.message || 'Error de conexión';
-  } finally {
-    upgradingHex.value = null;
-  }
-}
-
 watch([localTaxRate, localTitheActive], () => { saveOk.value = false; });
 
 onMounted(() => {
   fetchSummary();
-  fetchFiefs();
+  fetchDivisions();
 });
 </script>
 
@@ -834,5 +770,157 @@ onMounted(() => {
   border-color: #c9a84c;
   color: #fbbf24;
   font-weight: 600;
+}
+
+/* ── Pagus cards ─────────────────────────────────────────── */
+.pagus-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.pagus-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid #3d2e1a;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pagus-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pagus-rank-badge {
+  background: rgba(201,168,76,0.15);
+  border: 1px solid #c9a84c55;
+  border-radius: 4px;
+  color: #c9a84c;
+  font-size: 0.72rem;
+  font-family: sans-serif;
+  letter-spacing: 0.5px;
+  padding: 2px 7px;
+  text-transform: uppercase;
+}
+.pagus-name {
+  font-family: 'Georgia', serif;
+  font-size: 1rem;
+  color: #e8d5a3;
+  margin: 0;
+  flex: 1;
+}
+.pagus-title {
+  font-size: 0.75rem;
+  color: #8b7355;
+  font-style: italic;
+}
+
+.pagus-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.pagus-stat {
+  background: rgba(0,0,0,0.2);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pstat-label {
+  font-size: 0.70rem;
+  color: #7a6a50;
+  font-family: sans-serif;
+}
+.pstat-value {
+  font-size: 0.88rem;
+  color: #c8b898;
+  font-weight: 600;
+  font-family: 'Georgia', serif;
+}
+.pstat-value.gold { color: #f4c430; }
+
+.pagus-tax {
+  border-top: 1px solid #2a2010;
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pagus-tax-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.pagus-tax-label {
+  font-size: 0.78rem;
+  color: #a0916e;
+  font-family: sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.pagus-tax-hint {
+  font-size: 0.70rem;
+  color: #5a4a30;
+  text-transform: none;
+  letter-spacing: 0;
+  font-style: italic;
+}
+.pagus-tax-rate {
+  font-size: 0.95rem;
+  color: #f4c430;
+  font-weight: 700;
+  font-family: 'Georgia', serif;
+}
+.pagus-tax-slider {
+  width: 100%;
+  accent-color: #c9a84c;
+  cursor: pointer;
+}
+.pagus-tax-hints {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.68rem;
+  color: #5a4a30;
+  font-family: sans-serif;
+}
+.pagus-tax-msg {
+  font-size: 0.76rem;
+  font-family: sans-serif;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.pagus-tax-msg.success { color: #6fcf97; background: rgba(111,207,151,0.08); }
+.pagus-tax-msg.error   { color: #f87171; background: rgba(248,113,113,0.08); }
+
+.pagus-tax-btn {
+  align-self: flex-start;
+  padding: 5px 14px;
+  background: rgba(201,168,76,0.12);
+  border: 1px solid #c9a84c55;
+  border-radius: 5px;
+  color: #c9a84c;
+  font-size: 0.78rem;
+  font-family: sans-serif;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.pagus-tax-btn:hover:not(:disabled) { background: rgba(201,168,76,0.22); }
+.pagus-tax-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.eco-empty {
+  text-align: center;
+  color: #5a4a30;
+  font-style: italic;
+  font-family: sans-serif;
+  margin-top: 40px;
 }
 </style>
