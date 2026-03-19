@@ -773,6 +773,11 @@ export async function procreateCharacter(parentId, name) {
   return response.data;
 }
 
+export async function adoptCharacter(name = '') {
+  const response = await axios.post(`${API_URL}/api/characters/adopt`, { name });
+  return response.data;
+}
+
 export async function setCharacterHeir(characterId) {
   const response = await axios.patch(`${API_URL}/api/characters/${characterId}/heir`);
   return response.data;

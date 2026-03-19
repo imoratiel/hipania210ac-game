@@ -63,15 +63,17 @@ class CharacterModel {
     async create(client, { player_id, name, age = 20, health = 100, level = 1,
                             personal_guard = 25, is_heir = false,
                             is_main_character = false, parent_character_id = null,
-                            h3_index = null }) {
+                            h3_index = null, birth_turn = 0, xp = 0 }) {
         const r = await (client || pool).query(`
             INSERT INTO characters
                 (player_id, name, age, health, level, personal_guard,
-                 is_heir, is_main_character, parent_character_id, h3_index)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                 is_heir, is_main_character, parent_character_id, h3_index,
+                 birth_turn, xp)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
         `, [player_id, name, age, health, level, personal_guard,
-            is_heir, is_main_character, parent_character_id, h3_index]);
+            is_heir, is_main_character, parent_character_id, h3_index,
+            birth_turn, xp]);
         return r.rows[0];
     }
 
@@ -310,6 +312,144 @@ class CharacterModel {
             [playerId]
         );
         return r.rows.map(row => row.h3_index);
+    }
+
+    /**
+     * Devuelve el personaje de mayor nivel asignado a un ejército.
+     * Usado en combate para aplicar el bonus del mejor comandante.
+     */
+    async getBestInArmy(client, armyId) {
+        const r = await (client || pool).query(
+            `SELECT * FROM characters
+             WHERE army_id = $1
+               AND is_captive = FALSE
+               AND age >= 16
+             ORDER BY level DESC
+             LIMIT 1`,
+            [armyId]
+        );
+        return r.rows[0] ?? null;
+    }
+
+    /**
+     * Devuelve todos los personajes adultos (≥16) y vivos de un jugador,
+     * ordenados por nivel descendente. Excluye cautivos.
+     */
+    async getAdults(client, playerId) {
+        const r = await (client || pool).query(
+            `SELECT * FROM characters
+             WHERE player_id = $1
+               AND age >= 16
+               AND health > 0
+               AND is_captive = FALSE
+             ORDER BY level DESC`,
+            [playerId]
+        );
+        return r.rows;
+    }
+
+    /**
+     * Devuelve el conteo de personajes vivos de un jugador (incluye niños).
+     */
+    async countAlive(client, playerId) {
+        const r = await (client || pool).query(
+            `SELECT COUNT(*)::int AS cnt
+             FROM characters
+             WHERE player_id = $1 AND health > 0 AND is_captive = FALSE`,
+            [playerId]
+        );
+        return r.rows[0].cnt;
+    }
+
+    /**
+     * Promueve el heredero actual a líder (is_main_character = true).
+     * Devuelve el personaje actualizado o null si no había heredero.
+     */
+    async promoteHeirToLeader(client, playerId) {
+        const r = await (client || pool).query(
+            `UPDATE characters
+             SET is_main_character = TRUE, is_heir = FALSE
+             WHERE player_id = $1 AND is_heir = TRUE AND health > 0
+             RETURNING *`,
+            [playerId]
+        );
+        return r.rows[0] ?? null;
+    }
+
+    /**
+     * Asigna el personaje adulto de mayor nivel como nuevo heredero.
+     * Excluye al líder actual. Devuelve el personaje actualizado o null.
+     */
+    async assignBestAsHeir(client, playerId) {
+        const r = await (client || pool).query(
+            `UPDATE characters
+             SET is_heir = TRUE
+             WHERE id = (
+                 SELECT id FROM characters
+                 WHERE player_id = $1
+                   AND age >= 16
+                   AND health > 0
+                   AND is_captive = FALSE
+                   AND is_main_character = FALSE
+                   AND is_heir = FALSE
+                 ORDER BY level DESC
+                 LIMIT 1
+             )
+             RETURNING *`,
+            [playerId]
+        );
+        return r.rows[0] ?? null;
+    }
+
+    /**
+     * Incrementa el XP de un personaje y sube de nivel si alcanza el umbral.
+     * Umbral: level * 10. Retorna el personaje actualizado.
+     */
+    async addXp(client, characterId, xpAmount) {
+        const r = await (client || pool).query(
+            `UPDATE characters
+             SET xp    = xp + $2,
+                 level = LEAST(100, level + FLOOR((xp + $2) / (level * 10))::int),
+                 xp    = (xp + $2) % (level * 10)
+             WHERE id = $1
+             RETURNING id, name, level, xp`,
+            [characterId, xpAmount]
+        );
+        return r.rows[0] ?? null;
+    }
+
+    /**
+     * Devuelve todos los personajes de un jugador para el ciclo anual
+     * (envejecimiento + muerte natural). Incluye niños y adultos.
+     */
+    async getAllAliveByPlayer(client, playerId) {
+        const r = await (client || pool).query(
+            `SELECT id, name, age, health, is_main_character, is_heir, parent_character_id
+             FROM characters
+             WHERE player_id = $1 AND health > 0 AND is_captive = FALSE`,
+            [playerId]
+        );
+        return r.rows;
+    }
+
+    /**
+     * Incrementa la edad de un personaje en 1 año.
+     */
+    async incrementAge(client, characterId) {
+        await (client || pool).query(
+            'UPDATE characters SET age = age + 1 WHERE id = $1',
+            [characterId]
+        );
+    }
+
+    /**
+     * Marca un personaje como muerto (health = 0).
+     */
+    async killCharacter(client, characterId) {
+        await (client || pool).query(
+            'UPDATE characters SET health = 0 WHERE id = $1',
+            [characterId]
+        );
     }
 }
 

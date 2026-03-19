@@ -2,6 +2,7 @@ const { logEconomyEvent } = require('./economy');
 const { auditEvent, TOPICS } = require('../infrastructure/kafkaFacade');
 const { determineDiscoveredResource } = require('./discovery');
 const { processTaxCollection, processRelationTributes } = require('./tax_collector');
+const { processCharacterLifecycle } = require('./character_lifecycle');
 const { processTithe } = require('./tithe_system');
 const { processBuildingDecay } = require('./building_decay');
 const { processGraceTurns } = require('./conquest_system');
@@ -1251,6 +1252,11 @@ async function processGameTurn(pool, config) {
 
         // Building decay (day 5 of each game month)
         await processBuildingDecay(client, newTurn, gameDate);
+
+        // Character lifecycle: aging, natural death, births (once per year)
+        if (dayOfYear === 1) {
+            await processCharacterLifecycle(client, newTurn);
+        }
 
         await client.query('COMMIT');
 

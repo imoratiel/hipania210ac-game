@@ -325,25 +325,73 @@ async function initializePlayer(player_id, { forceCultureId = null, randomBonus 
             await KingdomModel.PlaceBuildingCompleted(client, capitalHex, lvl2Military.id);
         }
 
-        // ── 8. Create starting character and assign to army ──────────────────
+        // ── 8. Create starting characters (líder + heredero + niño) ──────────
         const playerResult = await client.query(
             'SELECT gender FROM players WHERE player_id = $1',
             [player_id]
         );
-        const gender        = playerResult.rows[0]?.gender ?? 'M';
-        const characterName = CharacterNameGenerator.generate(cultureId, gender, linaje);
-        const character = await CharacterModel.create(client, {
+        const gender = playerResult.rows[0]?.gender ?? 'M';
+
+        const turnResult = await client.query('SELECT current_turn FROM world_state LIMIT 1');
+        const currentTurn = turnResult.rows[0]?.current_turn ?? 0;
+
+        // Heredero: 16–22 años
+        const heirAge  = 16 + Math.floor(Math.random() * 7);
+        // Líder: heredero + 20–25 años más
+        const leaderAge = heirAge + 20 + Math.floor(Math.random() * 6);
+        // Niño: 5–8 años
+        const childAge  = 5 + Math.floor(Math.random() * 4);
+
+        const leaderName = CharacterNameGenerator.generate(cultureId, gender, linaje);
+        const leader = await CharacterModel.create(client, {
             player_id,
-            name:               characterName,
-            age:                25,
-            health:             100,
-            level:              1,
-            personal_guard:     25,
-            is_main_character:  true,
-            is_heir:            false,
-            h3_index:           capitalHex,
+            name:              leaderName,
+            age:               leaderAge,
+            health:            100,
+            level:             1,
+            personal_guard:    25,
+            is_main_character: true,
+            is_heir:           false,
+            h3_index:          capitalHex,
+            birth_turn:        currentTurn - leaderAge * 365,
+            xp:                0,
         });
-        await CharacterModel.assignToArmy(client, character.id, armyId);
+        await CharacterModel.assignToArmy(client, leader.id, armyId);
+
+        // Heredero (mismo género por simplicidad)
+        const heirName = CharacterNameGenerator.generate(cultureId, gender, linaje);
+        const heir = await CharacterModel.create(client, {
+            player_id,
+            name:                heirName,
+            age:                 heirAge,
+            health:              100,
+            level:               1,
+            personal_guard:      25,
+            is_main_character:   false,
+            is_heir:             true,
+            parent_character_id: leader.id,
+            h3_index:            capitalHex,
+            birth_turn:          currentTurn - heirAge * 365,
+            xp:                  0,
+        });
+
+        // Niño (hijo del líder, aún no puede actuar)
+        const childGender = Math.random() < 0.5 ? 'M' : 'F';
+        const childName = CharacterNameGenerator.generate(cultureId, childGender, linaje);
+        await CharacterModel.create(client, {
+            player_id,
+            name:                childName,
+            age:                 childAge,
+            health:              100,
+            level:               1,
+            personal_guard:      0,
+            is_main_character:   false,
+            is_heir:             false,
+            parent_character_id: leader.id,
+            h3_index:            capitalHex,
+            birth_turn:          currentTurn - childAge * 365,
+            xp:                  0,
+        });
 
         // ── 9. Create initial Señorío ────────────────────────────────────────
         let senorioName = null;

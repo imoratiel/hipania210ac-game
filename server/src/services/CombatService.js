@@ -343,9 +343,9 @@ class CombatService {
         const troopsA = aHasTroops ? armyA.troops : this._buildGuardTroops(commanderA);
         const troopsB = bHasTroops ? armyB.troops : this._buildGuardTroops(commanderB);
 
-        // 6. Calcular Poder de Combate (con bonus de devotio si aplica)
-        const pcA = await this._calculateCombatPower(client, troopsA, troopsB, terrain, aIsDefender, armyA.player_id);
-        const pcB = await this._calculateCombatPower(client, troopsB, troopsA, terrain, bIsDefender, armyB.player_id);
+        // 6. Calcular Poder de Combate (con bonus de devotio + personaje si aplica)
+        const pcA = await this._calculateCombatPower(client, troopsA, troopsB, terrain, aIsDefender, armyA.player_id, armyAId);
+        const pcB = await this._calculateCombatPower(client, troopsB, troopsA, terrain, bIsDefender, armyB.player_id, armyBId);
 
         Logger.engine(
             `[TURN ${turn}] BATTLE at ${h3Index}: ` +
@@ -430,6 +430,26 @@ class CombatService {
         if (!armyADestroyed) await ArmyModel.refreshDetectionRange(client, armyAId);
         if (!armyBDestroyed) await ArmyModel.refreshDetectionRange(client, armyBId);
 
+        // 12b. XP de personajes por participar en la batalla
+        // Victoria: +5 XP al mejor personaje del ejército ganador; derrota: +2 XP
+        const winnerArmyId = winner?.army_id ?? null;
+        const loserArmyId  = loser?.army_id  ?? null;
+        if (winnerArmyId) {
+            const bestWinner = await CharacterModel.getBestInArmy(client, winnerArmyId);
+            if (bestWinner) await CharacterModel.addXp(client, bestWinner.id, 5);
+        }
+        if (loserArmyId) {
+            const bestLoser = await CharacterModel.getBestInArmy(client, loserArmyId);
+            if (bestLoser) await CharacterModel.addXp(client, bestLoser.id, 2);
+        }
+        if (isDraw) {
+            // En empate: ambos ganan 2 XP
+            const bestA = await CharacterModel.getBestInArmy(client, armyAId);
+            if (bestA) await CharacterModel.addXp(client, bestA.id, 2);
+            const bestB = await CharacterModel.getBestInArmy(client, armyBId);
+            if (bestB) await CharacterModel.addXp(client, bestB.id, 2);
+        }
+
         // 13. Huida del perdedor
         let retreatA = null, retreatB = null;
         if (!isDraw && loser) {
@@ -497,7 +517,7 @@ class CombatService {
      * Calcula el Poder de Combate total de un ejército.
      * Si isDefender = true, el resultado se multiplica por 1.10 (bono defensivo).
      */
-    async _calculateCombatPower(client, troops, enemyTroops, terrain, isDefender = false, playerId = null) {
+    async _calculateCombatPower(client, troops, enemyTroops, terrain, isDefender = false, playerId = null, armyId = null) {
         const terrainName   = terrain?.terrain_name ?? null;
         const totalEnemyQty = enemyTroops.reduce((s, t) => s + t.quantity, 0) || 1;
         let totalPC = 0;
@@ -544,6 +564,19 @@ class CombatService {
             if (rows.length > 0) {
                 totalPC *= 1.05; // +5% ataque (siempre)
                 if (isDefender) totalPC *= 1.05; // +5% defensa adicional
+            }
+        }
+
+        // Bonus de personaje: el de mayor nivel en el ejército aplica +2% por nivel mostrado
+        // Nivel mostrado = floor(level / 10), rango 0–10. Bonus máximo = +20%.
+        if (armyId) {
+            const bestChar = await CharacterModel.getBestInArmy(client, armyId);
+            if (bestChar) {
+                const displayLevel = Math.floor(bestChar.level / 10);
+                if (displayLevel > 0) {
+                    const charBonus = 1 + displayLevel * 0.02;
+                    totalPC *= charBonus;
+                }
             }
         }
 

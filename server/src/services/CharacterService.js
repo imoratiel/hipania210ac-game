@@ -20,7 +20,9 @@ class CharacterService {
      * Nivel 1 → 10%, Nivel 2 → 11%, ...
      */
     calcCombatBuff(level) {
-        return COMBAT_BUFF_BASE + (level - 1) * COMBAT_BUFF_PER_LEVEL;
+        // Nivel mostrado = floor(level / 10), rango 0-10.
+        // Bonus = nivel_mostrado * 2% (máximo +20% a nivel 100).
+        return Math.floor(level / 10) * 2;
     }
 
     /**
@@ -89,13 +91,16 @@ class CharacterService {
 
             // Sucesión si era el personaje principal
             if (character.is_main_character) {
-                await DynastyService.handleSuccession(client, character.player_id, character.id);
+                await DynastyService.handleSuccession(client, character.player_id, character.id, currentTurn);
 
                 // Cascade de devotio: solo si murió en combate
                 if (diedInCombat) {
                     const RelationService = require('./RelationService.js');
                     await RelationService.onMainCharacterDeath(client, character.player_id, currentTurn);
                 }
+            } else if (character.is_heir) {
+                // Si muere el heredero, auto-asignar el siguiente adulto
+                await DynastyService.handleHeirDeath(client, character.player_id, character.id, currentTurn);
             }
 
             // Eliminar el personaje (muerte permanente)
@@ -233,6 +238,76 @@ class CharacterService {
             await client.query('ROLLBACK');
             Logger.error(err, { endpoint: 'POST /characters/:id/procreate', userId: playerId });
             res.status(500).json({ success: false, message: 'Error al generar descendiente' });
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * POST /api/characters/adopt
+     * Adopta un niño (crea un personaje de edad 0-8 sin padre biológico).
+     * Solo disponible si el jugador tiene menos de 3 personajes vivos.
+     * Body: { name? }  — si no se da nombre, se genera automáticamente.
+     */
+    async Adopt(req, res) {
+        const playerId = req.user.player_id;
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Contar personajes vivos
+            const aliveCount = await CharacterModel.countAlive(client, playerId);
+            if (aliveCount >= 3) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: 'La adopción solo está disponible cuando tienes menos de 3 personajes.'
+                });
+            }
+
+            const { rows: ws } = await client.query('SELECT current_turn FROM world_state WHERE id = 1');
+            const currentTurn = ws[0]?.current_turn ?? 0;
+
+            // Datos del jugador (cultura + linaje para nombre)
+            const { rows: pr } = await client.query(
+                'SELECT culture_id, display_name, username FROM players WHERE player_id = $1',
+                [playerId]
+            );
+            const playerRow = pr[0];
+            const cultureId = playerRow?.culture_id ?? null;
+            const linaje    = playerRow?.display_name ?? playerRow?.username ?? '';
+
+            const childGender = Math.random() < 0.5 ? 'M' : 'F';
+            const childAge    = Math.floor(Math.random() * 9); // 0-8 años
+            let   childName   = (req.body?.name ?? '').trim();
+            if (!childName) {
+                const CharacterNameGenerator = require('../logic/CharacterNameGenerator');
+                childName = CharacterNameGenerator.generate(cultureId, childGender, linaje);
+            }
+
+            const child = await CharacterModel.create(client, {
+                player_id:           playerId,
+                name:                childName,
+                age:                 childAge,
+                health:              100,
+                level:               1,
+                personal_guard:      0,
+                is_heir:             false,
+                is_main_character:   false,
+                parent_character_id: null,
+                h3_index:            null,
+                birth_turn:          currentTurn - childAge * 365,
+                xp:                  0,
+            });
+
+            await client.query('COMMIT');
+            Logger.action(`Jugador ${playerId} adoptó a "${child.name}" (id=${child.id}).`, playerId);
+            res.json({ success: true, character: child });
+        } catch (err) {
+            await client.query('ROLLBACK');
+            Logger.error(err, { endpoint: 'POST /characters/adopt', userId: playerId });
+            res.status(500).json({ success: false, message: 'Error al adoptar' });
         } finally {
             client.release();
         }

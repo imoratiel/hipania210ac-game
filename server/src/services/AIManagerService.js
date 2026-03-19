@@ -27,9 +27,11 @@ const { executeRecruitment, executeConstruction, GameActionError } = require('./
 const { getSpawnCoordinates, getNearbySpawnHex } = require('./BotService');
 const { calcMilitiaPower, processCapitalCollapse, GRACE_TURNS_DEFAULT } = require('../logic/conquest_system');
 const { bfsExpandTerritory } = require('../logic/playerInit');
-const DivisionModel = require('../models/DivisionModel');
+const DivisionModel          = require('../models/DivisionModel');
 const { generateDivisionName } = require('../logic/CulturalNameGenerator');
-const MapService     = require('./MapService');
+const MapService             = require('./MapService');
+const CharacterModel         = require('../models/CharacterModel');
+const CharacterNameGenerator = require('../logic/CharacterNameGenerator');
 const infrastructure = require('../logic/infrastructure');
 const CONFIG         = require('../config.js');
 
@@ -230,6 +232,62 @@ class AIManagerService {
                     divisionId = division.id;
                 }
             }
+
+            // ── Personajes iniciales del bot ─────────────────────────────────
+            const turnResult  = await client.query('SELECT current_turn FROM world_state LIMIT 1');
+            const currentTurn = turnResult.rows[0]?.current_turn ?? 0;
+            const botGender   = Math.random() < 0.5 ? 'M' : 'F';
+            const heirAge     = 16 + Math.floor(Math.random() * 7);
+            const leaderAge   = heirAge + 20 + Math.floor(Math.random() * 6);
+            const childAge    = 5  + Math.floor(Math.random() * 4);
+
+            const leaderName = CharacterNameGenerator.generate(aiCultureId, botGender, aiName);
+            const leader = await CharacterModel.create(client, {
+                player_id:         aiPlayerId,
+                name:              leaderName,
+                age:               leaderAge,
+                health:            100,
+                level:             1,
+                personal_guard:    25,
+                is_main_character: true,
+                is_heir:           false,
+                h3_index:          spawnHex,
+                birth_turn:        currentTurn - leaderAge * 365,
+                xp:                0,
+            });
+
+            const heirName = CharacterNameGenerator.generate(aiCultureId, botGender, aiName);
+            const heir = await CharacterModel.create(client, {
+                player_id:           aiPlayerId,
+                name:                heirName,
+                age:                 heirAge,
+                health:              100,
+                level:               1,
+                personal_guard:      25,
+                is_main_character:   false,
+                is_heir:             true,
+                parent_character_id: leader.id,
+                h3_index:            spawnHex,
+                birth_turn:          currentTurn - heirAge * 365,
+                xp:                  0,
+            });
+
+            const childGender = Math.random() < 0.5 ? 'M' : 'F';
+            const childName = CharacterNameGenerator.generate(aiCultureId, childGender, aiName);
+            await CharacterModel.create(client, {
+                player_id:           aiPlayerId,
+                name:                childName,
+                age:                 childAge,
+                health:              100,
+                level:               1,
+                personal_guard:      0,
+                is_main_character:   false,
+                is_heir:             false,
+                parent_character_id: leader.id,
+                h3_index:            spawnHex,
+                birth_turn:          currentTurn - childAge * 365,
+                xp:                  0,
+            });
 
             await client.query('COMMIT');
 
@@ -492,15 +550,15 @@ class AIManagerService {
         if (state.gold < FARMER.GOLD_TO_BUILD) return;
         if (state.territoriesWithoutBuilding.length === 0) return;
 
-        // Solo Market (economic) o Church (religious): buildings con food_bonus > 0
+        // Solo Market (economic) o Church (religious)
         const buildingsResult = await client.query(`
-            SELECT b.id, b.name, b.gold_cost, b.construction_time_turns, b.food_bonus,
+            SELECT b.id, b.name, b.gold_cost, b.construction_time_turns,
                    bt.name AS type_name
             FROM buildings b
             JOIN building_types bt ON bt.building_type_id = b.type_id
             WHERE b.required_building_id IS NULL
-              AND b.food_bonus > 0
-            ORDER BY b.food_bonus DESC, b.gold_cost ASC
+              AND bt.name IN ('economic', 'religious')
+            ORDER BY b.gold_cost ASC
         `);
         if (buildingsResult.rows.length === 0) return;
 

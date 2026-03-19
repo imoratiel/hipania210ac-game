@@ -16,24 +16,37 @@
     <!-- Empty -->
     <div v-else-if="!characters.length" class="char-empty">
       <p>No tienes personajes activos.</p>
+      <button class="char-btn char-btn-primary" @click="openAdopt">👶 Adoptar un niño</button>
     </div>
 
     <!-- Content -->
     <div v-else class="char-content">
 
       <!-- ── MAIN CHARACTER ─────────────────────────────── -->
-      <section class="char-section char-main">
+      <section v-if="mainCharacter" class="char-section char-main">
         <div class="char-avatar-row">
           <div class="char-avatar-icon">👑</div>
           <div class="char-avatar-info">
             <h2 class="char-name">{{ mainCharacter.full_title || mainCharacter.name }}</h2>
             <div class="char-meta">
               <span class="char-age">{{ mainCharacter.age }} años</span>
-              <span class="char-level">Nv. {{ mainCharacter.level }}</span>
+              <span class="char-level">Nv. {{ displayLevel(mainCharacter.level) }}</span>
               <span class="char-buff">+{{ mainCharacter.combat_buff_pct }}% combate</span>
               <span v-if="mainCharacter.army_id" class="char-deployed">⚔️ Desplegado</span>
             </div>
           </div>
+        </div>
+
+        <!-- XP bar -->
+        <div class="char-bar-row">
+          <span class="char-bar-label">Exp.</span>
+          <div class="char-bar-track">
+            <div
+              class="char-bar-fill char-xp-fill"
+              :style="{ width: xpPct(mainCharacter) + '%' }"
+            ></div>
+          </div>
+          <span class="char-bar-value">{{ mainCharacter.xp ?? 0 }}/{{ xpThreshold(mainCharacter.level) }}</span>
         </div>
 
         <!-- Health bar -->
@@ -83,14 +96,6 @@
         <!-- Actions for main character -->
         <div class="char-actions">
           <button
-            class="char-btn char-btn-primary"
-            :disabled="procreating"
-            @click="openProcreate(mainCharacter)"
-            title="Engendrar un descendiente"
-          >
-            👶 Descendiente
-          </button>
-          <button
             v-if="mainCharacter.army_id"
             class="char-btn char-btn-secondary"
             :disabled="assigningArmy"
@@ -109,19 +114,19 @@
         </div>
       </section>
 
-      <!-- ── SECONDARY CHARACTERS ──────────────────────── -->
-      <section v-if="secondaryCharacters.length" class="char-section char-secondary-section">
-        <h3 class="char-section-title">Linaje</h3>
+      <!-- ── SECONDARY CHARACTERS (adults) ─────────────── -->
+      <section v-if="adultSecondary.length" class="char-section char-secondary-section">
+        <h3 class="char-section-title">Linaje — Adultos</h3>
 
         <div
-          v-for="char in secondaryCharacters"
+          v-for="char in adultSecondary"
           :key="char.id"
           class="char-secondary-card"
           :class="{ 'char-heir-card': char.is_heir }"
         >
           <div class="char-secondary-header">
             <div class="char-secondary-avatar">
-              <span v-if="char.is_heir" title="Heredero">👑</span>
+              <span v-if="char.is_heir" title="Heredero">🔱</span>
               <span v-else>🧑</span>
             </div>
             <div class="char-secondary-info">
@@ -130,13 +135,19 @@
                 <span v-if="char.is_heir" class="heir-badge">Heredero</span>
               </span>
               <span class="char-secondary-meta">
-                {{ char.age }} años · Nv.{{ char.level }} · +{{ char.combat_buff_pct }}% combate
+                {{ char.age }} años · Nv.{{ displayLevel(char.level) }} · +{{ char.combat_buff_pct }}% combate
               </span>
             </div>
           </div>
 
-          <!-- Health & Guard mini bars -->
+          <!-- XP mini bar -->
           <div class="char-mini-bars">
+            <div class="char-mini-bar-row">
+              <span class="char-mini-label">Exp.</span>
+              <div class="char-bar-track char-bar-track-sm">
+                <div class="char-bar-fill char-xp-fill" :style="{ width: xpPct(char)+'%' }"></div>
+              </div>
+            </div>
             <div class="char-mini-bar-row">
               <span class="char-mini-label">Salud</span>
               <div class="char-bar-track char-bar-track-sm">
@@ -147,20 +158,6 @@
               <span class="char-mini-label">Guardia</span>
               <div class="char-bar-track char-bar-track-sm">
                 <div class="char-bar-fill" :style="{ width: guardPct(char.personal_guard)+'%', background: guardColor(char.personal_guard) }"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Abilities compact -->
-          <div v-if="char.abilities && char.abilities.length" class="char-abilities char-abilities-sm">
-            <div
-              v-for="ab in char.abilities"
-              :key="ab.ability_key"
-              class="char-ability-row"
-            >
-              <span class="char-ability-name">{{ abilityLabel(ab.ability_key) }}</span>
-              <div class="char-ability-dots">
-                <span v-for="i in 5" :key="i" class="char-dot" :class="{ filled: i <= ab.level }"></span>
               </div>
             </div>
           </div>
@@ -193,33 +190,35 @@
           </div>
         </div>
       </section>
-    </div>
 
-    <!-- ── PROCREATE MODAL ─────────────────────────────── -->
-    <div v-if="showProcreateModal" class="char-modal-overlay" @click.self="showProcreateModal = false">
-      <div class="char-modal">
-        <h3 class="char-modal-title">👶 Nuevo Descendiente</h3>
-        <p class="char-modal-sub">Hijo/a de {{ procreateParent?.name }}</p>
-        <input
-          v-model="procreateNameInput"
-          class="char-modal-input"
-          type="text"
-          placeholder="Nombre del descendiente..."
-          maxlength="100"
-          @keyup.enter="confirmProcreate"
-        />
-        <div v-if="procreateMsg" class="char-modal-msg" :class="procreateMsg.type">{{ procreateMsg.text }}</div>
-        <div class="char-modal-actions">
-          <button class="char-btn char-btn-secondary" @click="showProcreateModal = false">Cancelar</button>
-          <button
-            class="char-btn char-btn-primary"
-            :disabled="procreating || !procreateNameInput.trim()"
-            @click="confirmProcreate"
-          >
-            {{ procreating ? 'Creando...' : 'Confirmar' }}
-          </button>
+      <!-- ── CHILDREN (age < 16) ────────────────────────── -->
+      <section v-if="children.length" class="char-section char-children-section">
+        <h3 class="char-section-title">Linaje — Niños</h3>
+
+        <div
+          v-for="child in children"
+          :key="child.id"
+          class="char-child-card"
+        >
+          <span class="char-child-icon">🧒</span>
+          <div class="char-child-info">
+            <span class="char-child-name">{{ child.name }}</span>
+            <span class="char-child-meta">{{ child.age }} años · alcanza la mayoría a los 16</span>
+          </div>
         </div>
-      </div>
+      </section>
+
+      <!-- ── ADOPCIÓN ───────────────────────────────────── -->
+      <section v-if="canAdopt" class="char-section char-adopt-section">
+        <h3 class="char-section-title">Adopción</h3>
+        <p class="char-adopt-desc">
+          Tienes {{ aliveCount }} personaje{{ aliveCount !== 1 ? 's' : '' }}. Puedes adoptar un niño para fortalecer tu linaje.
+        </p>
+        <button class="char-btn char-btn-primary" @click="openAdopt">
+          👶 Adoptar un niño
+        </button>
+      </section>
+
     </div>
 
     <!-- ── ASSIGN ARMY MODAL ───────────────────────────── -->
@@ -250,6 +249,33 @@
         </div>
       </div>
     </div>
+
+    <!-- ── ADOPT MODAL ─────────────────────────────────── -->
+    <div v-if="showAdoptModal" class="char-modal-overlay" @click.self="showAdoptModal = false">
+      <div class="char-modal">
+        <h3 class="char-modal-title">👶 Adoptar un Niño</h3>
+        <p class="char-modal-sub">Se incorporará a tu linaje como un niño de entre 0 y 8 años.</p>
+        <input
+          v-model="adoptNameInput"
+          class="char-modal-input"
+          type="text"
+          placeholder="Nombre (opcional, se genera automáticamente)"
+          maxlength="100"
+          @keyup.enter="confirmAdopt"
+        />
+        <div v-if="adoptMsg" class="char-modal-msg" :class="adoptMsg.type">{{ adoptMsg.text }}</div>
+        <div class="char-modal-actions">
+          <button class="char-btn char-btn-secondary" @click="showAdoptModal = false">Cancelar</button>
+          <button
+            class="char-btn char-btn-primary"
+            :disabled="adopting"
+            @click="confirmAdopt"
+          >
+            {{ adopting ? 'Adoptando...' : 'Confirmar Adopción' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -257,10 +283,10 @@
 import { ref, computed, onMounted } from 'vue';
 import {
   getMyCharacters,
-  procreateCharacter,
   setCharacterHeir,
   assignArmyCommander,
   removeArmyCommander,
+  adoptCharacter,
 } from '@/services/mapApi.js';
 
 const props = defineProps({
@@ -274,36 +300,57 @@ const characters = ref([]);
 const loading    = ref(false);
 const error      = ref(null);
 
-const showProcreateModal  = ref(false);
-const procreateParent     = ref(null);
-const procreateNameInput  = ref('');
-const procreating         = ref(false);
-const procreateMsg        = ref(null);
-
 const showAssignModal = ref(false);
 const assignChar      = ref(null);
 const selectedArmyId  = ref(null);
 const assigningArmy   = ref(false);
 const assignMsg       = ref(null);
 
+const showAdoptModal = ref(false);
+const adoptNameInput = ref('');
+const adopting       = ref(false);
+const adoptMsg       = ref(null);
+
 // ── Computed ─────────────────────────────────────────────
 const mainCharacter = computed(() =>
-  characters.value.find(c => c.is_main_character) ?? characters.value[0] ?? null
+  characters.value.find(c => c.is_main_character) ?? null
 );
 
-const secondaryCharacters = computed(() =>
-  characters.value.filter(c => c !== mainCharacter.value)
+const adultSecondary = computed(() =>
+  characters.value.filter(c => !c.is_main_character && c.age >= 16)
 );
+
+const children = computed(() =>
+  characters.value.filter(c => c.age < 16)
+);
+
+const aliveCount = computed(() => characters.value.length);
+
+// Puede adoptar si tiene menos de 3 personajes
+const canAdopt = computed(() => aliveCount.value > 0 && aliveCount.value < 3);
 
 // ── Helpers ───────────────────────────────────────────────
 const ABILITY_LABELS = {
-  estrategia:  'Estrategia',
-  logistica:   'Logística',
-  diplomacia:  'Diplomacia',
+  estrategia: 'Estrategia',
+  logistica:  'Logística',
+  diplomacia: 'Diplomacia',
 };
 
-const abilityLabel  = key => ABILITY_LABELS[key] ?? key;
-const guardPct      = g  => Math.round((g / 25) * 100);
+const abilityLabel = key => ABILITY_LABELS[key] ?? key;
+const guardPct     = g  => Math.round((g / 25) * 100);
+
+/** Nivel mostrado: floor(level / 10), rango 0–10 */
+const displayLevel = level => Math.floor((level ?? 1) / 10);
+
+/** XP necesario para subir al siguiente nivel */
+const xpThreshold = level => (level ?? 1) * 10;
+
+/** Porcentaje de XP rellenado en la barra (0–100) */
+const xpPct = char => {
+  const xp  = char.xp ?? 0;
+  const max = xpThreshold(char.level ?? 1);
+  return Math.min(100, Math.round((xp / max) * 100));
+};
 
 const healthColor = h =>
   h < 30 ? '#ff6b6b' : h < 60 ? '#ffd93d' : '#6bcb77';
@@ -327,45 +374,21 @@ const load = async () => {
 
 onMounted(load);
 
-// ── Procreate ─────────────────────────────────────────────
-const openProcreate = (parent) => {
-  procreateParent.value    = parent;
-  procreateNameInput.value = '';
-  procreateMsg.value       = null;
-  showProcreateModal.value = true;
-};
-
-const confirmProcreate = async () => {
-  if (!procreateNameInput.value.trim()) return;
-  procreating.value = true;
-  procreateMsg.value = null;
-  try {
-    await procreateCharacter(procreateParent.value.id, procreateNameInput.value.trim());
-    procreateMsg.value = { type: 'success', text: 'Descendiente creado exitosamente.' };
-    await load();
-    setTimeout(() => { showProcreateModal.value = false; }, 1200);
-  } catch (e) {
-    procreateMsg.value = { type: 'error', text: e?.response?.data?.message ?? 'Error al crear descendiente' };
-  } finally {
-    procreating.value = false;
-  }
-};
-
 // ── Set heir ─────────────────────────────────────────────
 const setHeir = async (char) => {
   try {
     await setCharacterHeir(char.id);
     await load();
   } catch (e) {
-    // toast could be added here via emit
+    // noop
   }
 };
 
 // ── Assign army ──────────────────────────────────────────
 const openAssignArmy = (char) => {
-  assignChar.value     = char;
-  selectedArmyId.value = null;
-  assignMsg.value      = null;
+  assignChar.value      = char;
+  selectedArmyId.value  = null;
+  assignMsg.value       = null;
   showAssignModal.value = true;
 };
 
@@ -396,6 +419,28 @@ const removeCommander = async (char) => {
     // noop
   } finally {
     assigningArmy.value = false;
+  }
+};
+
+// ── Adopt ─────────────────────────────────────────────────
+const openAdopt = () => {
+  adoptNameInput.value = '';
+  adoptMsg.value       = null;
+  showAdoptModal.value = true;
+};
+
+const confirmAdopt = async () => {
+  adopting.value = true;
+  adoptMsg.value = null;
+  try {
+    await adoptCharacter(adoptNameInput.value.trim());
+    adoptMsg.value = { type: 'success', text: 'Adopción completada.' };
+    await load();
+    setTimeout(() => { showAdoptModal.value = false; }, 1200);
+  } catch (e) {
+    adoptMsg.value = { type: 'error', text: e?.response?.data?.message ?? 'Error al adoptar' };
+  } finally {
+    adopting.value = false;
   }
 };
 </script>
@@ -462,10 +507,7 @@ const removeCommander = async (char) => {
   flex-shrink: 0;
 }
 
-.char-avatar-info {
-  flex: 1;
-  min-width: 0;
-}
+.char-avatar-info { flex: 1; min-width: 0; }
 
 .char-name {
   font-size: 1rem;
@@ -517,15 +559,17 @@ const removeCommander = async (char) => {
   overflow: hidden;
 }
 
-.char-bar-track-sm {
-  height: 5px;
-}
+.char-bar-track-sm { height: 5px; }
 
 .char-bar-fill {
   height: 100%;
   border-radius: 4px;
   transition: width 0.3s ease;
 }
+
+.char-xp-fill    { background: #7b68ee; }
+.char-health-fill { background: #6bcb77; }
+.char-guard-fill  { background: #c5a059; }
 
 .char-bar-value {
   font-size: 0.7rem;
@@ -543,9 +587,7 @@ const removeCommander = async (char) => {
   gap: 0.3rem;
 }
 
-.char-abilities-sm {
-  margin-top: 0.4rem;
-}
+.char-abilities-sm { margin-top: 0.4rem; }
 
 .char-ability-row {
   display: flex;
@@ -560,10 +602,7 @@ const removeCommander = async (char) => {
   flex-shrink: 0;
 }
 
-.char-ability-dots {
-  display: flex;
-  gap: 3px;
-}
+.char-ability-dots { display: flex; gap: 3px; }
 
 .char-dot {
   width: 9px;
@@ -651,10 +690,7 @@ const removeCommander = async (char) => {
   margin-bottom: 0.4rem;
 }
 
-.char-secondary-avatar {
-  font-size: 1.1rem;
-  flex-shrink: 0;
-}
+.char-secondary-avatar { font-size: 1.1rem; flex-shrink: 0; }
 
 .char-secondary-info {
   display: flex;
@@ -710,6 +746,43 @@ const removeCommander = async (char) => {
   flex-wrap: wrap;
   gap: 0.35rem;
   margin-top: 0.4rem;
+}
+
+/* ── Children ────────────────────────────────────────── */
+.char-child-card {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.5rem;
+  background: rgba(0,0,0,0.15);
+  border: 1px solid rgba(197,160,89,0.1);
+  border-radius: 5px;
+  margin-bottom: 0.4rem;
+}
+
+.char-child-icon { font-size: 1.2rem; flex-shrink: 0; }
+
+.char-child-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.char-child-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #e8d5a3;
+}
+
+.char-child-meta {
+  font-size: 0.68rem;
+  color: #7a6040;
+}
+
+/* ── Adopt section ───────────────────────────────────── */
+.char-adopt-desc {
+  font-size: 0.78rem;
+  color: #a89070;
+  margin: 0 0 0.75rem;
 }
 
 /* ── Modals ──────────────────────────────────────────── */
