@@ -55,12 +55,14 @@ class TerrainModel {
                 upgrade_bld.id            AS upgrade_building_id,
                 upgrade_bld.name          AS upgrade_building_name,
                 upgrade_bld.gold_cost     AS upgrade_gold_cost,
-                upgrade_bld.construction_time_turns AS upgrade_turns
+                upgrade_bld.construction_time_turns AS upgrade_turns,
+                pd.name                   AS division_name
             FROM h3_map m
             LEFT JOIN terrain_types t ON m.terrain_type_id = t.terrain_type_id
             LEFT JOIN players p ON m.player_id = p.player_id
             LEFT JOIN settlements s ON m.h3_index = s.h3_index
             LEFT JOIN territory_details td ON m.h3_index = td.h3_index
+            LEFT JOIN political_divisions pd ON td.division_id = pd.id
             LEFT JOIN fief_buildings fb ON m.h3_index = fb.h3_index
             LEFT JOIN buildings bld ON fb.building_id = bld.id
             LEFT JOIN building_types bt ON bld.type_id = bt.building_type_id

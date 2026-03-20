@@ -50,9 +50,11 @@ export function generateCellPopupContent(cell, config) {
     popupContent += '<div class="capital-header">🏰 SEDE DEL REINO</div>';
   }
 
-  // TITLE - Settlement name or "Territorio Salvaje"
-  const title = cell.settlement_name || (cell.player_id ? `Territorio de ${cell.player_name}` : 'Territorio Salvaje');
-  const titleIcon = cell.is_capital ? '👑' : (cell.settlement_name ? '🏛️' : '🗺️');
+  // TITLE - Settlement name, division name, or fallback
+  const title = cell.settlement_name
+    || cell.division_name
+    || (cell.player_id ? 'Fundus sin Pagus' : 'Territorio Libre');
+  const titleIcon = cell.is_capital ? '👑' : (cell.settlement_name ? '🏛️' : (cell.division_name ? '🏰' : '🗺️'));
 
   popupContent += `<h3 class="popup-title">${titleIcon} ${title}</h3>`;
 

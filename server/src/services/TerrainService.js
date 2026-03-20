@@ -106,6 +106,7 @@ class TerrainService {
                 wood_output: cell.wood_output || 0,
                 player_id: cell.player_id,
                 player_name: cell.player_name,
+                division_name: cell.division_name || null,
                 building_type: cell.building_type,
                 is_capital,
                 fief_building: cell.fief_building_id ? {

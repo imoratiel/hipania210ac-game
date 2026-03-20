@@ -58,7 +58,7 @@ const POS = {
 const BUILDING_ICON_MAP = [
   [['granja', 'farm'],                                              '🌾'],
   [['cuartel', 'barrack', 'escuela', 'militar', 'military'],        '🏰'],
-  [['iglesia', 'church', 'catedral', 'templo', 'santuario'],        '⛪'],
+  [['iglesia', 'church', 'catedral', 'templo', 'santuario'],        '🏛️'],
   [['mercado', 'market', 'foro', 'lonja', 'factor', 'feria'],       '⚖️'],
   [['fortaleza', 'fortress', 'castillo'],                           '🏰'],
   [['astillero', 'shipyard'],                                       '⛵'],
