@@ -426,7 +426,7 @@ class CharacterModel {
      */
     async getAllAliveByPlayer(client, playerId) {
         const r = await (client || pool).query(
-            `SELECT id, name, age, health, is_main_character, is_heir, parent_character_id
+            `SELECT id, name, age, birth_month, health, is_main_character, is_heir, parent_character_id
              FROM characters
              WHERE player_id = $1 AND health > 0 AND is_captive = FALSE`,
             [playerId]

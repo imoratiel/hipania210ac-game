@@ -1100,7 +1100,7 @@ async function processGameTurn(pool, config) {
         const newDate = { day, month, year, era };
         const dayOfYear = newTurn % (days_per_year || 365);
 
-        Logger.engine(`[TURN ${newTurn}] Started processing - Date: ${newDate}`);
+        Logger.engine(`[TURN ${newTurn}] Started processing - Date: ${newDate.day}/${newDate.month}/${newDate.year} ${newDate.era}`);
 
         // Civil food consumption now runs monthly (see below, dayOfMonth === 1)
 
@@ -1217,8 +1217,10 @@ async function processGameTurn(pool, config) {
         await processMilitaryConsumption(client, newTurn, config);
 
         // Monthly production (day 1 of each month)
-        const gameDate = new Date(newDate);
-        const dayOfMonth = gameDate.getDate();
+        // newDate = { day, month, year, era } — usar .day directamente (new Date(objeto) produce Invalid Date)
+        const dayOfMonth = newDate.day;
+        const gameDate = new Date(0);
+        gameDate.setFullYear(newDate.year, newDate.month - 1, newDate.day);
 
         if (dayOfMonth === 1) {
             Logger.engine(`[TURN ${newTurn}] Monthly day (day 1 of month)`);
@@ -1250,10 +1252,8 @@ async function processGameTurn(pool, config) {
         // Building decay (day 5 of each game month)
         await processBuildingDecay(client, newTurn, gameDate);
 
-        // Character lifecycle: día 15 de cada mes, procesa los cumpleaños del mes
-        if (dayOfMonth === 15) {
-            await processCharacterLifecycle(client, newTurn, newDate.month);
-        }
+        // Character lifecycle: una vez por mes (idempotencia interna via game_config)
+        await processCharacterLifecycle(client, newTurn, newDate.month, newDate.year);
 
         await client.query('COMMIT');
 

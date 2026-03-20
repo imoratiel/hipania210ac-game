@@ -54,13 +54,33 @@ async function getCharacterLimit(client, playerId) {
 /**
  * Procesa los cumpleaños del mes actual: envejece a todos los personajes cuyo
  * birth_month coincide con el mes de juego actual.
- * Se llama el día 15 de cada mes desde turn_engine.
+ * Usa idempotencia en game_config para ejecutarse UNA VEZ por mes,
+ * independientemente del día en que se llame.
  *
  * @param {Object} client       - Cliente PostgreSQL dentro de transacción
  * @param {number} currentTurn  - Turno actual
  * @param {number} currentMonth - Mes de juego actual (1-12)
+ * @param {number} currentYear  - Año de juego actual
  */
-async function processCharacterLifecycle(client, currentTurn, currentMonth) {
+async function processCharacterLifecycle(client, currentTurn, currentMonth, currentYear) {
+    const idempotencyKey = `${currentYear}-${currentMonth}`;
+
+    // Verificar si ya se procesó este mes
+    const check = await client.query(`
+        SELECT value FROM game_config
+        WHERE "group" = 'system' AND key = 'last_lifecycle_month'
+    `);
+    if (check.rows[0]?.value === idempotencyKey) return;
+
+    // Marcar como procesado
+    await client.query(`
+        INSERT INTO game_config ("group", key, value)
+        VALUES ('system', 'last_lifecycle_month', $1)
+        ON CONFLICT ("group", key) DO UPDATE SET value = $1
+    `, [idempotencyKey]);
+
+    Logger.action(`[CharacterLifecycle] Procesando mes ${idempotencyKey}`);
+
     // Solo jugadores humanos no exiliados
     const playersResult = await client.query(`
         SELECT p.player_id, p.culture_id,
@@ -231,3 +251,4 @@ async function _tryBirth(client, player, characters, currentTurn) {
 }
 
 module.exports = { processCharacterLifecycle };
+
