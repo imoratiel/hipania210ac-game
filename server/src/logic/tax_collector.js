@@ -233,6 +233,23 @@ async function processRelationTributes(client, turn, gameDate, incomeByPlayer) {
                 details:         { rate: rel.effective_rate, income },
             });
 
+            // Notificaciones solo para tributo político (devotio/clientela/rehenes son pagos rutinarios)
+            if (rel.code === 'tributo') {
+                const gold = actualAmount.toLocaleString('es-ES');
+                await Promise.all([
+                    NotificationService.createSystemNotification(
+                        rel.to_player_id, 'Económico',
+                        `El clan ${rel.from_display_name} ha cumplido con su tributo mensual. ${gold} monedas de oro han sido ingresadas en vuestras arcas. Que sigan siendo obedientes.`,
+                        turn
+                    ),
+                    NotificationService.createSystemNotification(
+                        rel.from_player_id, 'Impuestos',
+                        `Este mes hemos entregado ${gold} monedas de oro al clan ${rel.to_display_name} en concepto de tributo. Que los dioses no olviden este sacrificio.`,
+                        turn
+                    ),
+                ]);
+            }
+
             Logger.engine(`[TURN ${turn}] Tribute: player ${rel.from_player_id} → ${rel.to_player_id}: ${actualAmount} gold (${rel.code})`);
         } catch (e) {
             Logger.error(e, { context: 'processRelationTributes', phase: 'percentage', relation_id: rel.relation_id });
@@ -259,12 +276,18 @@ async function processRelationTributes(client, turn, gameDate, incomeByPlayer) {
                     turn_number:     turn,
                     details:         { pay, gold_available: payerGold },
                 });
-                await NotificationService.createSystemNotification(
-                    rel.to_player_id,
-                    'Impago de Mercenarios',
-                    `⚠️ El contratante no ha podido pagar ${pay} de oro. El contrato de mercenariado ha sido disuelto.`,
-                    turn
-                );
+                await Promise.all([
+                    NotificationService.createSystemNotification(
+                        rel.to_player_id, 'General',
+                        `El clan ${rel.from_display_name} no ha podido abonar los ${pay.toLocaleString('es-ES')} de oro pactados. El contrato de mercenariado ha quedado disuelto por impago.`,
+                        turn
+                    ),
+                    NotificationService.createSystemNotification(
+                        rel.from_player_id, 'Económico',
+                        `No teníamos oro suficiente para pagar al clan ${rel.to_display_name}. El contrato de mercenariado ha sido disuelto por impago. Nuestra reputación ha sufrido.`,
+                        turn
+                    ),
+                ]);
                 Logger.engine(`[TURN ${turn}] Mercenario non-payment: relation ${rel.relation_id} dissolved`);
             } else {
                 await client.query(

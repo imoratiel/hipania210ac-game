@@ -117,9 +117,13 @@ class RelationModel {
                    rt.code,
                    pr.from_player_id,
                    pr.to_player_id,
+                   pf.display_name AS from_display_name,
+                   pt.display_name AS to_display_name,
                    COALESCE(pr.terms_rate, rt.tribute_rate) AS effective_rate
             FROM player_relations pr
             JOIN relation_types rt ON rt.id = pr.type_id
+            JOIN players pf ON pf.player_id = pr.from_player_id
+            JOIN players pt ON pt.player_id = pr.to_player_id
             WHERE pr.status = 'active'
               AND (COALESCE(pr.terms_rate, rt.tribute_rate) > 0)
         `);
@@ -132,9 +136,13 @@ class RelationModel {
     async getActiveMercenaryContracts(client) {
         const { rows } = await client.query(`
             SELECT pr.relation_id, pr.from_player_id, pr.to_player_id,
-                   pr.terms_fixed_pay
+                   pr.terms_fixed_pay,
+                   pf.display_name AS from_display_name,
+                   pt.display_name AS to_display_name
             FROM player_relations pr
             JOIN relation_types rt ON rt.id = pr.type_id
+            JOIN players pf ON pf.player_id = pr.from_player_id
+            JOIN players pt ON pt.player_id = pr.to_player_id
             WHERE pr.status = 'active'
               AND rt.code = 'mercenariado'
               AND pr.terms_fixed_pay > 0
