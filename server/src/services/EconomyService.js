@@ -74,12 +74,17 @@ class EconomyService {
             const params  = [];
 
             if (tax_rate !== undefined) {
-                const rate = Math.min(100, Math.max(0, parseFloat(tax_rate)));
+                const rate = Math.min(15, Math.max(1, parseFloat(tax_rate)));
                 if (isNaN(rate)) {
-                    return res.status(400).json({ success: false, message: 'tax_rate debe ser un número entre 0 y 100' });
+                    return res.status(400).json({ success: false, message: 'tax_rate debe ser un número entre 1 y 15' });
                 }
                 params.push(rate);
                 updates.push(`tax_percentage = $${params.length}`);
+                // Propagar a todos los pagus del jugador
+                await pool.query(
+                    `UPDATE political_divisions SET tax_rate = $1 WHERE player_id = $2`,
+                    [rate, player_id]
+                );
             }
 
             if (tithe_active !== undefined) {

@@ -34,37 +34,48 @@
             </template>
           </div>
 
+          <!-- Global Tax Rate -->
+          <div class="eco-card">
+            <h4 class="eco-card-title">📊 Impuesto Global</h4>
+            <p class="eco-hint">Se aplica a todos los pagus.</p>
+            <div class="eco-tax-row">
+              <input type="range" min="1" max="15" step="1"
+                v-model.number="localTaxRate" class="eco-tax-slider" />
+              <span class="eco-tax-value">{{ localTaxRate }}%</span>
+            </div>
+            <div class="eco-tax-marks">
+              <span>1%</span><span>5%</span><span>10%</span><span>15%</span>
+            </div>
+            <button class="eco-save-btn" style="margin-top:10px"
+              :disabled="savingTax || !isDirtyTax" @click="saveTax">
+              <span v-if="savingTax">⏳ Emitiendo...</span>
+              <span v-else-if="saveOkTax">✅ Edicto emitido</span>
+              <span v-else>📜 Edicto Fiscal</span>
+            </button>
+            <div v-if="saveErrTax" class="eco-save-error">❌ {{ saveErrTax }}</div>
+          </div>
+
           <!-- Tithe Settings -->
           <div class="eco-card">
             <h4 class="eco-card-title">⛪ {{ titheLabel }}</h4>
             <p class="eco-hint">
-              Cuando está activo, el <strong>10%</strong> de la comida
-              de cada centuria se transfiere a la capital cada mes.
+              El <strong>10%</strong> de la comida de cada centuria
+              se transfiere a la capital cada mes.
             </p>
             <label class="eco-toggle-row">
               <span class="eco-toggle-label">{{ localTitheActive ? `${titheLabel} activo` : `${titheLabel} inactivo` }}</span>
-              <div
-                class="eco-toggle"
-                :class="{ 'eco-toggle--on': localTitheActive }"
-                @click="!saving && (localTitheActive = !localTitheActive)"
-              >
+              <div class="eco-toggle" :class="{ 'eco-toggle--on': localTitheActive }"
+                @click="!savingTithe && (localTitheActive = !localTitheActive)">
                 <div class="eco-toggle-thumb"></div>
               </div>
             </label>
-          </div>
-
-          <!-- Save Button -->
-          <div class="eco-card eco-actions-card">
-            <button
-              class="eco-save-btn"
-              :disabled="saving || !isDirty"
-              @click="saveSettings"
-            >
-              <span v-if="saving">⏳ Emitiendo...</span>
-              <span v-else-if="saveOk">✅ Edicto emitido</span>
-              <span v-else>📜 Emitir Edicto</span>
+            <button class="eco-save-btn" style="margin-top:10px"
+              :disabled="savingTithe || !isDirtyTithe" @click="saveTithe">
+              <span v-if="savingTithe">⏳ Emitiendo...</span>
+              <span v-else-if="saveOkTithe">✅ Edicto emitido</span>
+              <span v-else>⛪ Edicto del Diezmo</span>
             </button>
-            <div v-if="saveError" class="eco-save-error">❌ {{ saveError }}</div>
+            <div v-if="saveErrTithe" class="eco-save-error">❌ {{ saveErrTithe }}</div>
           </div>
 
         </div>
@@ -174,10 +185,15 @@ const summary = ref({
 
 const serverTitheActive = ref(false);
 const localTitheActive  = ref(false);
+const serverTaxRate     = ref(10);
+const localTaxRate      = ref(10);
 
-const saving    = ref(false);
-const saveOk    = ref(false);
-const saveError = ref('');
+const savingTax   = ref(false);
+const saveOkTax   = ref(false);
+const saveErrTax  = ref('');
+const savingTithe = ref(false);
+const saveOkTithe = ref(false);
+const saveErrTithe = ref('');
 
 // ── Divisions (Pagus) state ────────────────────────────────
 const loadingDivisions = ref(true);
@@ -191,9 +207,8 @@ const divTaxSaving = reactive({});
 const divTaxMsg    = reactive({});
 
 // ── Computed ──────────────────────────────────────────────
-const isDirty = computed(() =>
-  localTitheActive.value !== serverTitheActive.value
-);
+const isDirtyTax   = computed(() => localTaxRate.value !== serverTaxRate.value);
+const isDirtyTithe = computed(() => localTitheActive.value !== serverTitheActive.value);
 // ── Helpers ───────────────────────────────────────────────
 const fmt = (n) => Number(n ?? 0).toLocaleString('es-ES');
 
@@ -208,6 +223,8 @@ async function fetchSummary() {
       playerGold.value        = data.player_gold ?? 0;
       serverTitheActive.value = data.settings.tithe_active;
       localTitheActive.value  = data.settings.tithe_active;
+      serverTaxRate.value     = data.settings.tax_rate ?? 10;
+      localTaxRate.value      = data.settings.tax_rate ?? 10;
     } else {
       summaryError.value = data.message || 'Error al cargar datos';
     }
@@ -251,32 +268,55 @@ async function saveDivisionTax(div) {
   }
 }
 
-async function saveSettings() {
-  if (!isDirty.value || saving.value) return;
-  saving.value    = true;
-  saveOk.value    = false;
-  saveError.value = '';
+async function saveTax() {
+  if (!isDirtyTax.value || savingTax.value) return;
+  savingTax.value  = true;
+  saveOkTax.value  = false;
+  saveErrTax.value = '';
   try {
-    const payload = {};
-    if (localTitheActive.value !== serverTitheActive.value)
-      payload.tithe_active = localTitheActive.value;
-
-    const data = await updateEconomySettings(payload);
+    const data = await updateEconomySettings({ tax_rate: localTaxRate.value });
     if (data.success) {
-      serverTitheActive.value = localTitheActive.value;
-      saveOk.value = true;
-      setTimeout(() => { saveOk.value = false; }, 2500);
+      serverTaxRate.value = localTaxRate.value;
+      // Sincronizar sliders de cada pagus en la UI
+      divisions.value.forEach(div => {
+        div.tax_rate = localTaxRate.value;
+        divTaxRates[div.id] = localTaxRate.value;
+      });
+      saveOkTax.value = true;
+      setTimeout(() => { saveOkTax.value = false; }, 2500);
     } else {
-      saveError.value = data.message || 'Error al guardar';
+      saveErrTax.value = data.message || 'Error al guardar';
     }
   } catch (err) {
-    saveError.value = err?.response?.data?.message || 'Error de conexión';
+    saveErrTax.value = err?.response?.data?.message || 'Error de conexión';
   } finally {
-    saving.value = false;
+    savingTax.value = false;
   }
 }
 
-watch(localTitheActive, () => { saveOk.value = false; });
+async function saveTithe() {
+  if (!isDirtyTithe.value || savingTithe.value) return;
+  savingTithe.value  = true;
+  saveOkTithe.value  = false;
+  saveErrTithe.value = '';
+  try {
+    const data = await updateEconomySettings({ tithe_active: localTitheActive.value });
+    if (data.success) {
+      serverTitheActive.value = localTitheActive.value;
+      saveOkTithe.value = true;
+      setTimeout(() => { saveOkTithe.value = false; }, 2500);
+    } else {
+      saveErrTithe.value = data.message || 'Error al guardar';
+    }
+  } catch (err) {
+    saveErrTithe.value = err?.response?.data?.message || 'Error de conexión';
+  } finally {
+    savingTithe.value = false;
+  }
+}
+
+watch(localTitheActive, () => { saveOkTithe.value = false; });
+watch(localTaxRate,     () => { saveOkTax.value   = false; });
 
 onMounted(() => {
   fetchSummary();
@@ -883,5 +923,31 @@ onMounted(() => {
   font-style: italic;
   font-family: sans-serif;
   margin-top: 40px;
+}
+
+.eco-tax-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.eco-tax-slider {
+  flex: 1;
+  accent-color: #c5a059;
+  cursor: pointer;
+}
+.eco-tax-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #c5a059;
+  min-width: 38px;
+  text-align: right;
+}
+.eco-tax-marks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: rgba(197,160,89,0.5);
+  margin-top: 2px;
 }
 </style>
