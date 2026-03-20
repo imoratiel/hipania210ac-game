@@ -257,13 +257,18 @@ class CharacterService {
         try {
             await client.query('BEGIN');
 
-            // Contar personajes vivos
-            const aliveCount = await CharacterModel.countAlive(client, playerId);
-            if (aliveCount >= 3) {
+            // Contar adultos vivos (age >= 16)
+            const { rows: adultRows } = await client.query(
+                `SELECT COUNT(*)::int AS cnt FROM characters
+                 WHERE player_id = $1 AND health > 0 AND is_captive = FALSE AND age >= 16`,
+                [playerId]
+            );
+            const adultCount = adultRows[0]?.cnt ?? 0;
+            if (adultCount >= 3) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({
                     success: false,
-                    message: 'La adopción solo está disponible cuando tienes menos de 3 personajes.'
+                    message: 'Solo puedes adoptar si tienes menos de 3 personajes adultos.'
                 });
             }
 
@@ -279,32 +284,41 @@ class CharacterService {
             const cultureId = playerRow?.culture_id ?? null;
             const linaje    = playerRow?.display_name ?? playerRow?.username ?? '';
 
-            const childGender = Math.random() < 0.5 ? 'M' : 'F';
-            const childAge    = Math.floor(Math.random() * 9); // 0-8 años
-            let   childName   = (req.body?.name ?? '').trim();
-            if (!childName) {
+            const gender    = Math.random() < 0.5 ? 'M' : 'F';
+            const age       = 16 + Math.floor(Math.random() * 20); // 16-35 años
+            let   adoptName = (req.body?.name ?? '').trim();
+            if (!adoptName) {
                 const CharacterNameGenerator = require('../logic/CharacterNameGenerator');
-                childName = CharacterNameGenerator.generate(cultureId, childGender, linaje);
+                adoptName = CharacterNameGenerator.generate(cultureId, gender, linaje);
+            } else if (!adoptName.includes(' ')) {
+                // Si solo dan el nombre de pila, añadir el linaje
+                adoptName = `${adoptName} ${linaje}`;
             }
 
-            const child = await CharacterModel.create(client, {
+            // Obtener capital del jugador para posicionar al adoptado
+            const { rows: capRows } = await client.query(
+                'SELECT capital_h3 FROM players WHERE player_id = $1', [playerId]
+            );
+            const capital_h3 = capRows[0]?.capital_h3 ?? null;
+
+            const adopted = await CharacterModel.create(client, {
                 player_id:           playerId,
-                name:                childName,
-                age:                 childAge,
+                name:                adoptName,
+                age,
                 health:              100,
                 level:               10,
                 personal_guard:      0,
                 is_heir:             false,
                 is_main_character:   false,
                 parent_character_id: null,
-                h3_index:            null,
-                birth_turn:          currentTurn - childAge * 365,
+                h3_index:            capital_h3,
+                birth_turn:          currentTurn - age * 365,
                 xp:                  0,
             });
 
             await client.query('COMMIT');
-            Logger.action(`Jugador ${playerId} adoptó a "${child.name}" (id=${child.id}).`, playerId);
-            res.json({ success: true, character: child });
+            Logger.action(`Jugador ${playerId} adoptó a "${adopted.name}" (id=${adopted.id}, edad=${age}).`, playerId);
+            res.json({ success: true, character: adopted });
         } catch (err) {
             await client.query('ROLLBACK');
             Logger.error(err, { endpoint: 'POST /characters/adopt', userId: playerId });

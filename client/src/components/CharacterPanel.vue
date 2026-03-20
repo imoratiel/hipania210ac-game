@@ -16,7 +16,7 @@
     <!-- Empty -->
     <div v-else-if="!characters.length" class="char-empty">
       <p>No tienes personajes activos.</p>
-      <button class="char-btn char-btn-primary" @click="openAdopt">👶 Adoptar un niño</button>
+      <button class="char-btn char-btn-primary" @click="openAdopt">⭐ Adoptar</button>
     </div>
 
     <!-- ── ÁRBOL GENEALÓGICO ─────────────────────────── -->
@@ -120,9 +120,9 @@
       <!-- ── ADOPCIÓN ────────────────────────────────── -->
       <div v-if="canAdopt" class="adopt-row">
         <button class="char-btn char-btn-primary char-btn-xs" @click="openAdopt">
-          👶 Adoptar
+          ⭐ Adoptar
         </button>
-        <span class="adopt-hint">Linaje con {{ aliveCount }} personaje{{ aliveCount !== 1 ? 's' : '' }}</span>
+        <span class="adopt-hint">{{ adultCount }}/3 adultos en el linaje</span>
       </div>
 
     </div>
@@ -159,16 +159,8 @@
     <!-- ── ADOPT MODAL ─────────────────────────────────── -->
     <div v-if="showAdoptModal" class="char-modal-overlay" @click.self="showAdoptModal = false">
       <div class="char-modal">
-        <h3 class="char-modal-title">👶 Adoptar un Niño</h3>
-        <p class="char-modal-sub">Se incorporará a tu linaje como un niño de entre 0 y 8 años.</p>
-        <input
-          v-model="adoptNameInput"
-          class="char-modal-input"
-          type="text"
-          placeholder="Nombre (opcional, se genera automáticamente)"
-          maxlength="100"
-          @keyup.enter="confirmAdopt"
-        />
+        <h3 class="char-modal-title">⭐ Adoptar un Adulto</h3>
+        <p class="char-modal-sub">Se incorporará a tu linaje como un adulto de entre 16 y 35 años. El nombre se genera automáticamente.</p>
         <div v-if="adoptMsg" class="char-modal-msg" :class="adoptMsg.type">{{ adoptMsg.text }}</div>
         <div class="char-modal-actions">
           <button class="char-btn char-btn-secondary" @click="showAdoptModal = false">Cancelar</button>
@@ -214,7 +206,6 @@ const assigningArmy   = ref(false);
 const assignMsg       = ref(null);
 
 const showAdoptModal = ref(false);
-const adoptNameInput = ref('');
 const adopting       = ref(false);
 const adoptMsg       = ref(null);
 
@@ -238,8 +229,8 @@ const gen1 = computed(() => {
 });
 
 const selected    = computed(() => characters.value.find(c => c.id === selectedId.value) ?? null);
-const aliveCount  = computed(() => characters.value.length);
-const canAdopt    = computed(() => aliveCount.value > 0 && aliveCount.value < 3);
+const adultCount  = computed(() => characters.value.filter(c => c.age >= 16).length);
+const canAdopt    = computed(() => adultCount.value < 3);
 
 
 /** Nivel mostrado: floor(level / 10), rango 0–10 */
@@ -328,7 +319,6 @@ const removeCommander = async (char) => {
 
 // ── Adopt ─────────────────────────────────────────────────
 const openAdopt = () => {
-  adoptNameInput.value = '';
   adoptMsg.value       = null;
   showAdoptModal.value = true;
 };
@@ -337,7 +327,7 @@ const confirmAdopt = async () => {
   adopting.value = true;
   adoptMsg.value = null;
   try {
-    await adoptCharacter(adoptNameInput.value.trim());
+    await adoptCharacter('');
     adoptMsg.value = { type: 'success', text: 'Adopción completada.' };
     await load();
     setTimeout(() => { showAdoptModal.value = false; }, 1200);
