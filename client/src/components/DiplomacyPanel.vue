@@ -35,7 +35,15 @@
             </span>
             <span v-if="rel.effective_rate" class="rel-rate">{{ (rel.effective_rate * 100).toFixed(0) }}% ingresos</span>
             <span v-if="rel.terms_fixed_pay" class="rel-rate">{{ rel.terms_fixed_pay.toLocaleString() }} 💰/mes</span>
-            <span v-if="rel.expires_at_turn" class="rel-expiry">Expira turno {{ rel.expires_at_turn }}</span>
+            <span v-if="rel.expires_at_turn" class="rel-expiry">⏳ Expira turno {{ rel.expires_at_turn }}</span>
+          </div>
+          <div v-if="treatyInfo(rel.type_code)" class="rel-info">
+            <p class="rel-info-desc">{{ treatyInfo(rel.type_code).desc }}</p>
+            <div class="rel-info-rows">
+              <span class="rel-info-item"><span class="rel-info-label">⏱ Duración:</span> {{ treatyInfo(rel.type_code).duration }}</span>
+              <span class="rel-info-item"><span class="rel-info-label">✂️ Ruptura:</span> {{ treatyInfo(rel.type_code).breaking }}</span>
+              <span class="rel-info-item"><span class="rel-info-label">📋 Implica:</span> {{ treatyInfo(rel.type_code).implies }}</span>
+            </div>
           </div>
           <div class="rel-actions">
             <button
@@ -70,7 +78,15 @@
             <span class="rel-partner">De: <strong>{{ rel.from_name }}</strong></span>
             <span v-if="rel.effective_rate" class="rel-rate">{{ (rel.effective_rate * 100).toFixed(0) }}% de tus ingresos</span>
             <span v-if="rel.terms_fixed_pay" class="rel-rate">Pago mensual: {{ rel.terms_fixed_pay.toLocaleString() }} 💰</span>
-            <span v-if="rel.terms_duration_months" class="rel-rate">Duración: {{ rel.terms_duration_months }} meses</span>
+            <span v-if="rel.terms_duration_months" class="rel-rate">⏳ Duración: {{ rel.terms_duration_months }} meses</span>
+          </div>
+          <div v-if="treatyInfo(rel.type_code)" class="rel-info">
+            <p class="rel-info-desc">{{ treatyInfo(rel.type_code).desc }}</p>
+            <div class="rel-info-rows">
+              <span class="rel-info-item"><span class="rel-info-label">⏱ Duración:</span> {{ treatyInfo(rel.type_code).duration }}</span>
+              <span class="rel-info-item"><span class="rel-info-label">✂️ Ruptura:</span> {{ treatyInfo(rel.type_code).breaking }}</span>
+              <span class="rel-info-item"><span class="rel-info-label">📋 Implica:</span> {{ treatyInfo(rel.type_code).implies }}</span>
+            </div>
           </div>
           <div class="rel-actions">
             <button class="btn-accept" :disabled="accepting === rel.relation_id" @click="doAccept(rel)">
@@ -432,18 +448,64 @@ function typeIcon(code) {
   return icons[code] ?? '📜';
 }
 
+const TREATY_INFO = {
+  devotio: {
+    desc:     'Juramento sagrado de fidelidad personal al servicio de un caudillo. El devoto combate bajo su mando y obtiene +5% de ataque y defensa en batalla.',
+    duration: 'Indefinida — hasta la muerte del devoto o del caudillo.',
+    breaking: 'Irrevocable. Ninguna de las partes puede romperlo unilateralmente.',
+    implies:  'El devoto pierde autonomía militar y queda vinculado al caudillo. El caudillo debe honrar y proteger al devoto.',
+  },
+  clientela: {
+    desc:     'El cliente se pone bajo la protección de un patrón poderoso. A cambio, cede el 10% de sus ingresos mensuales como señal de dependencia.',
+    duration: 'Indefinida mientras ambas partes cumplan.',
+    breaking: 'Solo el cliente puede romperlo unilateralmente. El patrón no puede expulsarlo.',
+    implies:  'El patrón se compromete a defender al cliente militarmente. El cliente no puede atacar al patrón.',
+  },
+  hospitium: {
+    desc:     'Hospitalidad y amistad mutua entre dos casas. No implica tributo ni obediencia militar, solo respeto y cooperación informal.',
+    duration: 'Indefinida. Sin fecha de caducidad.',
+    breaking: 'Cualquiera de las partes puede romperlo libremente.',
+    implies:  'Libre paso de mensajeros y comerciantes. Acuerdo informal de no agresión. Puede firmarse con múltiples jugadores.',
+  },
+  rehenes: {
+    desc:     'Una parte entrega rehenes en garantía de su lealtad. El custodio percibe el 2% de los ingresos mensuales del retenido como compensación.',
+    duration: 'Definida por las partes al firmar.',
+    breaking: 'Solo el custodio puede liberarlos. El retenido no puede romper el acuerdo.',
+    implies:  'El retenido no puede declarar guerra al custodio mientras dure el acuerdo. El impago de la garantía constituye traición.',
+  },
+  mercenariado: {
+    desc:     'Contrato militar por el que una facción provee tropas a otra a cambio de un pago mensual fijo acordado de antemano.',
+    duration: 'Definida (6–24 meses según contrato).',
+    breaking: 'Ambas partes pueden romperlo. Se rescinde automáticamente por impago.',
+    implies:  'El mercenario provee tropas bajo el mando del contratante. El impago genera penalizaciones diplomáticas.',
+  },
+  alianza: {
+    desc:     'Pacto militar entre iguales. Las tropas de ambos jugadores se combinan en combate y comparten victorias y territorio.',
+    duration: 'Indefinida mientras ninguna parte la rompa.',
+    breaking: 'Cualquiera de las partes puede romperla en cualquier momento.',
+    implies:  'Obligación mutua de defensa. Sin tributo entre aliados. Ninguno puede atacar al otro mientras dure.',
+  },
+  tributo: {
+    desc:     'El tributario paga un porcentaje de sus ingresos (5–10%) al exactor durante el periodo pactado. Señal de sometimiento político.',
+    duration: 'Definida (12–120 meses). Expira automáticamente.',
+    breaking: 'Ninguna parte puede romperlo antes del plazo. El impago se considera traición y justifica represalias.',
+    implies:  'El exactor puede declarar guerra si hay impago. El tributario queda políticamente subordinado durante la vigencia.',
+  },
+  guerra: {
+    desc:     'Estado de guerra abierta declarada formalmente. Habilita el combate sin restricciones, el saqueo y la conquista de territorios.',
+    duration: 'Indefinida hasta que se firme la paz o uno de los bandos sea derrotado.',
+    breaking: 'Termina por acuerdo mutuo de paz o por victoria militar.',
+    implies:  'Bloquea la firma de nuevos tratados con el bloque enemigo. Libre combate y saqueo. No hay paso seguro.',
+  },
+};
+
+function treatyInfo(code) {
+  return TREATY_INFO[code] ?? null;
+}
+
 function typeTooltip(t) {
-  const desc = {
-    devotio:      'Juramento de fidelidad personal. Solo íberos y celtas. No puede romperse. El seguidor gana +5% ataque y defensa.',
-    clientela:    'Protección a cambio del 10% de los ingresos. Solo el cliente puede romperlo.',
-    hospitium:    'Amistad mutua sin tributo. Múltiple y rompible.',
-    rehenes:      'Garantía personal: 2% de ingresos al custodio.',
-    mercenariado: 'Contrato de servicio con pago fijo mensual. Se rompe por impago.',
-    alianza:      'Alianza militar sin tributo. Las tropas se combinan en combate.',
-    tributo:      'El tributario paga entre 5-10% de sus ingresos durante un tiempo definido.',
-    guerra:       'Declaración de guerra. Bloquea nuevos tratados con el bloque enemigo.',
-  };
-  return desc[t.code] ?? '';
+  const info = treatyInfo(t.code);
+  return info ? info.desc : '';
 }
 </script>
 
@@ -555,6 +617,36 @@ function typeTooltip(t) {
 .rel-partner { color: #c8b080; }
 .rel-rate    { color: #e8c060; }
 .rel-expiry  { color: #a08060; font-style: italic; }
+
+.rel-info {
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  background: rgba(0,0,0,0.25);
+  border-left: 2px solid rgba(197,160,89,0.3);
+  border-radius: 0 4px 4px 0;
+}
+.rel-info-desc {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  color: #c8b88a;
+  line-height: 1.45;
+  font-style: italic;
+}
+.rel-info-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.rel-info-item {
+  font-size: 0.76rem;
+  color: #8a7a60;
+  line-height: 1.4;
+}
+.rel-info-label {
+  color: #a89060;
+  font-weight: 600;
+  margin-right: 3px;
+}
 
 .rel-actions {
   display: flex;
