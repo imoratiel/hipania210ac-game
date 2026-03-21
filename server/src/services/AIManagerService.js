@@ -97,15 +97,21 @@ class AIManagerService {
     // ─────────────────────────────────────────────────────────────────────────
 
     async spawnDummyAgent(callerPlayerId) {
-        const playerRes = await pool.query(
-            'SELECT capital_h3 FROM players WHERE player_id = $1',
-            [callerPlayerId]
+        // Buscar un hex libre a <= 10 celdas de cualquier capital de pagus (political_divisions)
+        const { rows: capitals } = await pool.query(
+            `SELECT capital_h3 FROM political_divisions WHERE capital_h3 IS NOT NULL`
         );
-        const callerCapital = playerRes.rows[0]?.capital_h3;
-        if (!callerCapital) return { success: false, message: 'El jugador invocador no tiene capital definida' };
+        if (capitals.length === 0) return { success: false, message: 'No hay capitales de pagus definidas en el mapa' };
 
-        const spawnHex = await getNearbySpawnHex(callerCapital, 9);
-        if (!spawnHex) return { success: false, message: 'No hay hexágonos libres a menos de 10 casillas' };
+        // Barajar para no sesgar siempre hacia el mismo pagus
+        const shuffled = capitals.sort(() => Math.random() - 0.5);
+        let spawnHex = null;
+        for (const { capital_h3 } of shuffled) {
+            spawnHex = await getNearbySpawnHex(capital_h3, 10);
+            if (spawnHex) break;
+        }
+
+        if (!spawnHex) return { success: false, message: 'No hay hexágonos libres a menos de 10 casillas de ninguna capital de pagus' };
 
         return this._spawnAgent('dummy', DUMMY, spawnHex);
     }

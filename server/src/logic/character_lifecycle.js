@@ -221,8 +221,30 @@ async function _tryBirth(client, player, characters, currentTurn, forced = false
     const adults = characters.filter(c => c.age >= 18);
     if (adults.length === 0) return;
 
-    // El padre es el líder o el primer adulto
-    const father = adults.find(c => c.is_main_character) ?? adults[0];
+    // El líder del linaje
+    const leader = adults.find(c => c.is_main_character) ?? adults[0];
+
+    // Contar hijos directos del líder
+    const leaderDirectChildren = characters.filter(c => c.parent_character_id === leader.id);
+
+    // A partir del 4º hijo el nacimiento se asigna a un hijo adulto (nieto del líder)
+    let father = leader;
+    if (leaderDirectChildren.length >= 3) {
+        const adultChildren = leaderDirectChildren.filter(c => c.age >= 18);
+        if (adultChildren.length > 0) {
+            // Elegir hijo adulto al azar que no tenga ya 2 menores
+            const eligible = adultChildren.filter(c => {
+                const minors = characters.filter(g => g.age < 16 && g.parent_character_id === c.id);
+                return minors.length < 2;
+            });
+            if (eligible.length > 0) {
+                father = eligible[Math.floor(Math.random() * eligible.length)];
+            } else {
+                return; // Todos los hijos adultos tienen ya 2 menores
+            }
+        }
+        // Si no hay hijos adultos aún, el líder sigue siendo el padre (seguirá teniendo hijos hasta que los haya)
+    }
 
     // Personajes entre 25-40 pueden tener un hijo aunque se haya alcanzado el límite global
     const fatherInFertileAge = father.age >= 25 && father.age <= 40;
@@ -235,12 +257,14 @@ async function _tryBirth(client, player, characters, currentTurn, forced = false
     const minorChildren = characters.filter(c => c.age < 16 && c.parent_character_id === father.id);
     if (minorChildren.length >= 2) return;
 
-    // Regla del abuelo: si el padre tiene nietos vivos (a través de hijos vivos) → no más hijos
-    const fatherAliveChildren = characters.filter(c => c.parent_character_id === father.id);
-    const isGrandfather = fatherAliveChildren.some(child =>
-        characters.some(c => c.parent_character_id === child.id)
-    );
-    if (isGrandfather) return;
+    // Regla del abuelo: solo aplica al líder (los hijos adultos pueden tener hijos aunque el líder sea abuelo)
+    if (father.id === leader.id) {
+        const leaderAliveChildren = characters.filter(c => c.parent_character_id === leader.id);
+        const isGrandfather = leaderAliveChildren.some(child =>
+            characters.some(c => c.parent_character_id === child.id)
+        );
+        if (isGrandfather) return;
+    }
 
     // Probabilidad de nacimiento (el forzado la omite)
     if (!forced && Math.random() >= 0.40) return;
