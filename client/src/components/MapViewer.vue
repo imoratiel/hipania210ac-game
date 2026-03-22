@@ -2765,6 +2765,9 @@ const syncWithServer = async () => {
         // Refresh character markers (positions updated by turn engine)
         fetchAndRenderCharacters();
 
+        // Refresh worker routes (workers advance each turn)
+        fetchMyWorkers();
+
         lastSyncTime = Date.now();
       } else {
         console.log(`[Sync] ✓ No changes (Turn ${currentTurn.value})`);
@@ -5386,7 +5389,17 @@ const fetchMyWorkers = async () => {
   loadingWorkers.value = true;
   try {
     const data = await mapApi.getMyWorkers();
-    if (data.success) myWorkers.value = data.workers;
+    if (data.success) {
+      myWorkers.value = data.workers;
+      // Redibujar rutas de constructores en azul
+      data.workers.forEach(w => {
+        if (w.destination_h3) {
+          RouteVisualizer.drawWorkerPath(w.id, w.h3_index, w.destination_h3);
+        } else {
+          RouteVisualizer.clearWorker(w.id);
+        }
+      });
+    }
   } catch {
     // Non-critical
   } finally {
@@ -5954,6 +5967,7 @@ onMounted(() => {
   startSync(); // Start server synchronization (polls every 30 seconds)
   startNotifPolling(); // Start background notification polling (every 45 seconds)
   fetchDivisionBoundaries(); // Load political division borders
+  fetchMyWorkers();          // Draw worker movement routes on startup
   // Pre-fetch capital so the "Fundar Capital" button condition is reliable from the first click
   mapApi.getCapital().then(r => {
     if (r?.success) { capitalH3Index.value = r.h3_index; isExiled.value = r.is_exiled ?? false; }

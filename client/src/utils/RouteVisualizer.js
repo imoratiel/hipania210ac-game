@@ -18,7 +18,7 @@
 
 import L from 'leaflet';
 import 'leaflet-polylinedecorator';
-import { cellToLatLng } from 'h3-js';
+import { cellToLatLng, gridPathCells } from 'h3-js';
 
 // Máximo de casillas que recorre un ejército por turno (debe coincidir con backend)
 const MAX_CELLS_PER_TURN = 4;
@@ -38,6 +38,15 @@ const ROUTE_STYLE_FUTURE = {
   weight: 2,
   opacity: 0.9,
   dashArray: '5, 8',
+  pane: 'routePane'
+};
+
+// Ruta de constructores: azul discontinuo
+const ROUTE_STYLE_WORKER = {
+  color: '#3b82f6',
+  weight: 2,
+  opacity: 0.85,
+  dashArray: '6, 7',
   pane: 'routePane'
 };
 
@@ -183,6 +192,57 @@ class RouteVisualizer {
    */
   clearArmy(armyId) {
     this._clearArmy(armyId);
+  }
+
+  /**
+   * Dibuja la ruta recta de un constructor desde su posición actual hasta su destino.
+   * Usa gridPathCells para calcular el camino H3 más corto y lo pinta en azul.
+   *
+   * @param {number|string} workerId   - ID del worker (key único)
+   * @param {string}        fromH3     - Índice H3 actual del worker
+   * @param {string}        toH3       - Índice H3 destino
+   */
+  drawWorkerPath(workerId, fromH3, toH3) {
+    if (!this._routeLayer) return;
+
+    const key = `worker_${workerId}`;
+    this._clearArmy(key);
+
+    if (!fromH3 || !toH3 || fromH3 === toH3) return;
+
+    let path;
+    try {
+      path = gridPathCells(fromH3, toH3);
+    } catch {
+      return;
+    }
+    if (!path || path.length < 2) return;
+
+    const coords = path.map(hex => cellToLatLng(hex));
+    const polyline = L.polyline(coords, ROUTE_STYLE_WORKER);
+    this._routeLayer.addLayer(polyline);
+    this._armyPolylines.set(key, { current: polyline, future: null });
+
+    const arrowDecorator = L.polylineDecorator(polyline, {
+      patterns: [{
+        offset: '100%',
+        repeat: 0,
+        symbol: L.Symbol.arrowHead({
+          pixelSize: 10,
+          polygon: false,
+          pathOptions: { color: '#3b82f6', opacity: 0.85, weight: 2, pane: 'routePane' }
+        })
+      }]
+    }).addTo(this._map);
+    this._armyArrows.set(key, arrowDecorator);
+  }
+
+  /**
+   * Elimina la ruta de un constructor específico.
+   * @param {number|string} workerId
+   */
+  clearWorker(workerId) {
+    this._clearArmy(`worker_${workerId}`);
   }
 
   /**
