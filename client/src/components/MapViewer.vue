@@ -5616,9 +5616,10 @@ const onInitDone = ({ capital_h3 } = {}) => {
       if (map) map.setView([lat, lng], 13);
     }).catch(() => {});
   }
-  // Refresh fiefs and army capacity
+  // Refresh fiefs, army capacity and division borders
   updateFiefsUI();
   fetchArmyCapacity();
+  fetchDivisionBoundaries();
   mapApi.getCapital().then(r => {
     if (r?.success) { capitalH3Index.value = r.h3_index; isExiled.value = r.is_exiled ?? false; }
   }).catch(() => {});
