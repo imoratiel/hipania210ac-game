@@ -347,12 +347,17 @@
               </div>
               <div class="worker-card-actions">
                 <button
-                  class="worker-btn"
-                  :class="['Río','Agua'].includes(worker.terrain_type) ? 'worker-btn-build-active' : 'worker-btn-build'"
-                  :disabled="!['Río','Agua'].includes(worker.terrain_type)"
-                  :title="['Río','Agua'].includes(worker.terrain_type) ? 'Construir puente (consume trabajadores)' : 'Solo disponible en Río o Agua'"
-                  @click="['Río','Agua'].includes(worker.terrain_type) && buildBridgeFromPanel(worker.h3_index)"
-                >🏗️ Construir</button>
+                  v-if="['Río','Agua'].includes(worker.terrain_type)"
+                  class="worker-btn worker-btn-build-active"
+                  :title="'Construir puente (consume trabajadores)'"
+                  @click="buildBridgeFromPanel(worker.h3_index)"
+                >🌉 Puente</button>
+                <button
+                  v-else
+                  class="worker-btn worker-btn-build-active"
+                  title="Construir edificio en este feudo"
+                  @click="buildModalOpenedFromWorker = true; activePanel = null; openBuildModal(worker.h3_index)"
+                >🏛️ Edificio</button>
                 <button
                   class="worker-btn worker-btn-move"
                   @click="startWorkerMoveFromPanel(worker.id, worker.h3_index)"
@@ -882,6 +887,10 @@
         </div>
         <p class="build-modal-subtitle">Feudo: <span class="build-modal-h3">{{ buildModalH3 }}</span></p>
 
+        <div v-if="!buildModalHasWorker" class="build-worker-warning">
+          ⛏️ Necesitas un constructor en este feudo para iniciar la obra
+        </div>
+
         <div class="build-cards-grid">
           <div
             v-for="building in buildModalBuildings"
@@ -904,8 +913,8 @@
             </div>
             <button
               class="build-card-btn"
-              :disabled="playerGold < building.gold_cost || isConstructing"
-              :title="playerGold < building.gold_cost ? `Oro insuficiente (necesitas ${building.gold_cost} 💰)` : `Construir ${building.name}`"
+              :disabled="playerGold < building.gold_cost || isConstructing || !buildModalHasWorker"
+              :title="playerGold < building.gold_cost ? `Oro insuficiente (necesitas ${building.gold_cost} 💰)` : !buildModalHasWorker ? 'Necesitas un constructor en este feudo' : `Construir ${building.name}`"
               @click="doConstruct(buildModalH3, building.id)"
             >
               {{ isConstructing ? '...' : 'Construir' }}
@@ -928,6 +937,10 @@
         </div>
         <p class="build-modal-subtitle">Feudo: <span class="build-modal-h3">{{ upgradeModalH3 }}</span></p>
 
+        <div v-if="!upgradeModalHasWorker" class="build-worker-warning">
+          ⛏️ Necesitas un constructor en este feudo para ampliar el edificio
+        </div>
+
         <div v-if="upgradeModalBuilding" class="upgrade-preview">
           <div class="build-card upgrade-card">
             <div class="build-card-icon">{{ getBuildingIcon(upgradeModalBuilding.name) }}</div>
@@ -941,8 +954,8 @@
             </div>
             <button
               class="build-card-btn"
-              :disabled="playerGold < upgradeModalBuilding.gold_cost || isUpgrading"
-              :title="playerGold < upgradeModalBuilding.gold_cost ? `Oro insuficiente (necesitas ${upgradeModalBuilding.gold_cost} 💰)` : `Ampliar a ${upgradeModalBuilding.name}`"
+              :disabled="playerGold < upgradeModalBuilding.gold_cost || isUpgrading || !upgradeModalHasWorker"
+              :title="playerGold < upgradeModalBuilding.gold_cost ? `Oro insuficiente (necesitas ${upgradeModalBuilding.gold_cost} 💰)` : !upgradeModalHasWorker ? 'Necesitas un constructor en este feudo' : `Ampliar a ${upgradeModalBuilding.name}`"
               @click="doUpgrade"
             >
               {{ isUpgrading ? '...' : 'Ampliar' }}
@@ -1207,12 +1220,15 @@ const showBuildModal = ref(false);
 const buildModalH3 = ref(null);
 const buildModalBuildings = ref([]);
 const isConstructing = ref(false);
+const buildModalOpenedFromWorker = ref(false); // true when modal opened directly from worker card
+const buildModalHasWorker = computed(() => buildModalOpenedFromWorker.value || myWorkers.value.some(w => w.h3_index === buildModalH3.value));
 
 // Building upgrade modal state
 const showUpgradeModal = ref(false);
 const upgradeModalH3 = ref(null);
 const upgradeModalBuilding = ref(null);
 const isUpgrading = ref(false);
+const upgradeModalHasWorker = computed(() => myWorkers.value.some(w => w.h3_index === upgradeModalH3.value));
 
 // Troops panel state
 const armies = ref([]);
@@ -4778,6 +4794,7 @@ const closeBuildModal = () => {
   showBuildModal.value = false;
   buildModalH3.value = null;
   buildModalBuildings.value = [];
+  buildModalOpenedFromWorker.value = false;
 };
 
 /**

@@ -80,7 +80,8 @@
       "mcp__plugin_playwright_playwright__browser_navigate",
       "Bash(find d:/claude/mediev-h3-game/server/src -name routes* -o -name router*)",
       "Bash(find d:/claude/mediev-h3-game/server/routes -name *.js)",
-      "WebSearch"
+      "WebSearch",
+      "mcp__plugin_playwright_playwright__browser_snapshot"
     ]
   }
 }

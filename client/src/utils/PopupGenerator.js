@@ -137,10 +137,7 @@ export function generateCellPopupContent(cell, config) {
   // ACTIONS
   popupContent += '<div class="popup-actions">';
 
-  // Build button - for own fief with no building
-  if (cell.player_id === playerId && !cell.fief_building) {
-    popupContent += `<button id="build-btn-${h3_index}" class="btn-popup btn-build" title="Construir un edificio en este feudo">🏗️ Construir</button>`;
-  }
+  // Build button removed from fief popup — accessible only from the worker panel
 
   // Repair button - for own fief with a completed building not at 100% conservation
   if (cell.player_id === playerId && cell.fief_building && !cell.fief_building.is_under_construction &&

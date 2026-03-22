@@ -236,7 +236,21 @@ class KingdomService {
                 return res.status(400).json({ success: false, message: `Oro insuficiente. Necesitas ${next.gold_cost} 💰` });
             }
 
+            // Verify worker present at fief
+            const workerCheck = await pool.query(
+                'SELECT id FROM workers WHERE player_id = $1 AND h3_index = $2 LIMIT 1',
+                [player_id, h3_index]
+            );
+            if (workerCheck.rows.length === 0) {
+                return res.status(400).json({ success: false, message: 'Necesitas un constructor en este feudo para ampliar el edificio' });
+            }
+
             await client.query('BEGIN');
+            // Consume workers at this fief
+            await client.query(
+                'DELETE FROM workers WHERE player_id = $1 AND h3_index = $2',
+                [player_id, h3_index]
+            );
             await KingdomModel.DeductGold(client, player_id, next.gold_cost);
             await KingdomModel.UpgradeFiefBuilding(client, h3_index, next.id, next.construction_time_turns);
             await client.query('COMMIT');

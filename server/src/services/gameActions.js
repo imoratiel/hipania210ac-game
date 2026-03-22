@@ -290,7 +290,23 @@ async function executeConstruction(client, playerId, { h3_index, building_id }, 
         throw new GameActionError(`Oro insuficiente. Necesitas ${building.gold_cost} 💰`);
     }
 
-    // ── 6. Execute ────────────────────────────────────────────────────────────
+    // ── 7. Worker check — se requiere un constructor en el feudo (salvo bots) ─
+    if (!meta.skipWorkerCheck) {
+        const workerCheck = await client.query(
+            'SELECT id FROM workers WHERE player_id = $1 AND h3_index = $2 LIMIT 1',
+            [playerId, h3_index]
+        );
+        if (workerCheck.rows.length === 0) {
+            throw new GameActionError('Necesitas un constructor en este feudo para iniciar la obra');
+        }
+        // Consumir todos los constructores del jugador en ese feudo
+        await client.query(
+            'DELETE FROM workers WHERE player_id = $1 AND h3_index = $2',
+            [playerId, h3_index]
+        );
+    }
+
+    // ── 8. Execute ────────────────────────────────────────────────────────────
     await KingdomModel.DeductGold(client, playerId, building.gold_cost);
     await KingdomModel.StartConstruction(client, h3_index, building_id, building.construction_time_turns);
 

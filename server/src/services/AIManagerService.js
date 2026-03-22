@@ -607,7 +607,7 @@ class AIManagerService {
         );
 
         try {
-            await executeConstruction(client, playerId, { h3_index: target.h3_index, building_id: building.id }, { actorName: botName });
+            await executeConstruction(client, playerId, { h3_index: target.h3_index, building_id: building.id }, { actorName: botName, skipWorkerCheck: true });
             const emoji = building.type_name === 'economic' ? '🏪' : '⛪';
             Logger.bot(playerId, `[TURN ${turn}] ${emoji} Inició construcción de "${building.name}" en ${target.h3_index}`);
         } catch (err) {
@@ -721,7 +721,7 @@ class AIManagerService {
             await executeRecruitment(
                 client, playerId,
                 { h3_index: recruitH3, unit_type_id: unitType.unit_type_id, quantity: FARMER.RECRUIT_QUANTITY, army_name: 'Milicia Campesina' },
-                { actorName: botName }
+                { actorName: botName, skipWorkerCheck: true }
             );
 
             await client.query('COMMIT');
@@ -888,7 +888,7 @@ class AIManagerService {
         await executeRecruitment(
             client, playerId,
             { h3_index: recruitH3, unit_type_id: unitType.unit_type_id, quantity: EXPANSIONIST.RECRUIT_QUANTITY, army_name: 'Horda Expansionista' },
-            { actorName: botName }
+            { actorName: botName, skipWorkerCheck: true }
         );
 
         Logger.bot(playerId, `[TURN ${turn}] ⚔️ Reclutó ${EXPANSIONIST.RECRUIT_QUANTITY} tropas en ${recruitH3}`);
@@ -938,7 +938,7 @@ class AIManagerService {
         }
 
         try {
-            await executeConstruction(client, playerId, { h3_index: target.h3_index, building_id: building.id }, { actorName: botName });
+            await executeConstruction(client, playerId, { h3_index: target.h3_index, building_id: building.id }, { actorName: botName, skipWorkerCheck: true });
             Logger.bot(playerId, `[TURN ${turn}] 🏯 Construyendo "${building.name}" en ${target.h3_index} (frontera)`);
         } catch (err) {
             if (err instanceof GameActionError) {
@@ -1131,7 +1131,7 @@ class AIManagerService {
         if (state.gold - parseInt(building.gold_cost) < BALANCED.GOLD_RESERVE) return;
 
         try {
-            await executeConstruction(client, playerId, { h3_index: targetH3, building_id: building.id }, { actorName: botName });
+            await executeConstruction(client, playerId, { h3_index: targetH3, building_id: building.id }, { actorName: botName, skipWorkerCheck: true });
             const emoji = { economic: '🏪', religious: '⛪', military: '🏰' }[buildingType] || '🏗️';
             Logger.bot(playerId, `[TURN ${turn}] ${emoji} Construyendo "${building.name}" en ${targetH3} (${buildingType})`);
         } catch (err) {
@@ -1191,7 +1191,7 @@ class AIManagerService {
         await executeRecruitment(
             client, playerId,
             { h3_index: recruitH3, unit_type_id: unitType.unit_type_id, quantity: toRecruit, army_name: 'Guardia Equilibrada' },
-            { actorName: botName }
+            { actorName: botName, skipWorkerCheck: true }
         );
 
         Logger.bot(playerId,
