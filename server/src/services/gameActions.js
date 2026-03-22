@@ -266,6 +266,26 @@ async function executeConstruction(client, playerId, { h3_index, building_id }, 
         throw new GameActionError('Este edificio no pertenece a tu cultura');
     }
 
+    // ── 3c. Maritime building constraints ─────────────────────────────────────
+    if (building.type_name === 'maritime') {
+        // Must be on coastal terrain
+        const terrainRow = await client.query(
+            `SELECT tt.name AS terrain_name
+             FROM h3_map m
+             JOIN terrain_types tt ON m.terrain_type_id = tt.terrain_type_id
+             WHERE m.h3_index = $1`,
+            [h3_index]
+        );
+        if (terrainRow.rows[0]?.terrain_name !== 'Costa') {
+            throw new GameActionError('Los puertos solo se pueden construir en terrenos costeros.');
+        }
+        // Only one maritime building per Pagus
+        const existingPort = await KingdomModel.GetMaritimeBuildingInDivision(client, h3_index);
+        if (existingPort) {
+            throw new GameActionError(`Tu Pagus ya tiene un puerto en ${existingPort.h3_index}.`);
+        }
+    }
+
     // ── 4. Exclusion radius: no same building type within EXCLUSION_RADIUS hexes ─
     const exclusionRadius = GAME_CONFIG.BUILDINGS.EXCLUSION_RADIUS;
     const nearbyHexes = h3.gridDisk(h3_index, exclusionRadius);

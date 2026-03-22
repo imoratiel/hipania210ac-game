@@ -4760,7 +4760,9 @@ const getBuildingIcon = (name = '', typeName = '') => {
   const n = name.toLowerCase();
   const t = (typeName || '').toLowerCase();
   if (n.includes('granja') || n.includes('farm')) return '🌾';
-  if (n.includes('astillero') || n.includes('shipyard')) return '⛵';
+  if (n.includes('astillero') || n.includes('shipyard') ||
+      n.includes('portus') || n.includes('cothon') ||
+      n.includes('emporio') || n.includes('embarcadero') || t === 'maritime') return '⛵';
   if (n.includes('mina') || n.includes('mine')) return '⛏️';
   if (n.includes('aserradero') || n.includes('lumber')) return '🌲';
   if (n.includes('mercado') || n.includes('market') || n.includes('foro') || n.includes('factor') || n.includes('lonja') || n.includes('feria')) return '⚖️';

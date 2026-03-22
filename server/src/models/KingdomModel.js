@@ -118,8 +118,27 @@ class KingdomModel {
     }
     async GetBuildingDefinition(client, building_id) {
         const result = await client.query(
-            'SELECT * FROM buildings WHERE id = $1',
+            `SELECT b.*, bt.name AS type_name
+             FROM buildings b
+             JOIN building_types bt ON b.type_id = bt.building_type_id
+             WHERE b.id = $1`,
             [building_id]
+        );
+        return result.rows[0] || null;
+    }
+    async GetMaritimeBuildingInDivision(client, h3_index) {
+        const result = await client.query(
+            `SELECT fb.h3_index FROM fief_buildings fb
+             JOIN buildings b       ON fb.building_id = b.id
+             JOIN building_types bt ON b.type_id = bt.building_type_id
+             JOIN territory_details td ON fb.h3_index = td.h3_index
+             WHERE bt.name = 'maritime'
+               AND td.division_id IS NOT NULL
+               AND td.division_id = (
+                   SELECT division_id FROM territory_details WHERE h3_index = $1
+               )
+             LIMIT 1`,
+            [h3_index]
         );
         return result.rows[0] || null;
     }
