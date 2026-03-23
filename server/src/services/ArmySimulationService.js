@@ -403,7 +403,7 @@ class ArmySimulationService {
     try {
       // 1. Obtener posición actual del ejército
       const armyResult = await client.query(
-        'SELECT army_id, name, h3_index FROM armies WHERE army_id = $1',
+        'SELECT army_id, name, h3_index, is_naval FROM armies WHERE army_id = $1',
         [armyId]
       );
       if (armyResult.rows.length === 0) {
@@ -418,13 +418,14 @@ class ArmySimulationService {
       }
 
       // 2. A* con caché de costes de terreno (consultas en batch)
+      // Flotas navales usan is_naval_passable; ejércitos terrestres usan movement_cost > 0
       const terrainCache = new Map();
 
       const fetchTerrainCosts = async (hexes) => {
         const uncached = hexes.filter(h => !terrainCache.has(h));
         if (uncached.length === 0) return;
         const result = await client.query(
-          `SELECT hm.h3_index, tt.movement_cost
+          `SELECT hm.h3_index, tt.movement_cost, tt.is_naval_passable
            FROM h3_map hm
            JOIN terrain_types tt ON hm.terrain_type_id = tt.terrain_type_id
            WHERE hm.h3_index = ANY($1)`,
@@ -432,7 +433,10 @@ class ArmySimulationService {
         );
         const found = new Set();
         for (const row of result.rows) {
-          terrainCache.set(row.h3_index, parseFloat(row.movement_cost));
+          const cost = army.is_naval
+            ? (row.is_naval_passable ? 1 : -1)
+            : parseFloat(row.movement_cost);
+          terrainCache.set(row.h3_index, cost);
           found.add(row.h3_index);
         }
         // Hexágonos no encontrados en mapa = impasables
@@ -556,6 +560,7 @@ class ArmySimulationService {
       // 1. Obtener estado del ejército + ruta pre-calculada
       const armyResult = await client.query(
         `SELECT a.army_id, a.name, a.h3_index, a.destination, a.player_id,
+                a.is_naval,
                 ar.path
          FROM armies a
          LEFT JOIN army_routes ar ON ar.army_id = a.army_id
@@ -589,40 +594,59 @@ class ArmySimulationService {
         return { success: true, moved: false, message: `${army.name} sin ruta calculada` };
       }
 
-      // ── PASO 1: Obtener tropas (speed y stamina) ──────────────────────────────
-      const troopsResult = await client.query(
-        `SELECT t.troop_id, t.stamina, t.force_rest, ut.speed
-         FROM troops t
-         JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
-         WHERE t.army_id = $1`,
-        [armyId]
-      );
+      // ── PASO 1: Obtener velocidad (troops para terrestres, fleet_ships para navales) ──
+      let maxCells;
 
-      if (troopsResult.rows.length === 0) {
-        await client.query('ROLLBACK');
-        Logger.army(armyId, 'ERROR', 'Sin unidades');
-        return { success: false, moved: false, message: `${army.name} no tiene unidades` };
+      if (army.is_naval) {
+        const shipsResult = await client.query(
+          `SELECT MIN(st.speed) AS min_speed
+           FROM fleet_ships fs
+           JOIN ship_types st ON fs.ship_type_id = st.id
+           WHERE fs.army_id = $1`,
+          [armyId]
+        );
+        const minSpeed = shipsResult.rows[0]?.min_speed;
+        if (!minSpeed) {
+          await client.query('ROLLBACK');
+          Logger.army(armyId, 'ERROR', 'Flota sin barcos');
+          return { success: false, moved: false, message: `${army.name} no tiene barcos` };
+        }
+        maxCells = parseInt(minSpeed) || 1;
+      } else {
+        const troopsResult = await client.query(
+          `SELECT t.troop_id, t.stamina, t.force_rest, ut.speed
+           FROM troops t
+           JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
+           WHERE t.army_id = $1`,
+          [armyId]
+        );
+
+        if (troopsResult.rows.length === 0) {
+          await client.query('ROLLBACK');
+          Logger.army(armyId, 'ERROR', 'Sin unidades');
+          return { success: false, moved: false, message: `${army.name} no tiene unidades` };
+        }
+
+        const hasForceRestTroops = troopsResult.rows.some(t => t.force_rest);
+        maxCells = Math.min(...troopsResult.rows.map(t => parseInt(t.speed) || 1));
+
+        if (hasForceRestTroops) {
+          await client.query('ROLLBACK');
+          Logger.army(armyId, 'MOVE_BLOCKED', 'Sin stamina - force_rest activo');
+          return { success: true, moved: false, message: `${army.name} no puede moverse (agotado)` };
+        }
       }
-
-      const hasForceRest = troopsResult.rows.some(t => t.force_rest);
-      const maxCells     = Math.min(...troopsResult.rows.map(t => parseInt(t.speed) || 1));
 
       Logger.army(armyId, 'TURN_START',
         `MaxCells: ${maxCells}. Ruta: ${remainingPath.length} pasos restantes`,
-        { army_name: army.name, max_cells: maxCells, path_remaining: remainingPath.length, has_force_rest: hasForceRest }
+        { army_name: army.name, max_cells: maxCells, path_remaining: remainingPath.length, is_naval: army.is_naval }
       );
 
-      // Stamina = 0 (force_rest activo) → bloqueado
-      if (hasForceRest) {
-        await client.query('ROLLBACK');
-        Logger.army(armyId, 'MOVE_BLOCKED', 'Sin stamina - force_rest activo');
-        return { success: true, moved: false, message: `${army.name} no puede moverse (agotado)` };
-      }
-
       // Pre-fetch costes de terreno para los primeros pasos de la ruta
+      // Flotas navales usan is_naval_passable; ejércitos terrestres usan movement_cost > 0
       const pathSlice = remainingPath.slice(0, maxCells + 2);
       const terrainResult = await client.query(
-        `SELECT hm.h3_index, tt.movement_cost
+        `SELECT hm.h3_index, tt.movement_cost, tt.is_naval_passable
          FROM h3_map hm
          JOIN terrain_types tt ON hm.terrain_type_id = tt.terrain_type_id
          WHERE hm.h3_index = ANY($1)`,
@@ -630,7 +654,12 @@ class ArmySimulationService {
       );
       const costMap = {};
       for (const row of terrainResult.rows) {
-        costMap[row.h3_index] = parseFloat(row.movement_cost);
+        if (army.is_naval) {
+          // Naval: passable if is_naval_passable; use fixed cost of 1 at sea
+          costMap[row.h3_index] = row.is_naval_passable ? 1 : -1;
+        } else {
+          costMap[row.h3_index] = parseFloat(row.movement_cost);
+        }
       }
 
       // ── PASO 2: Movimiento por stamina ────────────────────────────────────────
@@ -669,16 +698,18 @@ class ArmySimulationService {
           { from: prevPos, to: currentPos, steps_left: remainingPath.length, terrain_cost: cost, stamina_cost: staminaCost }
         );
 
-        // Descontar stamina (activa force_rest automáticamente si llega a 0)
-        const staminaResult = await this._consumeStaminaWithClient(client, armyId, staminaCost);
+        // Descontar stamina (solo ejércitos terrestres; flotas no se cansan)
+        if (!army.is_naval) {
+          const staminaResult = await this._consumeStaminaWithClient(client, armyId, staminaCost);
 
-        if (staminaResult.exhaustedUnits > 0) {
-          staminaExhausted = true;
-          Logger.army(armyId, 'STAMINA_EXHAUSTED',
-            `${staminaResult.exhaustedUnits} unidad(es) agotada(s). force_rest activado`,
-            { exhausted_units: staminaResult.exhaustedUnits, step: stepsCount }
-          );
-          break;
+          if (staminaResult.exhaustedUnits > 0) {
+            staminaExhausted = true;
+            Logger.army(armyId, 'STAMINA_EXHAUSTED',
+              `${staminaResult.exhaustedUnits} unidad(es) agotada(s). force_rest activado`,
+              { exhausted_units: staminaResult.exhaustedUnits, step: stepsCount }
+            );
+            break;
+          }
         }
       }
 

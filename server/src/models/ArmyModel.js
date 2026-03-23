@@ -102,11 +102,13 @@ class ArmyModel {
                 a.h3_index,
                 a.player_id,
                 COUNT(DISTINCT a.army_id) AS army_count,
-                SUM(t.quantity) AS total_troops,
-                BOOL_OR(a.is_garrison) AS has_garrison
+                COALESCE(SUM(CASE WHEN NOT a.is_naval THEN t.quantity ELSE 0 END), 0)::int AS total_troops,
+                BOOL_OR(a.is_garrison) AS has_garrison,
+                BOOL_OR(a.is_naval)    AS has_naval
             FROM armies a
-            LEFT JOIN troops t ON a.army_id = t.army_id
+            LEFT JOIN troops t ON a.army_id = t.army_id AND NOT a.is_naval
             WHERE a.h3_index = ANY($1::text[])
+              AND (a.transported_by IS NULL)
             GROUP BY a.h3_index, a.player_id
             ORDER BY a.h3_index
         `;
@@ -335,6 +337,8 @@ class ArmyModel {
             LEFT JOIN troops t ON t.army_id = a.army_id
             LEFT JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
             WHERE a.player_id = $1
+              AND (a.is_naval = FALSE OR a.is_naval IS NULL)
+              AND a.transported_by IS NULL
             GROUP BY a.army_id, a.name, a.h3_index, a.destination, m.coord_x, m.coord_y, td.custom_name, s.name, td.grace_turns, m.player_id, a.is_garrison
             ORDER BY a.name
         `;
@@ -456,8 +460,9 @@ class ArmyModel {
     async GetPlayerArmyCapacity(client, player_id) {
         const result = await client.query(`
             SELECT
-                (SELECT COUNT(*) FROM armies WHERE player_id = $1 AND NOT is_garrison)::int AS army_count,
-                (SELECT COUNT(*) FROM h3_map  WHERE player_id = $1)::int AS fief_count
+                (SELECT COUNT(*) FROM armies WHERE player_id = $1 AND NOT is_garrison AND NOT is_naval)::int AS army_count,
+                (SELECT COUNT(*) FROM armies WHERE player_id = $1 AND is_naval = TRUE)::int                  AS fleet_count,
+                (SELECT COUNT(*) FROM h3_map  WHERE player_id = $1)::int                                     AS fief_count
         `, [player_id]);
         return result.rows[0];
     }

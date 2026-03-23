@@ -851,3 +851,63 @@ export async function breakRelation(relationId, reason = '') {
   const response = await axios.post(`${API_URL}/api/relations/${relationId}/break`, { reason });
   return response.data;
 }
+
+// ============================================
+// NAVAL ENDPOINTS
+// ============================================
+
+export async function getShipTypes() {
+  const response = await axios.get(`${API_URL}/api/naval/ship-types`);
+  return response.data;
+}
+
+export async function getFleets() {
+  const response = await axios.get(`${API_URL}/api/naval/fleets`);
+  return response.data;
+}
+
+export async function getFleetDetail(fleetId) {
+  const response = await axios.get(`${API_URL}/api/naval/fleets/${fleetId}`);
+  return response.data;
+}
+
+export async function getNavalCapacity() {
+  const response = await axios.get(`${API_URL}/api/naval/capacity`);
+  return response.data;
+}
+
+export async function getEmbarkableArmies(fleetId) {
+  const response = await axios.get(`${API_URL}/api/naval/embarkable/${fleetId}`);
+  return response.data;
+}
+
+export async function createFleet(h3_index, name = '') {
+  const response = await axios.post(`${API_URL}/api/naval/create-fleet`, { h3_index, name });
+  return response.data;
+}
+
+export async function recruitShips(fleet_id, ship_type_id, quantity) {
+  const response = await axios.post(`${API_URL}/api/naval/recruit-ships`, { fleet_id, ship_type_id, quantity });
+  return response.data;
+}
+
+export async function embarkArmy(fleet_id, army_id) {
+  const response = await axios.post(`${API_URL}/api/naval/embark`, { fleet_id, army_id });
+  return response.data;
+}
+
+export async function disembarkArmy(army_id) {
+  const response = await axios.post(`${API_URL}/api/naval/disembark`, { army_id });
+  return response.data;
+}
+
+export async function moveFleet(fleet_id, target_h3) {
+  const response = await axios.post(`${API_URL}/api/naval/move-fleet`, { fleet_id, target_h3 });
+  return response.data;
+}
+
+export async function stopFleet(fleet_id) {
+  const response = await axios.post(`${API_URL}/api/naval/stop-fleet`, { fleet_id });
+  return response.data;
+}
+

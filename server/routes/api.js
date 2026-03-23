@@ -24,6 +24,7 @@ module.exports = function () {
     const MapService = require('../src/services/MapService.js');
     const CharacterService = require('../src/services/CharacterService.js');
     const OAuthService = require('../src/services/OAuthService.js');
+    const NavalService = require('../src/services/NavalService.js');
 
     // ============================================
     // AUTHENTICATION ENDPOINTS
@@ -103,6 +104,21 @@ module.exports = function () {
     router.post('/military/scout', authenticateToken, (req, res) => ScoutingService.scoutArmy(req, res));
     router.post('/military/dismiss', authenticateToken, (req, res) => ArmyService.DismissTroops(req, res));
     router.post('/military/reinforce', authenticateToken, (req, res) => ArmyService.ReinforceArmy(req, res));
+
+    // ============================================
+    // NAVAL
+    // ============================================
+    router.get('/naval/ship-types',              authenticateToken, (req, res) => NavalService.GetShipTypes(req, res));
+    router.get('/naval/fleets',                  authenticateToken, (req, res) => NavalService.GetFleets(req, res));
+    router.get('/naval/fleets/:id',              authenticateToken, (req, res) => NavalService.GetFleetDetail(req, res));
+    router.get('/naval/capacity',                authenticateToken, (req, res) => NavalService.GetCapacity(req, res));
+    router.get('/naval/embarkable/:fleet_id',    authenticateToken, (req, res) => NavalService.GetEmbarkable(req, res));
+    router.post('/naval/create-fleet',           authenticateToken, (req, res) => NavalService.CreateFleet(req, res));
+    router.post('/naval/recruit-ships',          authenticateToken, (req, res) => NavalService.RecruitShips(req, res));
+    router.post('/naval/embark',                 authenticateToken, (req, res) => NavalService.EmbarkArmy(req, res));
+    router.post('/naval/disembark',              authenticateToken, (req, res) => NavalService.DisembarkArmy(req, res));
+    router.post('/naval/move-fleet',             authenticateToken, (req, res) => NavalService.MoveFleet(req, res));
+    router.post('/naval/stop-fleet',             authenticateToken, (req, res) => NavalService.StopFleet(req, res));
 
     // ============================================
     // ECONOMY

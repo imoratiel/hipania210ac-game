@@ -27,4 +27,15 @@ function getArmyLimit(numFiefs) {
     return Math.max(BASE, Math.floor((numFiefs || 0) / RATIO));
 }
 
-module.exports = { getPopulationCap, getArmyLimit };
+/**
+ * Calcula el límite máximo de flotas navales de un jugador.
+ * Usa FLEET_LIMITS (RATIO 20) — más restrictivo que ejércitos terrestres.
+ * @param {number} numFiefs - Número de feudos que posee el jugador
+ * @returns {number} Límite de flotas
+ */
+function getFleetLimit(numFiefs) {
+    const { BASE, RATIO } = GAME_CONFIG.FLEET_LIMITS;
+    return Math.max(BASE, Math.floor((numFiefs || 0) / RATIO));
+}
+
+module.exports = { getPopulationCap, getArmyLimit, getFleetLimit };

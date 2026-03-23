@@ -654,6 +654,16 @@ button {
   filter: brightness(1.2);
 }
 
+.btn-naval {
+  background: linear-gradient(135deg, #0a2a4a 0%, #1565c0 100%) !important;
+  color: white !important;
+  margin-top: 6px !important;
+}
+
+.btn-naval:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+
 /* Division boundary tooltip */
 .leaflet-division-tooltip {
   background: rgba(20, 10, 5, 0.92) !important;

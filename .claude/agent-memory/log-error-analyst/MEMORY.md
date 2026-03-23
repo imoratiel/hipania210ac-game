@@ -36,6 +36,17 @@
 - `066_noble_rank_promotion.sql`: añade `players.last_rank_promotion VARCHAR(20)` — ver error 2026-03-20
 - Al detectar `column X does not exist`, siempre buscar primero en `/sql/` si hay una migración que añade esa columna
 
+## Sistema Naval - Flotas (is_naval = TRUE)
+
+- Flotas usan la tabla `armies` con `is_naval = TRUE` y `fleet_ships` para sus barcos
+- Las flotas NO tienen registros en la tabla `troops` — usan `fleet_ships` en su lugar
+- `executeArmyTurn` en `ArmySimulationService.js` lines 606-609: si `troops` está vacío → devuelve `success: false, moved: false`
+- Este guard bloquea TODAS las flotas con destino porque nunca tienen filas en `troops`
+- Fix: saltar la consulta a `troops` y usar `fleet_ships` para `speed`/`stamina` cuando `army.is_naval = TRUE`
+- Patrón de velocidad naval: derivar `maxCells` de `MIN(st.speed)` sobre `fleet_ships JOIN ship_types`
+- Las flotas no consumen stamina como tropas terrestres (no tienen `force_rest` en `troops`)
+- Error en exceptions.log: `"Ejército Flota de N no tiene unidades"` (×474 al momento de diagnóstico)
+
 ## Archivos Clave
 
 - Motor: `server/src/logic/turn_engine.js`

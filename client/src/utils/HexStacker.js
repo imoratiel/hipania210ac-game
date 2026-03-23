@@ -184,13 +184,16 @@ export function createStackerHTML({ building = null, units = null } = {}) {
   const hasBuilding     = !!building;
   const ownCount        = units?.own_troops        ?? 0;
   const enemyCount      = units?.enemy_troops      ?? 0;
-  const ownGarrisonOnly = !!(units?.own_garrison_only);   // true = only garrison troops (no field army)
+  const ownGarrisonOnly = !!(units?.own_garrison_only);
   const hasOwn          = ownCount   > 0;
   const hasEnemy        = enemyCount > 0;
   const hasTroops       = hasOwn || hasEnemy;
   const isConflict      = !!(units?.is_conflict);
+  const hasOwnFleet     = !!(units?.has_own_fleet);
+  const hasEnemyFleet   = !!(units?.has_enemy_fleet);
+  const hasFleet        = hasOwnFleet || hasEnemyFleet;
 
-  if (!hasBuilding && !hasTroops) return '';
+  if (!hasBuilding && !hasTroops && !hasFleet) return '';
 
   const parts = [];
 
@@ -233,6 +236,27 @@ export function createStackerHTML({ building = null, units = null } = {}) {
           position:relative;
         ">${icon}${foodTag}${turnsTag}</div>
       </div>`);
+  }
+
+  // ── Fleet badge (TOP-RIGHT) ────────────────────────────────────────────────
+  if (hasFleet) {
+    const fleetBg     = hasOwnFleet && hasEnemyFleet ? '#7b1fa2' : hasOwnFleet ? '#0d47a1' : '#b71c1c';
+    const fleetBorder = hasOwnFleet && hasEnemyFleet ? '#ce93d8' : hasOwnFleet ? '#64b5f6' : '#ef9a9a';
+    parts.push(`
+      <div style="
+        position:absolute;
+        right:0%;top:0%;
+        transform:translate(30%,-30%);
+        background:${fleetBg};
+        border:1.5px solid ${fleetBorder};
+        border-radius:50%;
+        width:14px;height:14px;
+        display:flex;align-items:center;justify-content:center;
+        font-size:9px;
+        box-shadow:0 1px 3px rgba(0,0,0,0.6);
+        z-index:5;
+        pointer-events:none;
+      ">⛵</div>`);
   }
 
   // ── Troop badges (BOTTOM-LEFT / BOTTOM-RIGHT) ─────────────────────────────

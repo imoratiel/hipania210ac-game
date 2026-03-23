@@ -126,6 +126,14 @@ FIEF_DETECTION_RANGE: 2,        // Hexágonos visibles desde cada feudo propio (
         RATIO: 3,  // Un slot de ejército por cada 3 feudos
     },
 
+    // ⛵ Límite de Flotas Navales por Jugador
+    // Regla: max(BASE, floor(feudos / RATIO))
+    // Ej: 0 feudos → 1 flota, 20 → 1, 60 → 3, 200 → 10, 500 → 25
+    FLEET_LIMITS: {
+        BASE:  1,   // Mínimo garantizado
+        RATIO: 20,  // Un slot de flota por cada 20 feudos
+    },
+
     // 👥 Límites de Población por Tipo de Terreno
     POPULATION: {
         CAP_CAPITAL:      6000,         // Capital del jugador

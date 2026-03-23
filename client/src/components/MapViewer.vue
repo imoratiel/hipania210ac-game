@@ -110,6 +110,15 @@
         </button>
         <button
           class="nav-button"
+          :class="{ active: activeOverlay === 'naval' }"
+          @click="openOverlay('naval')"
+          title="Flotas Navales"
+        >
+          <span class="nav-icon">⛵</span>
+          <span class="nav-label">Flotas</span>
+        </button>
+        <button
+          class="nav-button"
           :class="{ active: activeOverlay === 'messages' }"
           @click="openOverlay('messages')"
           title="Mensajes"
@@ -937,6 +946,24 @@
       </div>
     </div>
 
+    <!-- Naval Overlay -->
+    <div v-if="activeOverlay === 'naval'" class="game-overlay title-overlay">
+      <div class="overlay-container">
+        <div class="overlay-header">
+          <h1 class="overlay-title">⛵ Flotas Navales</h1>
+          <button class="overlay-close" @click="closeOverlay" title="Cerrar">✕</button>
+        </div>
+        <div class="overlay-content">
+          <NavalPanel
+            :playerGold="playerGold"
+            :playerCultureId="currentUser?.culture_id ?? null"
+            @gold-updated="onGoldUpdated"
+            @refresh="fetchArmyData"
+          />
+        </div>
+      </div>
+    </div>
+
     <!-- Building Construction Modal -->
     <div v-if="showBuildModal" class="build-modal-overlay" @click.self="closeBuildModal">
       <div class="build-modal">
@@ -1132,6 +1159,7 @@ import FueroPanel from './FueroPanel.vue';
 import DivisionsTab from './DivisionsTab.vue';
 import CharacterPanel from './CharacterPanel.vue';
 import DiplomacyPanel from './DiplomacyPanel.vue';
+import NavalPanel from './NavalPanel.vue';
 
 const mapContainer = ref(null);
 const loading = ref(false);
@@ -1506,6 +1534,7 @@ let buildingMarkersLayer = null; // Layer for capital crown markers
 let fiefIconsLayer = null;       // Layer for fief building icons (API-driven)
 let armyMarkersLayer = null;    // Layer for army/troop icons
 let workersMarkersLayer = null;       // Layer for worker icons
+let fleetMarkersLayer   = null;       // Layer for own naval fleet icons
 let constructionMarkersLayer = null;  // Layer for in-progress bridge constructions
 let hexStackerLayer = null;           // Layer for combined HexStacker markers (owner+building+troops)
 let highlightLayer = null; // Temporary highlight polygon for navigation
@@ -1673,6 +1702,9 @@ const initMap = () => {
   map.createPane('workerPane');
   map.getPane('workerPane').style.zIndex = 665;
 
+  map.createPane('fleetPane');
+  map.getPane('fleetPane').style.zIndex = 678;
+
   // Construction Pane (in-progress bridges) - above workers
   map.createPane('constructionPane');
   map.getPane('constructionPane').style.zIndex = 668;
@@ -1745,6 +1777,7 @@ const initMap = () => {
   fiefIconsLayer = L.layerGroup().addTo(map);
   armyMarkersLayer = L.layerGroup().addTo(map);
   workersMarkersLayer = L.layerGroup().addTo(map);
+  fleetMarkersLayer   = L.layerGroup().addTo(map);
   constructionMarkersLayer = L.layerGroup().addTo(map);
   hexStackerLayer = L.layerGroup().addTo(map);
   divisionHighlightLayer = L.layerGroup().addTo(map);
@@ -1937,12 +1970,13 @@ const fetchHexagonData = async () => {
     // Draw movement routes (always, regardless of zoom)
     await fetchAndDrawRoutes();
 
-    // Fetch buildings, armies, workers and constructions in parallel
-    const [buildingData, armyData, workerData, constructionData] = await Promise.allSettled([
+    // Fetch buildings, armies, workers, constructions and own fleets in parallel
+    const [buildingData, armyData, workerData, constructionData, fleetData] = await Promise.allSettled([
       mapApi.getMapBuildings(params),
       mapApi.getMapArmies(params),
       mapApi.getMapWorkers(params),
       mapApi.getMapConstructions(params),
+      mapApi.getFleets(),
     ]);
 
     const buildings = buildingData.status === 'fulfilled' && buildingData.value.success
@@ -1960,12 +1994,18 @@ const fetchHexagonData = async () => {
     const constructions = constructionData.status === 'fulfilled' && constructionData.value.success
       ? constructionData.value.constructions
       : [];
+    const fleets = fleetData.status === 'fulfilled' && fleetData.value.success
+      ? fleetData.value.fleets
+      : [];
 
     // Render combined HexStacker icons (replaces separate army + building markers)
     renderHexStackers(buildings, armies, currentPlayerId, ownerMap);
 
     // Render worker markers on separate layer
     renderWorkerMarkers(workers, currentPlayerId);
+
+    // Render own fleet markers (interactive: move, stop, embark, disembark)
+    renderFleetMarkers(fleets);
 
     // Render in-progress construction markers
     renderConstructionMarkers(constructions, currentPlayerId);
@@ -2191,6 +2231,137 @@ const renderWorkerMarkers = (workers, currentPlayerId) => {
   }
 };
 
+const clearFleetMarkers = () => { if (fleetMarkersLayer) fleetMarkersLayer.clearLayers(); };
+
+/**
+ * Render own naval fleet markers on the map.
+ * Each fleet gets a clickable ⛵ marker with a popup:
+ * Moverse / Detenerse / Embarcar Tropas / Desembarcar Tropas
+ */
+const renderFleetMarkers = (fleets) => {
+  clearFleetMarkers();
+  if (!fleets || fleets.length === 0) return;
+
+  for (const fleet of fleets) {
+    try {
+      const [lat, lng] = cellToLatLng(fleet.h3_index);
+      const hasDestination = !!fleet.destination;
+
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="
+          width:26px;height:26px;border-radius:50%;
+          background:#1a4a8a;border:2px solid #4a9eff;
+          display:flex;align-items:center;justify-content:center;
+          font-size:14px;line-height:1;
+          box-shadow:0 1px 5px rgba(0,0,0,0.55);
+          cursor:pointer;"
+          title="${fleet.name} · ${fleet.total_ships} barcos">⛵</div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
+        pane: 'fleetPane',
+      });
+
+      const fid = fleet.army_id;
+      const popupHtml = `
+        <div id="fleet-popup-${fid}" style="min-width:200px;max-width:260px;font-family:sans-serif;font-size:13px;">
+          <strong style="font-size:14px;">⛵ ${fleet.name}</strong><br>
+          <div style="display:flex;gap:10px;font-size:11px;color:#6b7280;margin:3px 0;">
+            <span>🚢 ${fleet.total_ships}</span>
+            <span>📦 ${fleet.total_capacity}</span>
+          </div>
+          ${hasDestination ? `<div style="font-size:11px;color:#f59e0b;margin-bottom:2px;">→ ${fleet.destination}</div>` : ''}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:8px;">
+            <button id="fl-move-${fid}"
+              style="padding:5px;border:none;border-radius:4px;background:#1e40af;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">
+              ➡️ Moverse</button>
+            <button id="fl-stop-${fid}" ${hasDestination ? '' : 'disabled'}
+              style="padding:5px;border:none;border-radius:4px;background:${hasDestination ? '#7c3aed' : '#374151'};color:#fff;font-size:12px;font-weight:600;cursor:${hasDestination ? 'pointer' : 'not-allowed'};opacity:${hasDestination ? 1 : 0.45};">
+              ⏹ Detenerse</button>
+            <button id="fl-embark-${fid}"
+              style="padding:5px;border:none;border-radius:4px;background:#065f46;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">
+              ⚓ Embarcar</button>
+            <button id="fl-disembark-${fid}"
+              style="padding:5px;border:none;border-radius:4px;background:#7c2d12;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">
+              🏖️ Desembarcar</button>
+          </div>
+          <div id="fl-panel-${fid}" style="margin-top:8px;font-size:12px;"></div>
+        </div>`;
+
+      const marker = L.marker([lat, lng], { icon, pane: 'fleetPane' });
+      marker.bindPopup(popupHtml, { maxWidth: 280 });
+
+      marker.on('popupopen', () => {
+        setTimeout(() => {
+          // ── Move ────────────────────────────────────────────────────────────
+          document.getElementById(`fl-move-${fid}`)?.addEventListener('click', () => {
+            marker.closePopup();
+            window.startFleetMovement(fid, fleet.name, fleet.h3_index);
+          });
+
+          // ── Stop ────────────────────────────────────────────────────────────
+          const stopBtn = document.getElementById(`fl-stop-${fid}`);
+          if (stopBtn && !stopBtn.disabled) {
+            stopBtn.addEventListener('click', async () => {
+              try {
+                await mapApi.stopFleet(fid);
+                marker.closePopup();
+                RouteVisualizer.clearArmy(fid);
+                showToast(`⏹ ${fleet.name} detenida.`, 'info');
+                await fetchHexagonData();
+              } catch (err) {
+                showToast(`❌ ${err?.response?.data?.message || 'Error al detener la flota'}`, 'error');
+              }
+            });
+          }
+
+          // ── Embark ──────────────────────────────────────────────────────────
+          document.getElementById(`fl-embark-${fid}`)?.addEventListener('click', async () => {
+            const panel = document.getElementById(`fl-panel-${fid}`);
+            if (!panel) return;
+            panel.innerHTML = '<span style="color:#9ca3af;">Cargando...</span>';
+            try {
+              const data = await mapApi.getEmbarkableArmies(fid);
+              const armies = data.armies || [];
+              panel.innerHTML = armies.length === 0
+                ? '<span style="color:#6b7280;">No hay ejércitos disponibles para embarcar.</span>'
+                : armies.map(a => `
+                  <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #374151;">
+                    <span>⚔️ ${a.name} (${a.troop_count})</span>
+                    <button onclick="window.doFleetEmbark(${fid},${a.army_id},'${a.name.replace(/'/g, "\\'")}',this)"
+                      style="padding:2px 8px;border:none;border-radius:3px;background:#065f46;color:#fff;font-size:11px;cursor:pointer;">
+                      Embarcar</button>
+                  </div>`).join('');
+            } catch { panel.innerHTML = '<span style="color:#ef4444;">Error al cargar ejércitos.</span>'; }
+          });
+
+          // ── Disembark ───────────────────────────────────────────────────────
+          document.getElementById(`fl-disembark-${fid}`)?.addEventListener('click', async () => {
+            const panel = document.getElementById(`fl-panel-${fid}`);
+            if (!panel) return;
+            panel.innerHTML = '<span style="color:#9ca3af;">Cargando...</span>';
+            try {
+              const data = await mapApi.getFleetDetail(fid);
+              const embarked = data.fleet?.cargo?.embarked_armies || [];
+              panel.innerHTML = embarked.length === 0
+                ? '<span style="color:#6b7280;">No hay tropas embarcadas.</span>'
+                : embarked.map(a => `
+                  <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #374151;">
+                    <span>⚔️ ${a.name} (${a.troop_count})</span>
+                    <button onclick="window.doFleetDisembark(${a.army_id},'${a.name.replace(/'/g, "\\'")}',this)"
+                      style="padding:2px 8px;border:none;border-radius:3px;background:#7c2d12;color:#fff;font-size:11px;cursor:pointer;">
+                      Desembarcar</button>
+                  </div>`).join('');
+            } catch { panel.innerHTML = '<span style="color:#ef4444;">Error al cargar carga.</span>'; }
+          });
+        }, 50);
+      });
+
+      fleetMarkersLayer.addLayer(marker);
+    } catch { /* continue silently */ }
+  }
+};
+
 /**
  * Clear all fief building icons from the map
  */
@@ -2327,20 +2498,24 @@ const renderHexStackers = (buildings, armyEntries, currentPlayerId, ownerMap) =>
         let ownTroops       = 0;
         let enemyTroops     = 0;
         let ownHasFieldArmy = false;   // true if own player has at least one non-garrison army here
+        let hasOwnFleet     = false;
+        let hasEnemyFleet   = false;
         for (const e of group) {
           if (e.player_id === currentPlayerId) {
             const count = Number(e.total_troops) || 0;
             ownTroops += count;
             if (!e.has_garrison || Number(e.army_count) > 1) ownHasFieldArmy = true;
+            if (e.has_naval) hasOwnFleet = true;
           } else {
             // Enemy entries only expose {h3_index, player_id} — no troop count.
             // Use 1 as sentinel so the stacker icon shows enemy presence.
             enemyTroops += 1;
+            if (e.has_naval) hasEnemyFleet = true;
           }
         }
         const isConflict      = ownTroops > 0 && enemyTroops > 0;
         const ownGarrisonOnly = ownTroops > 0 && !ownHasFieldArmy;
-        units = { own_troops: ownTroops, enemy_troops: enemyTroops, is_conflict: isConflict, own_garrison_only: ownGarrisonOnly };
+        units = { own_troops: ownTroops, enemy_troops: enemyTroops, is_conflict: isConflict, own_garrison_only: ownGarrisonOnly, has_own_fleet: hasOwnFleet, has_enemy_fleet: hasEnemyFleet };
       }
 
       const divIcon = createStackerDivIcon(L, { building: bld, units });
@@ -2357,13 +2532,7 @@ const renderHexStackers = (buildings, armyEntries, currentPlayerId, ownerMap) =>
         if (units && clickedTroops) {
           MapInteractionController.handleMapClick(h3_index, {
             onNormal: async () => showArmyDetailsPopup(h3_index, [lat, lng]),
-            onSelectDestination: async (armyId, targetH3, armyName) => {
-              if (String(armyId).startsWith('char_')) {
-                await processCharacterMovement(parseInt(String(armyId).replace('char_', ''), 10), targetH3, armyName);
-              } else {
-                await processArmyMovement(armyId, targetH3, armyName);
-              }
-            },
+            onSelectDestination: dispatchMovement,
             onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
               await processWorkerMovement(workerId, fromH3, targetH3);
             },
@@ -2372,13 +2541,7 @@ const renderHexStackers = (buildings, armyEntries, currentPlayerId, ownerMap) =>
           // Clicked on building icon, owner dot, or empty area → show fief details
           MapInteractionController.handleMapClick(h3_index, {
             onNormal: async () => showCellDetailsPopup(h3_index, [lat, lng]),
-            onSelectDestination: async (armyId, targetH3, armyName) => {
-              if (String(armyId).startsWith('char_')) {
-                await processCharacterMovement(parseInt(String(armyId).replace('char_', ''), 10), targetH3, armyName);
-              } else {
-                await processArmyMovement(armyId, targetH3, armyName);
-              }
-            },
+            onSelectDestination: dispatchMovement,
             onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
               await processWorkerMovement(workerId, fromH3, targetH3);
             },
@@ -2448,10 +2611,11 @@ const fetchArmyData = async () => {
       maxLng: bounds.getEast(),
     };
 
-    // Fetch armies and buildings together so HexStacker stays accurate
-    const [armyRes, buildRes] = await Promise.allSettled([
+    // Fetch armies, buildings and own fleets together so HexStacker stays accurate
+    const [armyRes, buildRes, fleetRes] = await Promise.allSettled([
       mapApi.getMapArmies(params),
       mapApi.getMapBuildings(params),
+      mapApi.getFleets(),
     ]);
 
     const armies    = armyRes.status  === 'fulfilled' && armyRes.value.success
@@ -2460,8 +2624,11 @@ const fetchArmyData = async () => {
       ? buildRes.value.buildings : [];
     const cPlayerId = armyRes.status === 'fulfilled'
       ? armyRes.value.current_player_id : playerId.value;
+    const fleets    = fleetRes.status === 'fulfilled' && fleetRes.value.success
+      ? fleetRes.value.fleets : [];
 
     renderHexStackers(buildings, armies, cPlayerId, null);
+    renderFleetMarkers(fleets);
   } catch (err) {
     console.error('Failed to fetch army data:', err);
   }
@@ -2539,13 +2706,7 @@ const renderArmyMarkers = (armies, currentPlayerId) => {
       marker.on('click', () => {
         MapInteractionController.handleMapClick(h3_index, {
           onNormal: async () => showArmyDetailsPopup(h3_index, [lat, lng]),
-          onSelectDestination: async (armyId, targetH3, armyName) => {
-            if (String(armyId).startsWith('char_')) {
-              await processCharacterMovement(parseInt(String(armyId).replace('char_', ''), 10), targetH3, armyName);
-            } else {
-              await processArmyMovement(armyId, targetH3, armyName);
-            }
-          },
+          onSelectDestination: dispatchMovement,
           onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
             await processWorkerMovement(workerId, fromH3, targetH3);
           },
@@ -3234,15 +3395,8 @@ const renderHexagons = (hexagons) => {
           onNormal: async (h3Index) => {
             await showCellDetailsPopup(h3Index, [lat, lng]);
           },
-          // Modo selección: procesar movimiento del ejército o personaje
-          onSelectDestination: async (armyId, targetH3, armyName) => {
-            if (String(armyId).startsWith('char_')) {
-              const charId = parseInt(String(armyId).replace('char_', ''), 10);
-              await processCharacterMovement(charId, targetH3, armyName);
-            } else {
-              await processArmyMovement(armyId, targetH3, armyName);
-            }
-          },
+          // Modo selección: procesar movimiento del ejército, flota o personaje
+          onSelectDestination: dispatchMovement,
           // Modo selección: procesar movimiento de trabajadores
           onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
             await processWorkerMovement(workerId, fromH3, targetH3);
@@ -4350,6 +4504,20 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
             };
             openOverlay('reino');
             openRecruitmentForFief(fief);
+          });
+        }
+      }, 100);
+    }
+
+    // Add event listener to Nueva Flota button (own fief with completed maritime building)
+    if (cell.player_id === playerId.value && cell.fief_building &&
+        !cell.fief_building.is_under_construction && cell.fief_building.type_name === 'maritime') {
+      setTimeout(() => {
+        const newFleetBtn = document.getElementById(`new-fleet-btn-${h3_index}`);
+        if (newFleetBtn) {
+          newFleetBtn.addEventListener('click', () => {
+            map.closePopup();
+            createFleetAtHex(h3_index);
           });
         }
       }, 100);
@@ -5622,6 +5790,22 @@ const buyWorkerFromPopup = async (h3_index, worker_type_id) => {
 };
 
 /**
+ * Creates a new fleet at a port hex and opens the Naval panel.
+ */
+const createFleetAtHex = async (h3_index) => {
+  try {
+    const result = await mapApi.createFleet(h3_index);
+    if (result.success) {
+      showToast(`⛵ Flota "${result.name}" creada en el puerto.`, 'success');
+      openOverlay('naval');
+    }
+  } catch (err) {
+    const msg = err?.response?.data?.message || 'Error al crear la flota.';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
+/**
  * Upgrade farm level from KingdomPanel fiefs table.
  */
 const handleUpgradeFarmFromTable = async ({ h3_index, cost }) => {
@@ -5870,6 +6054,40 @@ const setupMapInteractionController = () => {
     showToast('🎯 Selecciona el destino para los trabajadores. Click derecho para cancelar.', 'info');
   };
 
+  // Exponer función global para iniciar movimiento de flota naval
+  window.startFleetMovement = (fleetId, fleetName, fleetH3) => {
+    MapInteractionController.startArmyMovement(`fleet_${fleetId}`, fleetName, fleetH3);
+    if (map) map.getContainer().style.cursor = 'crosshair';
+    showToast(`⛵ Selecciona el destino para ${fleetName}. Click derecho para cancelar.`, 'info');
+  };
+
+  // Embarcar / Desembarcar desde popup de flota en el mapa
+  window.doFleetEmbark = async (fleetId, armyId, armyName, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      await mapApi.embarkArmy(fleetId, armyId);
+      showToast(`✅ ${armyName} embarcado.`, 'success');
+      map.closePopup();
+      await fetchHexagonData();
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      showToast(`❌ ${err?.response?.data?.message || 'Error al embarcar'}`, 'error');
+    }
+  };
+
+  window.doFleetDisembark = async (armyId, armyName, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      await mapApi.disembarkArmy(armyId);
+      showToast(`✅ ${armyName} desembarcado.`, 'success');
+      map.closePopup();
+      await fetchHexagonData();
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      showToast(`❌ ${err?.response?.data?.message || 'Error al desembarcar'}`, 'error');
+    }
+  };
+
   // Exponer función global para iniciar movimiento de personaje
   window.startCharacterMovement = (characterId, characterName, fromH3) => {
     console.log(`[MapViewer] Iniciando movimiento personaje: ${characterName} (${characterId}) desde ${fromH3}`);
@@ -5912,6 +6130,39 @@ const processCharacterMovement = async (characterId, targetH3, characterName) =>
     }
   } catch (error) {
     const msg = error.response?.data?.message || 'Error al mover personaje';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
+/**
+ * Dispatcher común para onSelectDestination en todos los handlers del mapa.
+ * Enruta según prefijo: fleet_ → processFleetMovement, char_ → processCharacterMovement, resto → processArmyMovement.
+ */
+const dispatchMovement = async (armyId, targetH3, armyName) => {
+  const sid = String(armyId);
+  if (sid.startsWith('fleet_')) {
+    await processFleetMovement(parseInt(sid.replace('fleet_', ''), 10), targetH3, armyName);
+  } else if (sid.startsWith('char_')) {
+    await processCharacterMovement(parseInt(sid.replace('char_', ''), 10), targetH3, armyName);
+  } else {
+    await processArmyMovement(armyId, targetH3, armyName);
+  }
+};
+
+const processFleetMovement = async (fleetId, targetH3, fleetName) => {
+  try {
+    const response = await mapApi.moveFleet(fleetId, targetH3);
+    if (response.success) {
+      showToast(`✅ ${response.message || `${fleetName} en marcha hacia ${targetH3}`}`, 'success');
+      if (response.data?.path && response.data?.from) {
+        RouteVisualizer.drawPath(fleetId, response.data.path, response.data.from);
+      }
+      await fetchHexagonData();
+    } else {
+      showToast(`⚠️ ${response.message || 'No se pudo mover la flota'}`, 'warning');
+    }
+  } catch (error) {
+    const msg = error.response?.data?.message || error.message || 'Error al mover la flota';
     showToast(`❌ ${msg}`, 'error');
   }
 };

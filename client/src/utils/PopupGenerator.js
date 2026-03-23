@@ -159,6 +159,11 @@ export function generateCellPopupContent(cell, config) {
     popupContent += `<button id="recruit-btn-${h3_index}" class="btn-popup btn-recruit" title="Reclutar tropas en este feudo">⚔️ Reclutar</button>`;
   }
 
+  // Nueva Flota button - for own fief with a completed maritime building (port)
+  if (cell.player_id === playerId && cell.fief_building && !cell.fief_building.is_under_construction && cell.fief_building.type_name === 'maritime') {
+    popupContent += `<button id="new-fleet-btn-${h3_index}" class="btn-popup btn-naval" title="Crear nueva flota en este puerto">⛵ Nueva Flota</button>`;
+  }
+
   // Fueros y Leyes button - for own fief with a completed Fortaleza
   if (cell.player_id === playerId && cell.fief_building &&
       !cell.fief_building.is_under_construction && cell.fief_building.name === 'Fortaleza') {

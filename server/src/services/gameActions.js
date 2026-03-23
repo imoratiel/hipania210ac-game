@@ -268,16 +268,17 @@ async function executeConstruction(client, playerId, { h3_index, building_id }, 
 
     // ── 3c. Maritime building constraints ─────────────────────────────────────
     if (building.type_name === 'maritime') {
-        // Must be on coastal terrain
-        const terrainRow = await client.query(
-            `SELECT tt.name AS terrain_name
-             FROM h3_map m
-             JOIN terrain_types tt ON m.terrain_type_id = tt.terrain_type_id
-             WHERE m.h3_index = $1`,
-            [h3_index]
+        // Must be adjacent to at least one sea hex (terrain_type_id = 1 = Mar)
+        const neighbors = h3.gridDisk(h3_index, 1).filter(n => n !== h3_index);
+        const seaCheck = await client.query(
+            `SELECT 1 FROM h3_map
+             WHERE h3_index = ANY($1::text[])
+               AND terrain_type_id = (SELECT terrain_type_id FROM terrain_types WHERE name = 'Mar')
+             LIMIT 1`,
+            [neighbors]
         );
-        if (terrainRow.rows[0]?.terrain_name !== 'Costa') {
-            throw new GameActionError('Los puertos solo se pueden construir en terrenos costeros.');
+        if (seaCheck.rowCount === 0) {
+            throw new GameActionError('Los puertos solo se pueden construir en feudos adyacentes al mar.');
         }
         // Only one maritime building per Pagus
         const existingPort = await KingdomModel.GetMaritimeBuildingInDivision(client, h3_index);
@@ -287,9 +288,12 @@ async function executeConstruction(client, playerId, { h3_index, building_id }, 
     }
 
     // ── 4. Exclusion radius: no same building type within EXCLUSION_RADIUS hexes ─
+    // Maritime buildings skip this check — their uniqueness is enforced per-Pagus in step 3c.
     const exclusionRadius = GAME_CONFIG.BUILDINGS.EXCLUSION_RADIUS;
     const nearbyHexes = h3.gridDisk(h3_index, exclusionRadius);
-    const conflict = await KingdomModel.GetBuildingOfTypeInRadius(client, nearbyHexes, building.type_id, h3_index);
+    const conflict = building.type_name === 'maritime'
+        ? null
+        : await KingdomModel.GetBuildingOfTypeInRadius(client, nearbyHexes, building.type_id, h3_index);
     if (conflict) {
         throw new GameActionError(
             `Ya existe un edificio de este tipo en un radio de ${exclusionRadius} feudos (en ${conflict.h3_index})`
