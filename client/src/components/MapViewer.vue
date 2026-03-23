@@ -1255,7 +1255,8 @@ let _pp_index = 0;
 let _pp_ref = null;
 let _pp_h3 = '';
 let _pp_coords = { x: null, y: null, ownerId: null };
-let _char_cache = []; // personajes del jugador, actualizados en fetchAndRenderCharacters
+let _char_cache  = []; // personajes del jugador, actualizados en fetchAndRenderCharacters
+let _all_fleets  = []; // flotas propias, actualizadas en fetchHexagonData
 
 // Action panel state
 const showActionPanel = ref(false);
@@ -2006,6 +2007,7 @@ const fetchHexagonData = async () => {
 
     // Render own fleet markers (interactive: move, stop, embark, disembark)
     renderFleetMarkers(fleets);
+    _all_fleets = fleets || [];
 
     // Render in-progress construction markers
     renderConstructionMarkers(constructions, currentPlayerId);
@@ -2245,7 +2247,6 @@ const renderFleetMarkers = (fleets) => {
   for (const fleet of fleets) {
     try {
       const [lat, lng] = cellToLatLng(fleet.h3_index);
-      const hasDestination = !!fleet.destination;
 
       const icon = L.divIcon({
         className: '',
@@ -2258,103 +2259,20 @@ const renderFleetMarkers = (fleets) => {
           cursor:pointer;"
           title="${fleet.name} · ${fleet.total_ships} barcos">⛵</div>`,
         iconSize: [26, 26],
-        iconAnchor: [13, 13],
+        iconAnchor: [20, 6],
         pane: 'fleetPane',
       });
 
-      const fid = fleet.army_id;
-      const popupHtml = `
-        <div id="fleet-popup-${fid}" style="min-width:200px;max-width:260px;font-family:sans-serif;font-size:13px;">
-          <strong style="font-size:14px;">⛵ ${fleet.name}</strong><br>
-          <div style="display:flex;gap:10px;font-size:11px;color:#6b7280;margin:3px 0;">
-            <span>🚢 ${fleet.total_ships}</span>
-            <span>📦 ${fleet.total_capacity}</span>
-          </div>
-          ${hasDestination ? `<div style="font-size:11px;color:#f59e0b;margin-bottom:2px;">→ ${fleet.destination}</div>` : ''}
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:8px;">
-            <button id="fl-move-${fid}"
-              style="padding:5px;border:none;border-radius:4px;background:#1e40af;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">
-              ➡️ Moverse</button>
-            <button id="fl-stop-${fid}" ${hasDestination ? '' : 'disabled'}
-              style="padding:5px;border:none;border-radius:4px;background:${hasDestination ? '#7c3aed' : '#374151'};color:#fff;font-size:12px;font-weight:600;cursor:${hasDestination ? 'pointer' : 'not-allowed'};opacity:${hasDestination ? 1 : 0.45};">
-              ⏹ Detenerse</button>
-            <button id="fl-embark-${fid}"
-              style="padding:5px;border:none;border-radius:4px;background:#065f46;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">
-              ⚓ Embarcar</button>
-            <button id="fl-disembark-${fid}"
-              style="padding:5px;border:none;border-radius:4px;background:#7c2d12;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">
-              🏖️ Desembarcar</button>
-          </div>
-          <div id="fl-panel-${fid}" style="margin-top:8px;font-size:12px;"></div>
-        </div>`;
-
       const marker = L.marker([lat, lng], { icon, pane: 'fleetPane' });
-      marker.bindPopup(popupHtml, { maxWidth: 280 });
 
-      marker.on('popupopen', () => {
-        setTimeout(() => {
-          // ── Move ────────────────────────────────────────────────────────────
-          document.getElementById(`fl-move-${fid}`)?.addEventListener('click', () => {
-            marker.closePopup();
-            window.startFleetMovement(fid, fleet.name, fleet.h3_index);
-          });
-
-          // ── Stop ────────────────────────────────────────────────────────────
-          const stopBtn = document.getElementById(`fl-stop-${fid}`);
-          if (stopBtn && !stopBtn.disabled) {
-            stopBtn.addEventListener('click', async () => {
-              try {
-                await mapApi.stopFleet(fid);
-                marker.closePopup();
-                RouteVisualizer.clearArmy(fid);
-                showToast(`⏹ ${fleet.name} detenida.`, 'info');
-                await fetchHexagonData();
-              } catch (err) {
-                showToast(`❌ ${err?.response?.data?.message || 'Error al detener la flota'}`, 'error');
-              }
-            });
-          }
-
-          // ── Embark ──────────────────────────────────────────────────────────
-          document.getElementById(`fl-embark-${fid}`)?.addEventListener('click', async () => {
-            const panel = document.getElementById(`fl-panel-${fid}`);
-            if (!panel) return;
-            panel.innerHTML = '<span style="color:#9ca3af;">Cargando...</span>';
-            try {
-              const data = await mapApi.getEmbarkableArmies(fid);
-              const armies = data.armies || [];
-              panel.innerHTML = armies.length === 0
-                ? '<span style="color:#6b7280;">No hay ejércitos disponibles para embarcar.</span>'
-                : armies.map(a => `
-                  <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #374151;">
-                    <span>⚔️ ${a.name} (${a.troop_count})</span>
-                    <button onclick="window.doFleetEmbark(${fid},${a.army_id},'${a.name.replace(/'/g, "\\'")}',this)"
-                      style="padding:2px 8px;border:none;border-radius:3px;background:#065f46;color:#fff;font-size:11px;cursor:pointer;">
-                      Embarcar</button>
-                  </div>`).join('');
-            } catch { panel.innerHTML = '<span style="color:#ef4444;">Error al cargar ejércitos.</span>'; }
-          });
-
-          // ── Disembark ───────────────────────────────────────────────────────
-          document.getElementById(`fl-disembark-${fid}`)?.addEventListener('click', async () => {
-            const panel = document.getElementById(`fl-panel-${fid}`);
-            if (!panel) return;
-            panel.innerHTML = '<span style="color:#9ca3af;">Cargando...</span>';
-            try {
-              const data = await mapApi.getFleetDetail(fid);
-              const embarked = data.fleet?.cargo?.embarked_armies || [];
-              panel.innerHTML = embarked.length === 0
-                ? '<span style="color:#6b7280;">No hay tropas embarcadas.</span>'
-                : embarked.map(a => `
-                  <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #374151;">
-                    <span>⚔️ ${a.name} (${a.troop_count})</span>
-                    <button onclick="window.doFleetDisembark(${a.army_id},'${a.name.replace(/'/g, "\\'")}',this)"
-                      style="padding:2px 8px;border:none;border-radius:3px;background:#7c2d12;color:#fff;font-size:11px;cursor:pointer;">
-                      Desembarcar</button>
-                  </div>`).join('');
-            } catch { panel.innerHTML = '<span style="color:#ef4444;">Error al cargar carga.</span>'; }
-          });
-        }, 50);
+      marker.on('click', () => {
+        MapInteractionController.handleMapClick(fleet.h3_index, {
+          onNormal: async () => showArmyDetailsPopup(fleet.h3_index, [lat, lng]),
+          onSelectDestination: dispatchMovement,
+          onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
+            await processWorkerMovement(workerId, fromH3, targetH3);
+          },
+        });
       });
 
       fleetMarkersLayer.addLayer(marker);
@@ -2495,27 +2413,26 @@ const renderHexStackers = (buildings, armyEntries, currentPlayerId, ownerMap) =>
       let units = null;
       const group = armyByHex.get(h3_index);
       if (group && group.length > 0) {
-        let ownTroops       = 0;
-        let enemyTroops     = 0;
-        let ownHasFieldArmy = false;   // true if own player has at least one non-garrison army here
-        let hasOwnFleet     = false;
-        let hasEnemyFleet   = false;
+        let ownTroops          = 0;
+        let enemyTroops        = 0;
+        let ownHasFieldArmy    = false;   // true if own player has at least one non-garrison army here
+        let hasEmbarckedTroops = false;
         for (const e of group) {
           if (e.player_id === currentPlayerId) {
             const count = Number(e.total_troops) || 0;
             ownTroops += count;
             if (!e.has_garrison || Number(e.army_count) > 1) ownHasFieldArmy = true;
-            if (e.has_naval) hasOwnFleet = true;
+            if (e.has_embarked_armies) hasEmbarckedTroops = true;
           } else {
             // Enemy entries only expose {h3_index, player_id} — no troop count.
             // Use 1 as sentinel so the stacker icon shows enemy presence.
             enemyTroops += 1;
-            if (e.has_naval) hasEnemyFleet = true;
+            if (e.has_embarked_armies) hasEmbarckedTroops = true;
           }
         }
         const isConflict      = ownTroops > 0 && enemyTroops > 0;
         const ownGarrisonOnly = ownTroops > 0 && !ownHasFieldArmy;
-        units = { own_troops: ownTroops, enemy_troops: enemyTroops, is_conflict: isConflict, own_garrison_only: ownGarrisonOnly, has_own_fleet: hasOwnFleet, has_enemy_fleet: hasEnemyFleet };
+        units = { own_troops: ownTroops, enemy_troops: enemyTroops, is_conflict: isConflict, own_garrison_only: ownGarrisonOnly, has_embarked_troops: hasEmbarckedTroops };
       }
 
       const divIcon = createStackerDivIcon(L, { building: bld, units });
@@ -4755,6 +4672,13 @@ window.armyPopupNavigate = (delta) => {
     return;
   }
 
+  if (item.type === 'fleet') {
+    const newContent = _generateFleetItemHTML(item.data, _pp_items.length, _pp_index);
+    _pp_ref.setContent(newContent);
+    setTimeout(() => attachFleetListeners(item.data), 50);
+    return;
+  }
+
   // Army item
   const { hasExplorersAtHex, scoutingArmyId, attackingArmyId } = _getScoutingInfo(_pp_armies);
   const characterAtHex = _char_cache.find(c => c.h3_index === _pp_h3 && !c.army_id) ?? null;
@@ -4832,6 +4756,110 @@ const _generateCharacterItemHTML = (char, totalItems, globalIndex) => {
   return html;
 };
 
+// Builds the fleet inspector HTML for the popup navigation
+const _generateFleetItemHTML = (fleet, totalItems, globalIndex) => {
+  const fid = fleet.army_id;
+  const hasDestination = !!fleet.destination;
+  const btnStyle    = 'background:#1e1e38;border:1px solid #3a3a5c;color:#e2e8f0;border-radius:4px;padding:3px 11px;font-size:1rem;line-height:1;cursor:pointer;';
+  const btnDisStyle = btnStyle + 'opacity:0.3;cursor:not-allowed;';
+  const prevDis = globalIndex === 0;
+  const nextDis = globalIndex === totalItems - 1;
+  const actionBtnBase = 'padding:5px;border:none;border-radius:4px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;';
+
+  let html = '<div class="army-inspector">';
+
+  // Nav bar
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 10px;background:rgba(0,0,0,0.45);border-bottom:1px solid #2d2d4a;margin-bottom:4px;">`;
+  html += `<button onclick="event.stopPropagation();window.armyPopupNavigate(-1)" ${prevDis ? 'disabled' : ''} style="${prevDis ? btnDisStyle : btnStyle}">◀</button>`;
+  html += `<span style="font-family:sans-serif;font-size:0.72rem;color:#6b7280;letter-spacing:1.5px;text-transform:uppercase;">⛵ Flota · ${globalIndex + 1}/${totalItems}</span>`;
+  html += `<button onclick="event.stopPropagation();window.armyPopupNavigate(1)" ${nextDis ? 'disabled' : ''} style="${nextDis ? btnDisStyle : btnStyle}">▶</button>`;
+  html += `</div>`;
+
+  // Fleet card
+  html += `<div style="padding:12px 14px;font-family:sans-serif;font-size:13px;">`;
+  html += `<strong style="font-size:14px;">⛵ ${fleet.name}</strong><br>`;
+  html += `<div style="display:flex;gap:10px;font-size:11px;color:#6b7280;margin:4px 0 6px;">`;
+  html += `<span>🚢 ${fleet.total_ships} barcos</span><span>📦 ${fleet.total_capacity} capacidad</span>`;
+  html += `</div>`;
+  if (hasDestination) {
+    html += `<div style="font-size:11px;color:#f59e0b;margin-bottom:6px;">→ En marcha</div>`;
+  }
+  html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px;">`;
+  html += `<button id="fl-move-${fid}" style="${actionBtnBase}background:#1e40af;">➡️ Moverse</button>`;
+  html += `<button id="fl-stop-${fid}" ${hasDestination ? '' : 'disabled'} style="${actionBtnBase}background:${hasDestination ? '#7c3aed' : '#374151'};opacity:${hasDestination ? 1 : 0.45};cursor:${hasDestination ? 'pointer' : 'not-allowed'};">⏹ Detenerse</button>`;
+  html += `<button id="fl-embark-${fid}" style="${actionBtnBase}background:#065f46;">⚓ Embarcar</button>`;
+  html += `<button id="fl-disembark-${fid}" style="${actionBtnBase}background:#7c2d12;">🏖️ Desembarcar</button>`;
+  html += `</div>`;
+  html += `<div id="fl-panel-${fid}" style="margin-top:8px;font-size:12px;"></div>`;
+  html += `</div></div>`;
+  return html;
+};
+
+// Attaches action listeners to fleet buttons inside the navigation popup
+const attachFleetListeners = (fleet) => {
+  const fid = fleet.army_id;
+
+  document.getElementById(`fl-move-${fid}`)?.addEventListener('click', () => {
+    map.closePopup();
+    window.startFleetMovement(fid, fleet.name, fleet.h3_index);
+  });
+
+  const stopBtn = document.getElementById(`fl-stop-${fid}`);
+  if (stopBtn && !stopBtn.disabled) {
+    stopBtn.addEventListener('click', async () => {
+      try {
+        await mapApi.stopFleet(fid);
+        map.closePopup();
+        RouteVisualizer.clearArmy(fid);
+        showToast(`⏹ ${fleet.name} detenida.`, 'info');
+        await fetchHexagonData();
+      } catch (err) {
+        showToast(`❌ ${err?.response?.data?.message || 'Error al detener la flota'}`, 'error');
+      }
+    });
+  }
+
+  document.getElementById(`fl-embark-${fid}`)?.addEventListener('click', async () => {
+    const panel = document.getElementById(`fl-panel-${fid}`);
+    if (!panel) return;
+    panel.innerHTML = '<span style="color:#9ca3af;">Cargando...</span>';
+    try {
+      const data = await mapApi.getEmbarkableArmies(fid);
+      const armies = data.armies || [];
+      panel.innerHTML = armies.length === 0
+        ? '<span style="color:#6b7280;">No hay ejércitos disponibles para embarcar.</span>'
+        : armies.map(a => {
+            const parts = [];
+            if (a.troop_count > 0) parts.push(`⚔️ ${a.troop_count}`);
+            if (a.char_count  > 0) parts.push(`👑 ${a.char_count}`);
+            const label = parts.length ? `${a.name} (${parts.join(' ')})` : a.name;
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #374151;">
+              <span style="font-size:12px;">${label}</span>
+              <button onclick="window.doFleetEmbark(${fid},${a.army_id},'${a.name.replace(/'/g, "\\'")}',this)"
+                style="padding:2px 8px;border:none;border-radius:3px;background:#065f46;color:#fff;font-size:11px;cursor:pointer;">Embarcar</button>
+            </div>`;
+          }).join('');
+    } catch { panel.innerHTML = '<span style="color:#ef4444;">Error al cargar ejércitos.</span>'; }
+  });
+
+  document.getElementById(`fl-disembark-${fid}`)?.addEventListener('click', async () => {
+    const panel = document.getElementById(`fl-panel-${fid}`);
+    if (!panel) return;
+    panel.innerHTML = '<span style="color:#9ca3af;">Cargando...</span>';
+    try {
+      const data = await mapApi.getFleetDetail(fid);
+      const embarked = data.fleet?.cargo?.embarked_armies || [];
+      panel.innerHTML = embarked.length === 0
+        ? '<span style="color:#6b7280;">No hay tropas embarcadas.</span>'
+        : embarked.map(a => `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #374151;">
+            <span>⚔️ ${a.name} (${a.troop_count})</span>
+            <button onclick="window.doFleetDisembark(${a.army_id},'${a.name.replace(/'/g, "\\'")}',this)"
+              style="padding:2px 8px;border:none;border-radius:3px;background:#7c2d12;color:#fff;font-size:11px;cursor:pointer;">Desembarcar</button>
+          </div>`).join('');
+    } catch { panel.innerHTML = '<span style="color:#ef4444;">Error al cargar carga.</span>'; }
+  });
+};
+
 /**
  * Show detailed army information popup
  * Fetches full army details from API and displays in Leaflet popup
@@ -4876,26 +4904,38 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
     const charsAtHex = _char_cache.filter(c => c.h3_index === h3_index && !c.army_id && c.age >= 16);
     const characterAtHex = charsAtHex[0] ?? null; // legacy — for assign-commander button
 
-    // Build combined items list: armies first, then characters
+    // Fleets at this hex (own fleets cached from last fetchHexagonData)
+    const fleetsAtHex = _all_fleets.filter(f => f.h3_index === h3_index);
+
+    // Build combined items list: armies → characters → fleets
     _pp_items = [
-      ..._pp_armies.map(a => ({ type: 'army', data: a })),
+      ..._pp_armies.map(a => ({ type: 'army',      data: a })),
       ...charsAtHex.map(c => ({ type: 'character', data: c })),
+      ...fleetsAtHex.map(f => ({ type: 'fleet',    data: f })),
     ];
 
-    // Build popup HTML content using external generator
-    const popupContent = generateArmyPopup(data, {
-      currentPlayerId: playerId.value,
-      h3_index,
-      coord_x,
-      coord_y,
-      hexOwnerId: _pp_coords.ownerId,
-      currentIndex: 0,
-      totalItems: _pp_items.length,
-      hasExplorersAtHex,
-      scoutingArmyId,
-      attackingArmyId,
-      characterAtHex
-    });
+    if (_pp_items.length === 0) return;
+
+    // Initial render depends on the type of the first item
+    const firstItem = _pp_items[0];
+    let popupContent;
+    if (firstItem.type === 'fleet') {
+      popupContent = _generateFleetItemHTML(firstItem.data, _pp_items.length, 0);
+    } else {
+      popupContent = generateArmyPopup(data, {
+        currentPlayerId: playerId.value,
+        h3_index,
+        coord_x,
+        coord_y,
+        hexOwnerId: _pp_coords.ownerId,
+        currentIndex: 0,
+        totalItems: _pp_items.length,
+        hasExplorersAtHex,
+        scoutingArmyId,
+        attackingArmyId,
+        characterAtHex
+      });
+    }
 
     // Create and show popup — store reference for navigation
     const popup = L.popup({
@@ -4908,12 +4948,15 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
 
     _pp_ref = popup;
 
-    // Attach listeners for the first army after DOM renders
+    // Attach listeners for the first item after DOM renders
     setTimeout(() => {
-      if (_pp_armies.length === 0) return;
-      const first = _pp_armies[0];
-      if (first.player_id === playerId.value) attachArmyListeners(first, h3_index);
-      else attachEnemyListeners(first);
+      if (firstItem.type === 'fleet') {
+        attachFleetListeners(firstItem.data);
+      } else if (_pp_armies.length > 0) {
+        const first = _pp_armies[0];
+        if (first.player_id === playerId.value) attachArmyListeners(first, h3_index);
+        else attachEnemyListeners(first);
+      }
     }, 100);
 
   } catch (error) {
@@ -6065,8 +6108,9 @@ const setupMapInteractionController = () => {
   window.doFleetEmbark = async (fleetId, armyId, armyName, btn) => {
     if (btn) btn.disabled = true;
     try {
-      await mapApi.embarkArmy(fleetId, armyId);
+      const result = await mapApi.embarkArmy(fleetId, armyId);
       showToast(`✅ ${armyName} embarcado.`, 'success');
+      if (result?.warning) showToast(`⚠️ ${result.warning}`, 'warning');
       map.closePopup();
       await fetchHexagonData();
     } catch (err) {

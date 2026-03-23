@@ -189,9 +189,7 @@ export function createStackerHTML({ building = null, units = null } = {}) {
   const hasEnemy        = enemyCount > 0;
   const hasTroops       = hasOwn || hasEnemy;
   const isConflict      = !!(units?.is_conflict);
-  const hasOwnFleet     = !!(units?.has_own_fleet);
-  const hasEnemyFleet   = !!(units?.has_enemy_fleet);
-  const hasFleet        = hasOwnFleet || hasEnemyFleet;
+  const hasFleet        = !!(units?.has_embarked_troops);
 
   if (!hasBuilding && !hasTroops && !hasFleet) return '';
 
@@ -240,8 +238,8 @@ export function createStackerHTML({ building = null, units = null } = {}) {
 
   // ── Fleet badge (TOP-RIGHT) ────────────────────────────────────────────────
   if (hasFleet) {
-    const fleetBg     = hasOwnFleet && hasEnemyFleet ? '#7b1fa2' : hasOwnFleet ? '#0d47a1' : '#b71c1c';
-    const fleetBorder = hasOwnFleet && hasEnemyFleet ? '#ce93d8' : hasOwnFleet ? '#64b5f6' : '#ef9a9a';
+    const fleetBg     = '#0d47a1';
+    const fleetBorder = '#64b5f6';
     parts.push(`
       <div style="
         position:absolute;

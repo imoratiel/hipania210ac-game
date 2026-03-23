@@ -53,6 +53,7 @@ class ArmyModel {
             LEFT JOIN players p2    ON p2.player_id = c.player_id
             LEFT JOIN noble_ranks nr ON nr.id = p2.noble_rank_id
             WHERE a.h3_index = $1
+              AND a.is_naval = FALSE
         `;
         const result = await db.query(query, [h3_index, COMBAT_BUFF_BASE, COMBAT_BUFF_PER_LEVEL]);
         return result;
@@ -104,7 +105,10 @@ class ArmyModel {
                 COUNT(DISTINCT a.army_id) AS army_count,
                 COALESCE(SUM(CASE WHEN NOT a.is_naval THEN t.quantity ELSE 0 END), 0)::int AS total_troops,
                 BOOL_OR(a.is_garrison) AS has_garrison,
-                BOOL_OR(a.is_naval)    AS has_naval
+                BOOL_OR(a.is_naval)    AS has_naval,
+                BOOL_OR(CASE WHEN a.is_naval THEN EXISTS(
+                    SELECT 1 FROM armies a2 WHERE a2.transported_by = a.army_id
+                ) ELSE FALSE END) AS has_embarked_armies
             FROM armies a
             LEFT JOIN troops t ON a.army_id = t.army_id AND NOT a.is_naval
             WHERE a.h3_index = ANY($1::text[])

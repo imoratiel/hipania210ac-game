@@ -7,6 +7,53 @@ const { Logger } = require('../utils/logger.js');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Splits a troops array so that `slots` capacity is filled proportionally.
+ * Priority order within the slots is preserved by unit (largest remainder method).
+ *
+ * @param {{ unit_type_id, quantity, experience, morale, last_fed_turn, stamina, force_rest }[]} troops
+ * @param {number} slots - available capacity for troops
+ * @returns {{ embarked: typeof troops, leftover: typeof troops }}
+ */
+function _splitTroopsProportionally(troops, slots) {
+    const total = troops.reduce((s, t) => s + t.quantity, 0);
+    if (slots >= total) return { embarked: troops.map(t => ({ ...t })), leftover: [] };
+    if (slots <= 0)     return { embarked: [], leftover: troops.map(t => ({ ...t })) };
+
+    const ratio = slots / total;
+    // Floor pass
+    const items = troops.map(t => ({
+        ...t,
+        eq: Math.floor(t.quantity * ratio),
+        frac: (t.quantity * ratio) % 1,
+    }));
+
+    let allocated = items.reduce((s, t) => s + t.eq, 0);
+    let remainder = slots - allocated;
+
+    // Distribute remaining slots by largest fractional part
+    items.sort((a, b) => b.frac - a.frac);
+    for (let i = 0; i < items.length && remainder > 0; i++) {
+        items[i].eq++;
+        remainder--;
+    }
+    // Restore original order
+    items.sort((a, b) => a.unit_type_id - b.unit_type_id);
+
+    const embarked = [];
+    const leftover = [];
+    for (const t of items) {
+        const lq = t.quantity - t.eq;
+        if (t.eq > 0) embarked.push({ unit_type_id: t.unit_type_id, quantity: t.eq,
+            experience: t.experience, morale: t.morale, last_fed_turn: t.last_fed_turn,
+            stamina: t.stamina, force_rest: t.force_rest });
+        if (lq > 0)   leftover.push({ unit_type_id: t.unit_type_id, quantity: lq,
+            experience: t.experience, morale: t.morale, last_fed_turn: t.last_fed_turn,
+            stamina: t.stamina, force_rest: t.force_rest });
+    }
+    return { embarked, leftover };
+}
+
 async function _getPlayerCulture(player_id) {
     const r = await pool.query('SELECT culture_id FROM players WHERE player_id = $1', [player_id]);
     return r.rows[0]?.culture_id ?? 1;
@@ -285,6 +332,7 @@ class NavalService {
             const player_id = req.user.player_id;
             const { fleet_id, army_id } = req.body;
 
+            // ── Validate fleet & army ─────────────────────────────────────────
             const fleet = await NavalModel.GetFleetByIdAndOwner(client, fleet_id, player_id);
             if (!fleet) {
                 await client.query('ROLLBACK');
@@ -292,7 +340,7 @@ class NavalService {
             }
 
             const armyRes = await client.query(
-                `SELECT army_id, h3_index, transported_by FROM armies
+                `SELECT army_id, name, h3_index, transported_by FROM armies
                  WHERE army_id = $1 AND player_id = $2 AND is_naval = FALSE AND is_garrison = FALSE`,
                 [army_id, player_id]
             );
@@ -301,7 +349,6 @@ class NavalService {
                 return res.status(404).json({ success: false, message: 'Ejército no encontrado.' });
             }
             const army = armyRes.rows[0];
-
             if (army.transported_by !== null) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({ success: false, message: 'Este ejército ya está embarcado.' });
@@ -311,27 +358,107 @@ class NavalService {
                 return res.status(400).json({ success: false, message: 'El ejército y la flota deben estar en el mismo hex para embarcar.' });
             }
 
-            // Capacity check
-            const cargo = await NavalModel.GetFleetCargo(client, fleet_id);
-            const troopRes = await client.query(
-                'SELECT COALESCE(SUM(quantity), 0)::int AS cnt FROM troops WHERE army_id = $1',
-                [army_id]
-            );
-            const troopCount = troopRes.rows[0].cnt;
-            const available  = cargo.max_capacity - cargo.used_capacity;
-            if (troopCount > available) {
+            // ── Gather everything that wants to board ─────────────────────────
+            const [cargo, charsRes, troopsRes, workersAtHex] = await Promise.all([
+                NavalModel.GetFleetCargo(client, fleet_id),
+                client.query(
+                    `SELECT id FROM characters WHERE army_id = $1`, [army_id]
+                ),
+                client.query(
+                    `SELECT unit_type_id, quantity, experience, morale, last_fed_turn, stamina, force_rest
+                     FROM troops WHERE army_id = $1 ORDER BY unit_type_id`,
+                    [army_id]
+                ),
+                NavalModel.GetWorkersAtHex(client, player_id, army.h3_index),
+            ]);
+
+            const available    = cargo.max_capacity - cargo.used_capacity;
+            const chars        = charsRes.rows;          // always travel with army
+            const troops       = troopsRes.rows;
+            const workers      = workersAtHex;
+
+            const char_count   = chars.length;
+            const worker_count = workers.length;
+            const troop_total  = troops.reduce((s, t) => s + t.quantity, 0);
+            const needed       = char_count + worker_count + troop_total;
+
+            if (available <= 0) {
                 await client.query('ROLLBACK');
-                return res.status(400).json({
-                    success: false,
-                    message: `Capacidad insuficiente. La flota puede transportar ${available} tropas más, pero el ejército tiene ${troopCount}.`,
-                });
+                return res.status(400).json({ success: false, message: 'La flota no tiene capacidad de transporte disponible.' });
             }
 
+            let workers_to_embark = workers;
+            let garrison_leftover = null;  // { unit_type_id, quantity, ... }[]
+            let warning = null;
+
+            if (needed > available) {
+                // ── Prioritize: characters → workers → troops (proportional) ──
+                let remaining = available;
+
+                // 1. Characters always board (up to capacity — edge case)
+                remaining -= Math.min(char_count, remaining);
+
+                // 2. Workers fill next slots
+                const workers_fit  = Math.min(worker_count, remaining);
+                workers_to_embark  = workers.slice(0, workers_fit);
+                remaining         -= workers_fit;
+
+                // 3. Troops: proportional split
+                if (remaining < troop_total) {
+                    const split   = _splitTroopsProportionally(troops, remaining);
+                    garrison_leftover = split.leftover;
+
+                    // Update embarking army to only hold the embarked portion
+                    for (const t of split.embarked) {
+                        await client.query(
+                            `UPDATE troops SET quantity = $1 WHERE army_id = $2 AND unit_type_id = $3`,
+                            [t.quantity, army_id, t.unit_type_id]
+                        );
+                    }
+                    // Remove unit types that are entirely in the garrison
+                    const embarkIds = new Set(split.embarked.map(t => t.unit_type_id));
+                    for (const t of troops) {
+                        if (!embarkIds.has(t.unit_type_id)) {
+                            await client.query(
+                                `DELETE FROM troops WHERE army_id = $1 AND unit_type_id = $2`,
+                                [army_id, t.unit_type_id]
+                            );
+                        }
+                    }
+
+                    // Create garrison army at the port hex with leftover troops
+                    const garRes = await client.query(
+                        `INSERT INTO armies (player_id, h3_index, name, is_garrison)
+                         VALUES ($1, $2, $3, TRUE) RETURNING army_id`,
+                        [player_id, army.h3_index, `Guarnición de ${army.name}`]
+                    );
+                    const garrison_id = garRes.rows[0].army_id;
+
+                    for (const t of garrison_leftover) {
+                        await client.query(
+                            `INSERT INTO troops (army_id, unit_type_id, quantity, experience, morale, last_fed_turn, stamina, force_rest)
+                             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+                            [garrison_id, t.unit_type_id, t.quantity, t.experience, t.morale,
+                             t.last_fed_turn, t.stamina, t.force_rest]
+                        );
+                    }
+
+                    const leftover_total = garrison_leftover.reduce((s, t) => s + t.quantity, 0);
+                    warning = `${leftover_total} tropas acuarteladas en el puerto por falta de espacio en la flota.`;
+                    Logger.action(`Guarnición ${garrison_id} creada en ${army.h3_index} con ${leftover_total} tropas sobrantes`);
+                }
+                // Workers that don't fit simply stay at the hex (no action needed)
+            }
+
+            // ── Commit embarkation ────────────────────────────────────────────
             await NavalModel.EmbarkArmy(client, army_id, fleet_id);
+            if (workers_to_embark.length) {
+                await NavalModel.EmbarkWorkers(client, workers_to_embark.map(w => w.id), fleet_id);
+            }
             await client.query('COMMIT');
 
-            Logger.action(`Ejército ${army_id} embarcado en flota ${fleet_id} por player ${player_id}`);
-            res.json({ success: true });
+            Logger.action(`Ejército ${army_id} embarcado en flota ${fleet_id} (${workers_to_embark.length} constructores)${warning ? ' — ' + warning : ''}`);
+            res.json({ success: true, warning });
         } catch (err) {
             await client.query('ROLLBACK').catch(() => {});
             Logger.error(err, { endpoint: '/naval/embark', userId: req.user?.player_id });
@@ -375,8 +502,20 @@ class NavalService {
                 return res.status(400).json({ success: false, message: 'Solo puedes desembarcar en hexes costeros o con puerto.' });
             }
 
+            // Fetch fleet_id before clearing transported_by
+            const fleetIdRes = await client.query(
+                `SELECT transported_by FROM armies WHERE army_id = $1`, [army_id]
+            );
+            const fleet_id = fleetIdRes.rows[0]?.transported_by;
+
             await NavalModel.DisembarkArmy(client, army_id);
             await client.query('UPDATE armies SET h3_index = $1 WHERE army_id = $2', [fleet_hex, army_id]);
+
+            // Also disembark any workers transported by the same fleet
+            if (fleet_id) {
+                await NavalModel.DisembarkWorkers(client, fleet_id, fleet_hex);
+            }
+
             await client.query('COMMIT');
 
             Logger.action(`Ejército ${army_id} desembarcado en ${fleet_hex}`);

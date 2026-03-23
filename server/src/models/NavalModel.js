@@ -76,7 +76,8 @@ class NavalModel {
     }
 
     /**
-     * Total transport capacity and currently embarked troops for a fleet.
+     * Total transport capacity and currently embarked load for a fleet.
+     * Capacity is consumed by: troops + characters (attached to embarked armies) + workers.
      */
     async GetFleetCargo(client, fleet_id) {
         const capRes = await (client || pool).query(`
@@ -89,19 +90,69 @@ class NavalModel {
         `, [fleet_id]);
 
         const embarkRes = await (client || pool).query(`
-            SELECT a.army_id, a.name, COALESCE(SUM(t.quantity), 0)::int AS troop_count
+            SELECT
+                a.army_id, a.name,
+                COALESCE(SUM(t.quantity), 0)::int AS troop_count,
+                (SELECT COUNT(*) FROM characters c WHERE c.army_id = a.army_id)::int AS char_count
             FROM armies a
             LEFT JOIN troops t ON a.army_id = t.army_id
             WHERE a.transported_by = $1
             GROUP BY a.army_id, a.name
         `, [fleet_id]);
 
-        const used = embarkRes.rows.reduce((sum, r) => sum + r.troop_count, 0);
+        const workerRes = await (client || pool).query(
+            `SELECT COUNT(*)::int AS worker_count FROM workers WHERE transported_by = $1`,
+            [fleet_id]
+        );
+
+        const troops_used   = embarkRes.rows.reduce((s, r) => s + r.troop_count, 0);
+        const chars_used    = embarkRes.rows.reduce((s, r) => s + r.char_count,  0);
+        const workers_used  = workerRes.rows[0].worker_count;
+        const used_capacity = troops_used + chars_used + workers_used;
+
         return {
-            max_capacity:     capRes.rows[0].max_capacity,
-            used_capacity:    used,
-            embarked_armies:  embarkRes.rows,
+            max_capacity:    capRes.rows[0].max_capacity,
+            used_capacity,
+            embarked_armies: embarkRes.rows,
+            workers_count:   workers_used,
         };
+    }
+
+    /**
+     * Workers at a hex belonging to a player that are not already on a fleet.
+     */
+    async GetWorkersAtHex(client, player_id, h3_index) {
+        const result = await (client || pool).query(`
+            SELECT w.id, wt.name AS type_name
+            FROM workers w
+            JOIN workers_types wt ON w.type_id = wt.id
+            WHERE w.player_id = $1
+              AND w.h3_index  = $2
+              AND w.transported_by IS NULL
+        `, [player_id, h3_index]);
+        return result.rows;
+    }
+
+    /**
+     * Mark workers as transported by a fleet.
+     */
+    async EmbarkWorkers(client, worker_ids, fleet_id) {
+        if (!worker_ids.length) return;
+        await client.query(
+            `UPDATE workers SET transported_by = $1 WHERE id = ANY($2::int[])`,
+            [fleet_id, worker_ids]
+        );
+    }
+
+    /**
+     * Move workers on a fleet to their landing hex and clear transported_by.
+     */
+    async DisembarkWorkers(client, fleet_id, h3_index) {
+        await client.query(
+            `UPDATE workers SET h3_index = $1, transported_by = NULL, destination_h3 = NULL
+             WHERE transported_by = $2`,
+            [h3_index, fleet_id]
+        );
     }
 
     // ── Ownership helper ──────────────────────────────────────────────────
@@ -163,15 +214,19 @@ class NavalModel {
 
     /**
      * Land armies at the fleet's hex, owned by the player, not yet embarked.
+     * Includes troop count, character count and (per-hex) worker count for UI display.
      */
     async GetEmbarkableArmies(client, player_id, h3_index) {
         const result = await (client || pool).query(`
-            SELECT a.army_id, a.name, COALESCE(SUM(t.quantity), 0)::int AS troop_count
+            SELECT
+                a.army_id, a.name,
+                COALESCE(SUM(t.quantity), 0)::int AS troop_count,
+                (SELECT COUNT(*) FROM characters c WHERE c.army_id = a.army_id)::int AS char_count
             FROM armies a
             LEFT JOIN troops t ON a.army_id = t.army_id
             WHERE a.player_id = $1
-              AND a.h3_index = $2
-              AND a.is_naval = FALSE
+              AND a.h3_index  = $2
+              AND a.is_naval  = FALSE
               AND a.is_garrison = FALSE
               AND a.transported_by IS NULL
             GROUP BY a.army_id, a.name

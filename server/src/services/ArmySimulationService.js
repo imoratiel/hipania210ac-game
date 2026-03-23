@@ -425,7 +425,7 @@ class ArmySimulationService {
         const uncached = hexes.filter(h => !terrainCache.has(h));
         if (uncached.length === 0) return;
         const result = await client.query(
-          `SELECT hm.h3_index, tt.movement_cost, tt.is_naval_passable
+          `SELECT hm.h3_index, tt.movement_cost, tt.is_naval_passable, tt.terrain_type_id
            FROM h3_map hm
            JOIN terrain_types tt ON hm.terrain_type_id = tt.terrain_type_id
            WHERE hm.h3_index = ANY($1)`,
@@ -433,9 +433,18 @@ class ArmySimulationService {
         );
         const found = new Set();
         for (const row of result.rows) {
-          const cost = army.is_naval
-            ? (row.is_naval_passable ? 1 : -1)
-            : parseFloat(row.movement_cost);
+          let cost;
+          if (army.is_naval) {
+            if (!row.is_naval_passable) {
+              cost = -1; // tierra: impasable
+            } else if (row.terrain_type_id === 1) {
+              cost = 1;  // Mar: preferido
+            } else {
+              cost = 5;  // Costa: pasable pero caro — evita cortar penínsulas
+            }
+          } else {
+            cost = parseFloat(row.movement_cost);
+          }
           terrainCache.set(row.h3_index, cost);
           found.add(row.h3_index);
         }
@@ -646,7 +655,7 @@ class ArmySimulationService {
       // Flotas navales usan is_naval_passable; ejércitos terrestres usan movement_cost > 0
       const pathSlice = remainingPath.slice(0, maxCells + 2);
       const terrainResult = await client.query(
-        `SELECT hm.h3_index, tt.movement_cost, tt.is_naval_passable
+        `SELECT hm.h3_index, tt.movement_cost, tt.is_naval_passable, tt.terrain_type_id
          FROM h3_map hm
          JOIN terrain_types tt ON hm.terrain_type_id = tt.terrain_type_id
          WHERE hm.h3_index = ANY($1)`,
@@ -655,8 +664,13 @@ class ArmySimulationService {
       const costMap = {};
       for (const row of terrainResult.rows) {
         if (army.is_naval) {
-          // Naval: passable if is_naval_passable; use fixed cost of 1 at sea
-          costMap[row.h3_index] = row.is_naval_passable ? 1 : -1;
+          if (!row.is_naval_passable) {
+            costMap[row.h3_index] = -1; // tierra: bloquea movimiento
+          } else if (row.terrain_type_id === 1) {
+            costMap[row.h3_index] = 1;  // Mar
+          } else {
+            costMap[row.h3_index] = 5;  // Costa
+          }
         } else {
           costMap[row.h3_index] = parseFloat(row.movement_cost);
         }
