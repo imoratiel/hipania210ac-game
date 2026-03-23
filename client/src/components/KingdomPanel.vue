@@ -307,8 +307,8 @@ const formatNumber = (val) => {
 };
 
 const formatGold = (val) => {
-  if (val === null || val === undefined || isNaN(val)) return '0.00';
-  return Number(val).toFixed(2);
+  if (val === null || val === undefined || isNaN(val)) return '0';
+  return Number(val).toLocaleString('es-ES');
 };
 </script>
 

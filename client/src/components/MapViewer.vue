@@ -31,7 +31,7 @@
         <div class="header-stat">
           <span class="stat-icon gold-icon">💰</span>
           <div class="stat-info">
-            <span class="stat-value">{{ playerGold }}</span>
+            <span class="stat-value">{{ Number(playerGold).toLocaleString('es-ES') }}</span>
             <span class="stat-label">Oro</span>
           </div>
         </div>
@@ -990,7 +990,7 @@
             <div class="build-card-icon">{{ getBuildingIcon(building.name, building.type_name) }}</div>
             <div class="build-card-info">
               <h3 class="build-card-name">{{ building.name }}</h3>
-              <p v-if="building.type_name" class="build-card-type">{{ building.type_name }}</p>
+              <p v-if="building.type_name" class="build-card-type">{{ { military: 'Militar', religious: 'Religioso', economic: 'Económico', maritime: 'Marítimo', other: 'Otro' }[building.type_name] || building.type_name }}</p>
               <p v-if="building.description" class="build-card-desc">{{ building.description }}</p>
               <div class="build-card-stats">
                 <span class="build-stat">💰 {{ building.gold_cost }}</span>
