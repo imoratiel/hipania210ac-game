@@ -1128,6 +1128,27 @@
       @clear-highlights="clearDivisionHighlights"
       @division-proclaimed="onDivisionProclaimed"
     />
+
+  <!-- Aviso staging -->
+  <div v-if="showStagingNotice" class="staging-notice-overlay">
+    <div class="staging-notice-box">
+      <div class="staging-notice-icon">⚠️</div>
+      <h2 class="staging-notice-title">Entorno de pruebas</h2>
+      <ul class="staging-notice-list">
+        <li>Este juego está en desarrollo activo y puede cambiar sin previo aviso.</li>
+        <li>Los datos de partida pueden resetearse en cualquier momento.</li>
+        <li>Los turnos están acelerados a <strong>10 minutos</strong> para facilitar las pruebas.</li>
+      </ul>
+      <a
+        href="https://www.notion.so/Manual-de-Juego-326c5a6157a28107b01edc275cd89f21"
+        target="_blank"
+        rel="noopener"
+        class="staging-notice-manual"
+      >📖 Ver Manual de Juego</a>
+      <button class="staging-notice-btn" @click="showStagingNotice = false">Entendido</button>
+    </div>
+  </div>
+
   </div>
 </template>
 
@@ -1385,6 +1406,7 @@ const panelTitle = computed(() => {
 // Overlay system state (full-screen overlays like Messages)
 const activeOverlay = ref(null); // 'messages', 'fiefs', etc.
 const newFleetId    = ref(null); // fleet_id to auto-expand when naval panel opens
+const showStagingNotice = ref(false);
 
 // Infinite scroll for fiefs (Kingdom panel)
 const FIEFS_PER_PAGE = 20;
@@ -6597,6 +6619,10 @@ const handleKeyDown = (event) => {
 
 // Lifecycle hooks
 onMounted(() => {
+  if (!localStorage.getItem('staging_notice_seen')) {
+    showStagingNotice.value = true;
+    localStorage.setItem('staging_notice_seen', '1');
+  }
   checkAuth(); // Check authentication first
   loadWorkerTypes(); // Load worker type catalog for popup hire form
   initMap();
@@ -11358,4 +11384,64 @@ onBeforeUnmount(() => {
 .h3-search-btn:hover {
   border-color: #c8a96e;
 }
+
+/* ── Staging notice ─────────────────────────────────────────── */
+.staging-notice-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99999;
+}
+.staging-notice-box {
+  background: #1a1a2e;
+  border: 1px solid #c8a96e;
+  border-radius: 10px;
+  padding: 32px 36px;
+  max-width: 460px;
+  width: 90%;
+  text-align: center;
+  color: #e2d5b0;
+}
+.staging-notice-icon { font-size: 36px; margin-bottom: 10px; }
+.staging-notice-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #c8a96e;
+  margin-bottom: 16px;
+}
+.staging-notice-list {
+  text-align: left;
+  font-size: 14px;
+  line-height: 1.7;
+  padding-left: 20px;
+  margin-bottom: 20px;
+  color: #d4c5a0;
+}
+.staging-notice-manual {
+  display: inline-block;
+  margin-bottom: 20px;
+  color: #c8a96e;
+  font-size: 14px;
+  text-decoration: none;
+  border: 1px solid #c8a96e;
+  padding: 6px 16px;
+  border-radius: 6px;
+}
+.staging-notice-manual:hover { background: rgba(200,169,110,0.15); }
+.staging-notice-btn {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  background: #c8a96e;
+  color: #1a1a2e;
+  font-weight: 700;
+  font-size: 15px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.staging-notice-btn:hover { background: #d4b97e; }
 </style>

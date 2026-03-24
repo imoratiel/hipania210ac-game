@@ -34,7 +34,7 @@ services:
     container_name: marca_hispanica_client
     restart: always
     ports:
-      - "8080:80"
+      - "80:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -50,9 +50,7 @@ services:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME}
-    # Puerto NO expuesto externamente. Para acceso local usa SSH tunnel:
-    #   ssh -L 5444:localhost:5444 deploy@77.42.41.33
-    # y conecta DBeaver a localhost:5444
+    # Puerto NO expuesto — accede via SSH tunnel: ssh -L 5444:localhost:5432 deploy@77.42.41.33
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./sql:/docker-entrypoint-initdb.d/:ro
