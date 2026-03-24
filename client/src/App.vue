@@ -1,9 +1,11 @@
 <script setup>
 import MapViewer from './components/MapViewer.vue'
+import CookieBanner from './components/CookieBanner.vue'
 </script>
 
 <template>
   <MapViewer />
+  <CookieBanner />
 </template>
 
 <style>

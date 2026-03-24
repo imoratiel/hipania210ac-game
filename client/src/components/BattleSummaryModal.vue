@@ -27,7 +27,7 @@
               </thead>
               <tbody>
                 <tr
-                  v-for="row in battle.desglose?.Atacante ?? []"
+                  v-for="row in groupedAttacker"
                   :key="row.nombre"
                   :class="{ 'bsm-row-zero': row.perdidos === 0 }"
                 >
@@ -58,7 +58,7 @@
               </thead>
               <tbody>
                 <tr
-                  v-for="row in battle.desglose?.Milicia ?? []"
+                  v-for="row in groupedDefender"
                   :key="row.nombre"
                   :class="{ 'bsm-row-zero': row.perdidos === 0 }"
                 >
@@ -124,6 +124,25 @@ const resultOutcomeIcon = computed(() => ({
   defeat:  '🏳️',
   draw:    '⚔️',
 }[props.battle?.result] ?? ''));
+
+/**
+ * Agrupa las filas de desglose por nombre de unidad, sumando las pérdidas.
+ * Ordena de mayor a menor pérdida para que las unidades más castigadas aparezcan primero.
+ * @param {Array<{nombre:string, perdidos:number}>} rows
+ * @returns {Array<{nombre:string, perdidos:number}>}
+ */
+function groupLosses(rows = []) {
+  const map = new Map();
+  for (const row of rows) {
+    const existing = map.get(row.nombre);
+    if (existing) existing.perdidos += row.perdidos;
+    else          map.set(row.nombre, { nombre: row.nombre, perdidos: row.perdidos });
+  }
+  return [...map.values()].sort((a, b) => b.perdidos - a.perdidos);
+}
+
+const groupedAttacker = computed(() => groupLosses(props.battle.desglose?.Atacante));
+const groupedDefender = computed(() => groupLosses(props.battle.desglose?.Milicia));
 
 // ── Sonido (hook preparado) ───────────────────────────────────────────────
 // Para activar: descomenta las líneas y coloca los archivos en /public/sounds/

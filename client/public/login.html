@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iniciar Sesión - Hispania 210aC</title>
+  <style>
+    :root {
+      --color-bg-dark: #1a1612;
+      --color-accent-gold: #c5a059;
+      --color-text-cream: #e8d5b5;
+      --color-text-dim: #a89875;
+      --color-border: #3d3428;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Cinzel', 'Georgia', serif;
+      background: linear-gradient(135deg, #0d0b09 0%, #1a1612 100%);
+      color: var(--color-text-cream);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .login-container { width: 100%; max-width: 420px; }
+
+    .login-card {
+      background: var(--color-bg-dark);
+      border: 2px solid var(--color-accent-gold);
+      border-radius: 6px;
+      padding: 45px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.7), inset 0 1px 0 rgba(197,160,89,0.15);
+    }
+
+    header { text-align: center; margin-bottom: 38px; }
+
+    .logo-img {
+      width: 100%;
+      max-width: 380px;
+      height: auto;
+      margin-bottom: 4px;
+      filter: drop-shadow(0 4px 16px rgba(0,0,0,0.7));
+    }
+
+    .subtitle {
+      font-size: 0.88em;
+      color: var(--color-text-dim);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    /* ── Google button ─────────────────────────────────────────── */
+    .oauth-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      width: 100%;
+      padding: 15px 24px;
+      background: #fff;
+      border: none;
+      border-radius: 6px;
+      color: #3c3c3c;
+      font-size: 0.95em;
+      font-weight: 600;
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+      letter-spacing: 0.3px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+
+    .oauth-btn:hover {
+      background: #f5f5f5;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+      transform: translateY(-1px);
+    }
+
+    .oauth-btn:active { transform: translateY(0); }
+
+    .oauth-btn img { flex-shrink: 0; }
+
+    /* ── Error message ─────────────────────────────────────────── */
+    .error-msg {
+      display: none;
+      margin-top: 18px;
+      padding: 14px 16px;
+      background: rgba(231,76,60,0.12);
+      border: 1px solid rgba(231,76,60,0.4);
+      border-radius: 6px;
+      color: #ff6b6b;
+      font-size: 0.85em;
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+      text-align: center;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    .error-msg.show { display: block; }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Divider ───────────────────────────────────────────────── */
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 28px 0 0;
+      color: #3a2e20;
+      font-size: 0.72rem;
+      letter-spacing: 1px;
+    }
+
+    .divider::before,
+    .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #2a2015;
+    }
+
+    .footer-links { text-align: center; margin-top: 22px; }
+
+    .footer-links a {
+      color: #4a3a28;
+      text-decoration: none;
+      font-size: 0.78em;
+      transition: color 0.2s;
+      letter-spacing: 0.5px;
+    }
+
+    .footer-links a:hover { color: #6a5a40; }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-card">
+
+      <header>
+        <img src="/logo.png" alt="Hispania 210aC" class="logo-img" />
+        <p class="subtitle">Inicia sesión para continuar</p>
+      </header>
+
+      <a href="/api/auth/google" class="oauth-btn">
+        <img src="/google-icon.svg" alt="Google" />
+        Entrar con Google
+      </a>
+
+      <div id="error-msg" class="error-msg"></div>
+
+      <div class="divider">HISPANIA · 210 a.C.</div>
+
+      <div class="footer-links">
+        <a href="/">← Volver al mapa</a>
+      </div>
+
+      <div class="footer-links" style="margin-top:10px; display:flex; justify-content:center; gap:14px; flex-wrap:wrap;">
+        <a href="/legal/aviso-legal.html" target="_blank" rel="noopener">Aviso Legal</a>
+        <span style="color:#2a2015">·</span>
+        <a href="/legal/privacidad.html" target="_blank" rel="noopener">Privacidad</a>
+        <span style="color:#2a2015">·</span>
+        <a href="/legal/terminos.html" target="_blank" rel="noopener">Términos de Uso</a>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const API_URL = '';
+
+    // Mostrar error si viene de un redirect OAuth
+    window.addEventListener('load', async () => {
+      const params = new URLSearchParams(window.location.search);
+      const error = params.get('error');
+
+      if (error) {
+        const messages = {
+          multicuenta: 'Ya existe una cuenta registrada con ese correo de Google.',
+          cancelado:   'Inicio de sesión cancelado.',
+          oauth:       'Error al conectar con Google. Inténtalo de nuevo.'
+        };
+        const el = document.getElementById('error-msg');
+        el.textContent = messages[error] || 'Error al iniciar sesión.';
+        el.classList.add('show');
+      }
+
+      // Redirigir si ya hay sesión activa
+      try {
+        const response = await fetch(`${API_URL}/api/auth/me`, { credentials: 'include' });
+        const data = await response.json();
+        if (data.success) window.location.replace('/');
+      } catch (e) { /* no hay sesión */ }
+    });
+  </script>
+</body>
+</html>

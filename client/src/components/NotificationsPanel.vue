@@ -1,123 +1,157 @@
 <template>
   <div class="notifications-panel">
 
-    <!-- Barra de filtro -->
-    <div class="notif-filter-bar">
-      <div class="notif-filter-toggle">
-        <button
-          class="filter-pill"
-          :class="{ active: !showOnlyUnread }"
-          @click="showOnlyUnread = false"
-        >Todas <span class="filter-count">{{ notifications.length }}</span></button>
-        <button
-          class="filter-pill"
-          :class="{ active: showOnlyUnread }"
-          @click="showOnlyUnread = true"
-        >No leídas <span class="filter-count unread-count">{{ unreadCount }}</span></button>
-      </div>
+    <!-- Pestañas de categoría -->
+    <nav class="tab-bar">
       <button
-        class="mark-all-btn"
-        :disabled="unreadCount === 0 || markingAll"
-        @click="handleMarkAll"
-        title="Marcar todas como leídas"
-      >{{ markingAll ? '⏳' : '✓ Marcar todas' }}</button>
-    </div>
-
-    <div v-if="loading" class="notif-loading">Cargando notificaciones...</div>
-
-    <div v-else-if="filteredNotifications.length === 0" class="notif-empty">
-      <p v-if="showOnlyUnread && notifications.length > 0">✅ Todo al día — sin notificaciones sin leer.</p>
-      <p v-else>No tienes notificaciones.</p>
-    </div>
-
-    <div v-else class="notif-list">
-      <div
-        v-for="notif in filteredNotifications"
-        :key="notif.id"
-        class="notif-card"
-        :class="{ 'notif-unread': !notif.is_read, [`notif-type-${notif.type?.toLowerCase()}`]: true }"
-        @click="handleRead(notif)"
+        v-for="cat in CATEGORIES"
+        :key="cat.key"
+        class="tab-btn"
+        :class="{ 'tab-active': activeTab === cat.key }"
+        :style="activeTab === cat.key ? { '--tab-color': cat.color, '--tab-border': cat.border } : {}"
+        @click="activeTab = cat.key"
+        :title="cat.label"
       >
-        <div class="notif-header">
-          <span class="notif-type-badge">{{ typeLabel(notif.type) }}</span>
-          <span class="notif-turn">{{ turnToGameDate(notif.turn_number) }}</span>
-        </div>
-        <div class="notif-content">{{ notif.content }}</div>
-        <div v-if="!notif.is_read" class="notif-unread-dot"></div>
-      </div>
+        <span class="tab-icon">{{ cat.icon }}</span>
+        <span class="tab-label">{{ cat.label }}</span>
+        <span
+          v-if="unreadByTab[cat.key] > 0"
+          class="tab-unread"
+          :style="activeTab === cat.key ? { background: cat.color, color: '#111' } : {}"
+        >{{ unreadByTab[cat.key] }}</span>
+      </button>
+    </nav>
+
+    <!-- Resumen (solo contador, sin botón) -->
+    <div class="notif-topbar" v-if="!loading">
+      <span class="notif-summary">
+        <template v-if="unreadCount > 0">
+          <span class="unread-badge">{{ unreadCount }}</span> sin leer en total
+        </template>
+        <template v-else>✅ Todo al día</template>
+      </span>
     </div>
+
+    <!-- Contenido de la pestaña activa -->
+    <div v-if="loading" class="notif-empty">Cargando notificaciones...</div>
+
+    <template v-else>
+      <div v-if="activeItems.length === 0" class="notif-empty">
+        No hay notificaciones en esta categoría.
+      </div>
+
+      <div v-else class="notif-list">
+        <article
+          v-for="notif in activeItems"
+          :key="notif.id"
+          class="notif-card"
+          :class="{ 'notif-unread': !notif.is_read }"
+          :style="{ '--cat-color': activeCategory.color }"
+        >
+          <div class="notif-meta">
+            <span class="notif-turn">{{ turnToGameDate(notif.turn_number) }}</span>
+            <span v-if="!notif.is_read" class="notif-unread-dot"></span>
+          </div>
+          <p class="notif-content">{{ notif.content }}</p>
+        </article>
+      </div>
+    </template>
+
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
-import { markAllNotificationsRead } from '../services/mapApi.js';
+import { ref, computed, watch, onMounted } from 'vue';
 
 const props = defineProps({
   notifications: { type: Array, default: () => [] },
   loading:       { type: Boolean, default: false },
   currentTurn:   { type: Number, default: 0 },
-  gameDate:      { type: Date,   default: null }
+  gameDate:      { type: Object, default: null },
 });
 
-const MONTHS = [
-  'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-  'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
+// ── Categorías — orden: críticas primero ──────────────────────────────────────
+const CATEGORIES = [
+  { key: 'Militar',   icon: '⚔️', label: 'Militar',   color: '#e57373', border: 'rgba(229,115,115,0.6)' },
+  { key: 'Hambre',    icon: '🚨', label: 'Hambre',    color: '#ff8a65', border: 'rgba(255,138,101,0.6)' },
+  { key: 'Económico', icon: '💰', label: 'Económico', color: '#81c784', border: 'rgba(129,199,132,0.5)' },
+  { key: 'Impuestos', icon: '📜', label: 'Impuestos', color: '#ffd700', border: 'rgba(255,215,0,  0.5)' },
+  { key: 'General',   icon: '📢', label: 'General',   color: '#a89875', border: 'rgba(168,152,117,0.4)' },
 ];
 
-/**
- * Converts a game turn number into the corresponding game calendar date.
- * Formula: notifDate = currentGameDate − (currentTurn − notifTurn) days
- * Falls back to "Turno N" if world state is not yet loaded.
- */
-const turnToGameDate = (turnNumber) => {
-  if (!props.currentTurn || !props.gameDate || !turnNumber) {
-    return turnNumber ? `Turno ${turnNumber}` : '';
+const validKeys = new Set(CATEGORIES.map(c => c.key));
+
+const MONTHS = ['Ian','Feb','Mar','Apr','Mai','Iun','Qui','Sex','Sep','Oct','Nov','Dec'];
+
+const toAstro = ({ year, era }) => era === 'BC' ? -year : year;
+const fromAstro = (astro, month, day) => astro < 0
+  ? { day, month, year: -astro, era: 'BC' }
+  : { day, month, year: astro,  era: 'AD' };
+
+const toRoman = (n) => {
+  const vals = [1000,900,500,400,100,90,50,40,10,9,5,4,1];
+  const syms = ['M','CM','D','CD','C','XC','L','XL','X','IX','V','IV','I'];
+  let r = '';
+  for (let i = 0; i < vals.length; i++) {
+    while (n >= vals[i]) { r += syms[i]; n -= vals[i]; }
   }
-  const date = new Date(props.gameDate);
-  date.setDate(date.getDate() - (props.currentTurn - turnNumber));
-  return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+  return r;
 };
 
-const emit = defineEmits(['read', 'readAll']);
+const turnToGameDate = (n) => {
+  if (!props.currentTurn || !props.gameDate || !n) return n ? `Turno ${n}` : '';
+  const SHIFT = 3000;
+  const astro = toAstro(props.gameDate);
+  const d = new Date(astro + SHIFT, props.gameDate.month - 1, props.gameDate.day);
+  d.setDate(d.getDate() - (props.currentTurn - n));
+  const result = fromAstro(d.getFullYear() - SHIFT, d.getMonth() + 1, d.getDate());
+  const suffix = result.era === 'BC' ? 'a.C.' : 'd.C.';
+  const auc = result.era === 'BC' ? 753 - result.year : 753 + result.year;
+  return `${result.day} ${MONTHS[result.month - 1]}, anno ${toRoman(auc)} AUC (${result.year} ${suffix})`;
+};
 
-const showOnlyUnread = ref(false);
-const markingAll = ref(false);
+const emit = defineEmits(['readTab']);
+
+const activeTab = ref('Militar');
 
 const unreadCount = computed(() => props.notifications.filter(n => !n.is_read).length);
 
-const filteredNotifications = computed(() =>
-  showOnlyUnread.value
-    ? props.notifications.filter(n => !n.is_read)
-    : props.notifications
+// ── Agrupación ────────────────────────────────────────────────────────────────
+const grouped = computed(() =>
+  props.notifications.reduce((acc, n) => {
+    const key = validKeys.has(n.type) ? n.type : 'General';
+    (acc[key] ??= []).push(n);
+    return acc;
+  }, {})
 );
 
-const TYPE_LABELS = {
-  HARVEST: '🌾 Cosecha',
-  PRODUCTION: '🏭 Producción',
-  EXPLORATION: '🔍 Exploración',
-  COMBAT: '⚔️ Combate',
-  MOVEMENT: '🚶 Movimiento',
+const unreadByTab = computed(() =>
+  Object.fromEntries(
+    CATEGORIES.map(c => [c.key, (grouped.value[c.key] ?? []).filter(n => !n.is_read).length])
+  )
+);
+
+const activeCategory = computed(() => CATEGORIES.find(c => c.key === activeTab.value));
+const activeItems    = computed(() => grouped.value[activeTab.value] ?? []);
+
+// ── Auto-marcar como leídas al ver un tab ─────────────────────────────────────
+const markActiveTab = (tabKey) => {
+  const hasUnread = (grouped.value[tabKey] ?? []).some(n => !n.is_read);
+  if (!hasUnread) return;
+  // Actualizar estado local inmediatamente
+  (grouped.value[tabKey] ?? []).forEach(n => { n.is_read = true; });
+  emit('readTab', tabKey);
 };
 
-const typeLabel = (type) => TYPE_LABELS[type] || `📢 ${type || 'Sistema'}`;
+// Al cambiar de tab
+watch(activeTab, (tabKey) => {
+  markActiveTab(tabKey);
+});
 
-const handleRead = (notif) => {
-  emit('read', notif);
-};
-
-const handleMarkAll = async () => {
-  if (unreadCount.value === 0 || markingAll.value) return;
-  markingAll.value = true;
-  try {
-    await markAllNotificationsRead();
-    emit('readAll');
-  } catch (err) {
-    console.error('❌ Error al marcar todas como leídas:', err);
-  } finally {
-    markingAll.value = false;
-  }
-};
+// Al montar el panel, marcar el tab inicial
+onMounted(() => {
+  markActiveTab(activeTab.value);
+});
 </script>
 
 <style scoped>
@@ -125,164 +159,164 @@ const handleMarkAll = async () => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow-y: auto;
-  padding: 12px 16px;
-  gap: 10px;
-  color: #e8d5b5;
+  color: #e8d5b7;
+  overflow: hidden;
 }
 
-/* ── Barra de filtro ─────────────────────────── */
-.notif-filter-bar {
-  flex-shrink: 0;
-  padding-bottom: 4px;
-  border-bottom: 1px solid rgba(197, 160, 89, 0.18);
-}
-
-.notif-filter-toggle {
+/* ── Pestañas ────────────────────────────────── */
+.tab-bar {
   display: flex;
-  gap: 6px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(197, 160, 89, 0.2);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.tab-bar::-webkit-scrollbar { display: none; }
 
-.mark-all-btn {
-  margin-top: 6px;
-  width: 100%;
-  padding: 5px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(197, 160, 89, 0.3);
-  background: rgba(197, 160, 89, 0.08);
-  color: #a89875;
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.mark-all-btn:hover:not(:disabled) {
-  background: rgba(197, 160, 89, 0.18);
-  border-color: rgba(197, 160, 89, 0.6);
-  color: #ffd700;
-}
-
-.mark-all-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.filter-pill {
+.tab-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
   flex: 1;
+  min-width: 60px;
+  padding: 8px 6px 7px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #7a6a55;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.18s, border-color 0.18s, background 0.18s;
+}
+.tab-btn:hover:not(.tab-active) {
+  color: #a89875;
+  background: rgba(255, 255, 255, 0.03);
+}
+.tab-active {
+  color: var(--tab-color);
+  border-bottom-color: var(--tab-color);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tab-icon { font-size: 1.1rem; line-height: 1; }
+.tab-label { font-size: 0.63rem; }
+
+.tab-unread {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgba(197, 160, 89, 0.3);
+  color: #ffd700;
+  font-size: 0.62rem;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
+  transition: background 0.18s, color 0.18s;
+}
+
+/* ── Barra de resumen ────────────────────────── */
+.notif-topbar {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 7px 14px;
+  border-bottom: 1px solid rgba(197, 160, 89, 0.1);
+}
+
+.notif-summary {
+  display: flex;
+  align-items: center;
   gap: 6px;
-  padding: 5px 10px;
-  border-radius: 20px;
-  border: 1px solid rgba(197, 160, 89, 0.25);
-  background: rgba(0, 0, 0, 0.25);
-  color: #a89875;
   font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  color: #7a6a55;
 }
 
-.filter-pill:hover {
-  border-color: rgba(197, 160, 89, 0.5);
-  color: #d4c4a0;
-}
-
-.filter-pill.active {
-  background: rgba(197, 160, 89, 0.15);
-  border-color: rgba(197, 160, 89, 0.6);
-  color: #ffd700;
-}
-
-.filter-count {
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  color: inherit;
+.unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 18px;
-  text-align: center;
-}
-
-.unread-count {
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
   background: rgba(255, 215, 0, 0.18);
   color: #ffd700;
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
-/* ── Estados vacíos y carga ──────────────────── */
-.notif-loading,
+/* ── Lista y tarjetas ────────────────────────── */
 .notif-empty {
   text-align: center;
-  padding: 40px 20px;
-  color: #a89875;
-  font-size: 1rem;
+  padding: 50px 20px;
+  color: #5a4e40;
+  font-size: 0.9rem;
 }
 
-/* ── Lista ───────────────────────────────────── */
 .notif-list {
+  flex: 1;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
+  padding: 10px 14px;
 }
 
 .notif-card {
-  position: relative;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(197, 160, 89, 0.25);
-  border-radius: 8px;
-  padding: 12px 14px;
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(197, 160, 89, 0.12);
+  border-left: 2px solid transparent;
+  border-radius: 5px;
+  padding: 9px 13px;
+  transition: background 0.18s, border-color 0.18s;
+  flex-shrink: 0;
 }
-
 .notif-card:hover {
-  background: rgba(197, 160, 89, 0.12);
-  border-color: rgba(197, 160, 89, 0.5);
+  background: rgba(197, 160, 89, 0.07);
+  border-color: rgba(197, 160, 89, 0.28);
 }
-
 .notif-unread {
-  border-left: 3px solid #ffd700;
-  background: rgba(255, 215, 0, 0.06);
+  border-left-color: var(--cat-color);
+  background: rgba(0, 0, 0, 0.4);
 }
 
-.notif-header {
+.notif-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
-}
-
-.notif-type-badge {
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: #ffd700;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
+  margin-bottom: 5px;
 }
 
 .notif-turn {
-  font-size: 0.75rem;
-  color: #a89875;
+  font-size: 0.68rem;
+  color: #5a4e40;
   font-family: monospace;
 }
 
-.notif-content {
-  font-size: 0.88rem;
-  color: #d4c4a0;
-  white-space: pre-line;
-  line-height: 1.5;
+.notif-unread-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cat-color);
+  flex-shrink: 0;
 }
 
-.notif-unread-dot {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ffd700;
+.notif-content {
+  margin: 0;
+  font-size: 0.86rem;
+  color: #d0c0a0;
+  white-space: pre-line;
+  line-height: 1.55;
 }
 </style>

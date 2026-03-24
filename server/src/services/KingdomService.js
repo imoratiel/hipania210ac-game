@@ -1,4 +1,6 @@
 const { Logger, logGameEvent } = require('../utils/logger');
+const { initializePlayer } = require('../logic/playerInit.js');
+const { isProfane } = require('../utils/profanityFilter.js');
 const KingdomModel = require('../models/KingdomModel.js');
 const ArmyModel = require('../models/ArmyModel.js');
 const CombatModel = require('../models/CombatModel.js');
@@ -9,10 +11,13 @@ const conquest = require('../logic/conquest.js');
 const { calcMilitiaPower, processCapitalCollapse, GRACE_TURNS_DEFAULT } = require('../logic/conquest_system.js');
 const pool = require('../../db.js');
 const h3 = require('h3-js');
+const { executeConstruction, canPerformAction, applyCooldown, processConquestLoot, GameActionError } = require('./gameActions.js');
 
 class KingdomService {
     async StartExploration(req, res) {
-        const client = await pool.connect();
+        // DISABLED: exploration temporarily disabled
+        return res.status(503).json({ success: false, message: 'La exploración de recursos está temporalmente desactivada.' });
+        const client = await pool.connect(); // eslint-disable-line no-unreachable
         try {
             const { h3_index } = req.body;
             const player_id = req.user.player_id;
@@ -101,98 +106,219 @@ class KingdomService {
             client.release();
         }
     }
+    async GetBuildings(req, res) {
+        const client = await pool.connect();
+        try {
+            const culture_id = await KingdomModel.GetPlayerCulture(client, req.user.player_id);
+            const buildings = await KingdomModel.GetAllBuildings(client, culture_id);
+            res.json({ success: true, buildings });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/territory/buildings', method: 'GET', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al obtener catálogo de edificios' });
+        } finally {
+            client.release();
+        }
+    }
+    async ConstructBuilding(req, res) {
+        const client = await pool.connect();
+        try {
+            const { h3_index, building_id } = req.body;
+            const player_id = req.user.player_id;
+
+            await client.query('BEGIN');
+            const result = await executeConstruction(client, player_id, { h3_index, building_id });
+            await client.query('COMMIT');
+
+            res.json({ success: true, ...result });
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            if (error instanceof GameActionError) {
+                return res.status(400).json({ success: false, message: error.message });
+            }
+            Logger.error(error, { endpoint: '/territory/construct', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            res.status(500).json({ success: false, message: 'Error al iniciar construcción' });
+        } finally {
+            client.release();
+        }
+    }
+    async RepairBuilding(req, res) {
+        const client = await pool.connect();
+        try {
+            const { h3_index } = req.body;
+            const player_id = req.user.player_id;
+            if (!h3_index) return res.status(400).json({ success: false, message: 'h3_index requerido' });
+
+            await client.query('BEGIN');
+
+            // Ownership check
+            const owner = await KingdomModel.CheckTerritoryOwnership(client, h3_index);
+            if (owner?.player_id !== player_id) {
+                await client.query('ROLLBACK');
+                return res.status(403).json({ success: false, message: 'No posees este territorio' });
+            }
+
+            // Get building with conservation and gold_cost
+            const fbResult = await client.query(`
+                SELECT fb.conservation, b.gold_cost
+                FROM fief_buildings fb
+                JOIN buildings b ON fb.building_id = b.id
+                WHERE fb.h3_index = $1 AND fb.is_under_construction = FALSE
+            `, [h3_index]);
+            if (fbResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'No hay edificio construido en este feudo' });
+            }
+            const { conservation, gold_cost } = fbResult.rows[0];
+            if (conservation >= 100) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'El edificio ya está en perfecto estado' });
+            }
+
+            const repair_cost = Math.ceil((100 - conservation) / 100 * gold_cost);
+            const player = await KingdomModel.GetPlayerGold(client, player_id);
+            if ((player?.gold ?? 0) < repair_cost) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: `Oro insuficiente. Necesitas ${repair_cost} 💰` });
+            }
+
+            await KingdomModel.DeductGold(client, player_id, repair_cost);
+            await KingdomModel.RepairBuilding(client, h3_index);
+            await client.query('COMMIT');
+
+            Logger.action(`[ACTION] Jugador ${player_id} reparó edificio en ${h3_index} (-${repair_cost}💰)`);
+            res.json({ success: true, message: `Edificio reparado (-${repair_cost} 💰)`, repair_cost });
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            Logger.error(error, { endpoint: '/territory/repair-building', method: 'POST', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al reparar el edificio' });
+        } finally {
+            client.release();
+        }
+    }
+    async UpgradeFiefBuilding(req, res) {
+        const client = await pool.connect();
+        try {
+            const { h3_index } = req.body;
+            const player_id = req.user.player_id;
+
+            if (!h3_index) {
+                return res.status(400).json({ success: false, message: 'h3_index es requerido' });
+            }
+
+            // Verify ownership
+            const owner = await KingdomModel.CheckTerritoryOwnership(client, h3_index);
+            if (owner?.player_id !== player_id) {
+                return res.status(403).json({ success: false, message: 'No posees este territorio' });
+            }
+
+            // Get current completed building
+            const current = await KingdomModel.GetExistingFiefBuilding(client, h3_index);
+            if (!current) {
+                return res.status(400).json({ success: false, message: 'Este feudo no tiene ningún edificio' });
+            }
+            if (current.is_under_construction) {
+                return res.status(400).json({ success: false, message: 'El edificio actual aún está en construcción' });
+            }
+
+            // Find the upgrade building
+            const result = await client.query(
+                'SELECT * FROM buildings WHERE required_building_id = $1 LIMIT 1',
+                [current.building_id]
+            );
+            const next = result.rows[0];
+            if (!next) {
+                return res.status(400).json({ success: false, message: 'Este edificio no tiene mejora disponible' });
+            }
+
+            // Verify gold
+            const player = await KingdomModel.GetPlayerGold(client, player_id);
+            if (player.gold < next.gold_cost) {
+                return res.status(400).json({ success: false, message: `Oro insuficiente. Necesitas ${next.gold_cost} 💰` });
+            }
+
+            // Verify worker present at fief
+            const workerCheck = await pool.query(
+                'SELECT id FROM workers WHERE player_id = $1 AND h3_index = $2 LIMIT 1',
+                [player_id, h3_index]
+            );
+            if (workerCheck.rows.length === 0) {
+                return res.status(400).json({ success: false, message: 'Necesitas un constructor en este feudo para ampliar el edificio' });
+            }
+
+            await client.query('BEGIN');
+            // Consume workers at this fief
+            await client.query(
+                'DELETE FROM workers WHERE player_id = $1 AND h3_index = $2',
+                [player_id, h3_index]
+            );
+            await KingdomModel.DeductGold(client, player_id, next.gold_cost);
+            await KingdomModel.UpgradeFiefBuilding(client, h3_index, next.id, next.construction_time_turns);
+            await client.query('COMMIT');
+
+            Logger.action(
+                `🏰 Jugador ${player_id} inició ampliación a "${next.name}" en ${h3_index} (${next.construction_time_turns} turnos)`,
+                { player_id, h3_index, next_building_id: next.id, building_name: next.name }
+            );
+            res.json({
+                success: true,
+                message: `Ampliación a ${next.name} iniciada. Turnos restantes: ${next.construction_time_turns}`,
+                building_name: next.name,
+                turns: next.construction_time_turns,
+            });
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            Logger.error(error, { endpoint: '/territory/upgrade-building', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            res.status(500).json({ success: false, message: 'Error al iniciar ampliación' });
+        } finally {
+            client.release();
+        }
+    }
     async GetMyFiefs(req, res) {
         try {
-            const result = await KingdomModel.GetMyFiefs(req.user.player_id);
+            const page         = Math.max(1, parseInt(req.query.page)  || 1);
+            const limit        = Math.min(500, Math.max(1, parseInt(req.query.limit) || 10));
+            const filter_name     = (req.query.filter_name     || '').trim();
+            const filter_division = (req.query.filter_division || '').trim();
+            const filter_maxpop = req.query.filter_maxpop != null && req.query.filter_maxpop !== ''
+                ? parseInt(req.query.filter_maxpop) : null;
 
-            const fiefs = result.rows.map(row => {
+            const { rows, total } = await KingdomModel.GetMyFiefs(req.user.player_id, {
+                page, limit, filter_name, filter_maxpop, filter_division
+            });
+
+            const fiefs = rows.map(row => {
                 const is_capital = (row.h3_index === row.capital_h3);
                 return {
                     ...row,
                     is_capital,
                     pop_cap: getPopulationCap(row.terrain_name, is_capital),
+                    fief_building: row.fief_building_id ? {
+                        id: row.fief_building_id,
+                        name: row.fief_building_name,
+                        type_name: row.fief_building_type_name,
+                        is_under_construction: row.fief_building_constructing,
+                        turns_left: row.fief_building_constructing ? row.fief_building_turns_left : null,
+                        conservation: row.fief_building_conservation ?? 100,
+                        repair_cost: Math.ceil((100 - (row.fief_building_conservation ?? 100)) / 100 * (row.fief_building_gold_cost ?? 0)),
+                        upgrade: (!row.fief_building_constructing && row.upgrade_building_id) ? {
+                            id:        row.upgrade_building_id,
+                            name:      row.upgrade_building_name,
+                            gold_cost: row.upgrade_gold_cost,
+                            turns:     row.upgrade_turns
+                        } : null,
+                    } : null,
+                    can_recruit: is_capital || (
+                        !!row.fief_building_id &&
+                        !row.fief_building_constructing &&
+                        (row.fief_building_type_name || '').toLowerCase() === 'military'
+                    ),
                 };
             });
 
-            res.json({ success: true, fiefs });
+            res.json({ success: true, fiefs, total, page, limit });
         } catch (error) {
             Logger.error(error, { endpoint: '/game/my-fiefs', method: 'GET', userId: req.user?.player_id });
             res.status(500).json({ success: false, message: 'Error al obtener feudos' });
-        }
-    }
-    async ClaimTerritory(req, res) {
-        const client = await pool.connect();
-        try {
-            const player_id = req.user.player_id;
-            const { h3_index } = req.body;
-            if (!h3_index) return res.status(400).json({ success: false, message: 'Falta parámetro: h3_index' });
-
-            await client.query('BEGIN');
-
-            // Check exile status first — exiled players are allowed to colonize anywhere
-            const isExiled = await KingdomModel.GetPlayerExileStatus(client, player_id);
-
-            // Non-exiled players can only colonize if they have no territory yet
-            if (!isExiled) {
-                const territoryCount = await KingdomModel.GetTerritoryCount(client, player_id);
-                if (territoryCount > 0) {
-                    await client.query('ROLLBACK');
-                    return res.status(400).json({ success: false, message: '👑 Ya tienes una capital. Usa la conquista para expandirte.' });
-                }
-            }
-
-            // Validate selected hex
-            const hex = await KingdomModel.GetHexForClaim(client, h3_index);
-            if (!hex) { await client.query('ROLLBACK'); return res.status(404).json({ success: false, message: 'Hexágono no encontrado' }); }
-            if (!hex.is_colonizable) { await client.query('ROLLBACK'); return res.status(400).json({ success: false, message: '🌊 Este terreno no puede ser colonizado' }); }
-            if (hex.player_id !== null) { await client.query('ROLLBACK'); return res.status(400).json({ success: false, message: '🛡️ Este territorio ya está ocupado' }); }
-
-            const player = await KingdomModel.GetPlayerGoldForUpdate(client, player_id);
-            const CLAIM_COST = 100;
-            if (player.gold < CLAIM_COST) { await client.query('ROLLBACK'); return res.status(400).json({ success: false, message: '💰 Oro insuficiente' }); }
-
-            // --- Claim the capital hex ---
-            const eco = conquest.generateInitialEconomy();
-            await KingdomModel.ClaimHex(client, h3_index, player_id);
-            await KingdomModel.InsertTerritoryDetails(client, h3_index, eco);
-            await KingdomModel.SetCapital(client, h3_index, player_id);
-            await KingdomModel.DeductGold(client, player_id, CLAIM_COST);
-
-            // If the player was exiled, clear exile status now that they have a new capital
-            if (isExiled) {
-                await KingdomModel.ClearExileStatus(client, player_id);
-            }
-
-            // --- Radial expansion: claim colonizable, unclaimed ring-1 neighbors ---
-            const ring1 = h3.gridDisk(h3_index, 1).filter(n => n !== h3_index);
-            const colonizableNeighbors = await KingdomModel.GetColonizableNeighbors(client, ring1);
-
-            for (const neighbor of colonizableNeighbors) {
-                const neighborEco = conquest.generateInitialEconomy();
-                await KingdomModel.ClaimHex(client, neighbor.h3_index, player_id);
-                await KingdomModel.InsertTerritoryDetails(client, neighbor.h3_index, neighborEco);
-            }
-
-            await client.query('COMMIT');
-
-            Logger.action(`${isExiled ? 'Exiliado' : 'Capital'} fundada en ${h3_index} con ${colonizableNeighbors.length} territorios adyacentes`, player_id);
-            logGameEvent(`[Claim] Jugador ${player_id} ${isExiled ? 'refundó reino desde exilio' : 'fundó capital'} en ${h3_index} (${colonizableNeighbors.length + 1} hexes reclamados)`);
-
-            res.json({
-                success: true,
-                is_capital: true,
-                was_exiled: isExiled,
-                claimed_count: colonizableNeighbors.length + 1,
-                message: isExiled
-                    ? `🏕️ ¡Nuevo asentamiento fundado! Tu reino renace en ${h3_index}.`
-                    : `👑 ¡Capital fundada! Se han reclamado ${colonizableNeighbors.length} territorios adyacentes.`
-            });
-        } catch (error) {
-            if (client) await client.query('ROLLBACK');
-            Logger.error(error, { endpoint: '/game/claim', method: 'POST', userId: req.user?.player_id, payload: req.body });
-            res.status(500).json({ success: false, error: error.message });
-        } finally {
-            client.release();
         }
     }
     async GetCapital(req, res) {
@@ -209,6 +335,119 @@ class KingdomService {
         } catch (error) {
             Logger.error(error, { endpoint: '/game/capital', method: 'GET', userId: req.user?.player_id });
             res.status(500).json({ success: false, message: 'Error al obtener información de capital' });
+        }
+    }
+
+    async ClaimTerritory(req, res) {
+        const client = await pool.connect();
+        try {
+            const player_id = req.user.player_id;
+            const { h3_index } = req.body;
+
+            if (!h3_index) {
+                return res.status(400).json({ success: false, message: 'Falta parámetro: h3_index' });
+            }
+
+            await client.query('BEGIN');
+
+            const territoryCount = await KingdomModel.GetTerritoryCount(client, player_id);
+            const isFirstTerritory = (territoryCount === 0);
+
+            const isExiled = await KingdomModel.GetPlayerExileStatus(client, player_id);
+
+            const hex = await KingdomModel.GetHexForClaim(client, h3_index);
+            if (!hex) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Hexágono no encontrado en el mapa' });
+            }
+            if (!hex.is_colonizable) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: '🌊 No puedes colonizar este tipo de terreno' });
+            }
+            if (hex.player_id !== null) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: '🛡️ Este territorio ya está ocupado' });
+            }
+
+            const playerRow = await KingdomModel.GetPlayerGoldForUpdate(client, player_id);
+            if (!playerRow) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Jugador no encontrado' });
+            }
+
+            const CLAIM_COST = (isFirstTerritory || isExiled) ? 0 : 100;
+            if (playerRow.gold < CLAIM_COST) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: `💰 Oro insuficiente. Necesitas: ${CLAIM_COST}, Tienes: ${playerRow.gold}` });
+            }
+
+            if (!isFirstTerritory && !isExiled) {
+                const neighbors = h3.gridDisk(h3_index, 1).filter(n => n !== h3_index);
+                const adjResult = await client.query(
+                    'SELECT COUNT(*) as count FROM h3_map WHERE player_id = $1 AND h3_index = ANY($2::text[])',
+                    [player_id, neighbors]
+                );
+                if (parseInt(adjResult.rows[0].count) === 0) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({ success: false, message: '📍 Debes colonizar territorios contiguos a los tuyos' });
+                }
+            }
+
+            const eco = {
+                population: Math.floor(Math.random() * 201) + 200,
+                happiness: Math.floor(Math.random() * 21) + 50,
+                food: Math.floor(Math.random() * 2001),
+                wood: Math.floor(Math.random() * 2001),
+                stone: Math.floor(Math.random() * 2001),
+                gold: Math.floor(Math.random() * 501) + 100,
+            };
+
+            await KingdomModel.ClaimHex(client, h3_index, player_id);
+            if (isFirstTerritory || isExiled) {
+                await KingdomModel.SetCapital(client, h3_index, player_id);
+                if (isExiled) await KingdomModel.ClearExileStatus(client, player_id);
+            }
+            await KingdomModel.InsertTerritoryDetails(client, h3_index, eco);
+            await KingdomModel.DeductGold(client, player_id, CLAIM_COST);
+
+            // On first claim (capital/exile), also claim all colonizable ring-2 neighbors for free
+            let bonusHexes = [];
+            if (isFirstTerritory || isExiled) {
+                const ring1 = h3.gridDisk(h3_index, 2).filter(n => n !== h3_index);
+                const neighbors = await KingdomModel.GetColonizableNeighbors(client, ring1);
+                for (const neighbor of neighbors) {
+                    await KingdomModel.ClaimHex(client, neighbor.h3_index, player_id);
+                    await KingdomModel.InsertTerritoryDetails(client, neighbor.h3_index, {
+                        population: Math.floor(Math.random() * 201) + 200,
+                        happiness: Math.floor(Math.random() * 21) + 50,
+                        food: Math.floor(Math.random() * 2001),
+                        wood: Math.floor(Math.random() * 2001),
+                        stone: Math.floor(Math.random() * 2001),
+                    });
+                    bonusHexes.push(neighbor.h3_index);
+                }
+            }
+
+            await client.query('COMMIT');
+
+            logGameEvent(`[COLONIZACIÓN] Jugador ${player_id} colonizó ${h3_index}${isFirstTerritory || isExiled ? ` (capital) + ${bonusHexes.length} adyacentes` : ''}`);
+
+            const updatedGold = playerRow.gold - CLAIM_COST;
+            res.json({
+                success: true,
+                new_gold_balance: updatedGold,
+                is_capital: isFirstTerritory || isExiled,
+                bonus_hexes: bonusHexes,
+                message: (isFirstTerritory || isExiled)
+                    ? `👑 ¡Capital fundada! Tu reino comienza aquí. (+${bonusHexes.length} territorios adyacentes)`
+                    : `🏰 ¡Territorio #${territoryCount + 1} colonizado!`
+            });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            Logger.error(error, { endpoint: '/game/claim', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            res.status(500).json({ success: false, message: 'Error interno del servidor: ' + error.message });
+        } finally {
+            client.release();
         }
     }
 
@@ -242,7 +481,17 @@ class KingdomService {
                 return res.status(404).json({ success: false, message: 'No tienes ningún ejército en ese hexágono' });
             }
 
-            // 2. Verificar que el hex no es propio + cargar datos de milicia y capital
+            // 2. Cooldown check
+            if (!(await canPerformAction(client, armyId, 'conquer'))) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: 'Este ejército no puede conquistar todavía. Debe esperar a que pase el período de enfriamiento.',
+                    code: 'COOLDOWN_ACTIVE',
+                });
+            }
+
+            // 3. Verificar que el hex no es propio + cargar datos de milicia y capital
             const hexResult = await client.query(`
                 SELECT m.player_id,
                        COALESCE(td.custom_name, m.h3_index) AS fief_name,
@@ -263,6 +512,18 @@ class KingdomService {
             if (currentOwner === player_id) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({ success: false, message: 'Este territorio ya es tuyo' });
+            }
+
+            // 3a. Verificar adyacencia: al menos un vecino debe ser del atacante o estar libre
+            const neighbors = h3.gridDisk(h3_index, 1).filter(n => n !== h3_index);
+            const adjResult = await client.query(`
+                SELECT COUNT(*)::int AS count FROM h3_map
+                WHERE h3_index = ANY($1::text[])
+                  AND (player_id = $2 OR player_id IS NULL)
+            `, [neighbors, player_id]);
+            if (adjResult.rows[0].count === 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'Solo puedes conquistar territorios adyacentes a los tuyos o a tierra libre.' });
             }
 
             // 3. Verificar que no hay ejércitos enemigos (deben ser derrotados primero)
@@ -331,7 +592,10 @@ class KingdomService {
             const worldResult = await client.query('SELECT current_turn FROM world_state LIMIT 1');
             const turn = worldResult.rows[0]?.current_turn ?? 0;
 
-            // 7. Derrota → el territorio no cambia de dueño
+            // 7. Registrar cooldown de conquista (se aplica siempre, gane o pierda)
+            await applyCooldown(client, armyId, 'conquer');
+
+            // 8. Derrota → el territorio no cambia de dueño
             if (result === 'defeat') {
                 await client.query('COMMIT');
                 Logger.action(`Player ${player_id} failed to conquer ${h3_index} (civil resistance)`, { player_id, h3_index, result });
@@ -357,7 +621,7 @@ class KingdomService {
             if (currentOwner !== null) {
                 const NotificationService = require('./NotificationService.js');
                 await NotificationService.createSystemNotification(
-                    currentOwner, 'COMBAT',
+                    currentOwner, 'Militar',
                     `🏴 TERRITORIO PERDIDO\nEl feudo ${hex.fief_name} ha sido conquistado por un enemigo (Turno ${turn})`,
                     turn
                 );
@@ -368,6 +632,20 @@ class KingdomService {
             let cascadedFiefs = [];
             if (isCapital) {
                 cascadedFiefs = await processCapitalCollapse(client, h3_index, player_id, currentOwner, turn);
+            } else if (currentOwner !== null) {
+                // Si no era la capital del jugador pero sí la capital de algún señorío,
+                // transferir ese señorío al conquistador
+                await client.query(`
+                    UPDATE political_divisions
+                    SET player_id = $1
+                    WHERE player_id = $2 AND capital_h3 = $3
+                `, [player_id, currentOwner, h3_index]);
+            }
+
+            // 11. Saqueo (solo si el ejército sobrevivió)
+            let lootResult = null;
+            if (!armyDestroyed) {
+                lootResult = await processConquestLoot(client, armyId, h3_index);
             }
 
             await client.query('COMMIT');
@@ -386,6 +664,7 @@ class KingdomService {
                 is_capital_conquest: isCapital,
                 cascaded_fiefs: cascadedFiefs.length,
                 army_destroyed: armyDestroyed,
+                loot: lootResult,
                 message: isCapital
                     ? `🏚️ ¡Capital conquistada! ${cascadedFiefs.length} feudos colapsaron automáticamente.`
                     : result === 'victory' ? '🏴 ¡Territorio conquistado!' : '🏴 El territorio cambia de manos por desgaste.'
@@ -448,6 +727,18 @@ class KingdomService {
             if (hex.player_id === player_id) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({ success: false, message: 'Este territorio ya es tuyo' });
+            }
+
+            // 2a. Verificar adyacencia: al menos un vecino debe ser del atacante o estar libre
+            const neighborsF = h3.gridDisk(h3_index, 1).filter(n => n !== h3_index);
+            const adjResultF = await client.query(`
+                SELECT COUNT(*)::int AS count FROM h3_map
+                WHERE h3_index = ANY($1::text[])
+                  AND (player_id = $2 OR player_id IS NULL)
+            `, [neighborsF, player_id]);
+            if (adjResultF.rows[0].count === 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'Solo puedes conquistar territorios adyacentes a los tuyos o a tierra libre.' });
             }
 
             // 3. Verificar que no hay ejércitos enemigos (deben ser derrotados primero)
@@ -576,7 +867,7 @@ class KingdomService {
                 if (previousOwner !== null) {
                     const NotificationService = require('./NotificationService.js');
                     await NotificationService.createSystemNotification(
-                        previousOwner, 'COMBAT',
+                        previousOwner, 'Militar',
                         `🏴 TERRITORIO PERDIDO\nEl feudo ${hex.fief_name} ha sido conquistado (Turno ${turn})`,
                         turn
                     );
@@ -586,7 +877,24 @@ class KingdomService {
                 isCapital = previousOwner !== null && hex.capital_h3 === h3_index;
                 if (isCapital) {
                     cascadedFiefs = await processCapitalCollapse(client, h3_index, player_id, previousOwner, turn);
+                } else if (previousOwner !== null) {
+                    // Si no era la capital del jugador pero sí la capital de algún señorío,
+                    // transferir ese señorío al conquistador
+                    await client.query(`
+                        UPDATE political_divisions
+                        SET player_id = $1
+                        WHERE player_id = $2 AND capital_h3 = $3
+                    `, [player_id, previousOwner, h3_index]);
                 }
+            }
+
+            // Registrar cooldown de conquista (se aplica siempre, gane o pierda)
+            await applyCooldown(client, armyId, 'conquer');
+
+            // 14. Saqueo (solo si se conquistó y el ejército sigue vivo)
+            let lootResult = null;
+            if ((result === 'victory' || result === 'draw') && !armyDestroyed) {
+                lootResult = await processConquestLoot(client, armyId, h3_index);
             }
 
             await client.query('COMMIT');
@@ -608,6 +916,7 @@ class KingdomService {
                 is_capital_conquest: isCapital,
                 cascaded_fiefs: cascadedFiefs.length,
                 army_destroyed: armyDestroyed,
+                loot: lootResult,
                 message: isCapital && result !== 'defeat'
                     ? `🏚️ ¡Capital conquistada! ${cascadedFiefs.length} feudos colapsaron automáticamente.`
                     : result === 'victory' ? 'El feudo ahora es tuyo.'
@@ -622,6 +931,98 @@ class KingdomService {
             return res.status(500).json({ success: false, message: 'Error al procesar la conquista del feudo' });
         } finally {
             client.release();
+        }
+    }
+    async UpgradeFarm(req, res) {
+        const client = await pool.connect();
+        try {
+            const { h3_index } = req.params;
+            const player_id = req.user.player_id;
+
+            await client.query('BEGIN');
+
+            const territory_owner = await KingdomModel.CheckTerritoryOwnership(client, h3_index);
+            if (territory_owner?.player_id !== player_id) {
+                await client.query('ROLLBACK');
+                return res.status(403).json({ success: false, message: 'No posees este territorio' });
+            }
+
+            const territory = await KingdomModel.GetTerritoryForUpgrade(client, h3_index);
+            if (!territory) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Territorio no encontrado' });
+            }
+
+            const validation_error = infrastructure.validateUpgrade('farm', territory);
+            if (validation_error) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: validation_error });
+            }
+
+            const current_level = territory.farm_level || 0;
+            const cost = infrastructure.calculateFarmUpgradeCost(current_level, CONFIG);
+
+            const player = await KingdomModel.GetPlayerGoldForUpdate(client, player_id);
+            if (player.gold < cost) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: `Oro insuficiente. Coste: ${cost.toLocaleString()}, disponible: ${player.gold.toLocaleString()}` });
+            }
+
+            await KingdomModel.ApplyUpgrade(client, h3_index, player_id, 'farm', current_level + 1, cost);
+            await client.query('COMMIT');
+
+            logGameEvent(`[GRANJA] Jugador ${player_id} mejoró granja en ${h3_index} al nivel ${current_level + 1}`);
+            res.json({
+                success: true,
+                message: `Granja mejorada al nivel ${current_level + 1}`,
+                new_level: current_level + 1,
+                gold_spent: cost,
+                new_gold: player.gold - cost
+            });
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            Logger.error(error, { endpoint: `/fiefs/${req.params.h3_index}/upgrade-farm`, method: 'POST', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al mejorar la granja' });
+        } finally {
+            client.release();
+        }
+    }
+
+    async InitializePlayer(req, res) {
+        const player_id      = req.user.player_id;
+        const forceCultureId = req.query?.culture_id ? parseInt(req.query.culture_id, 10) : null;
+        const randomBonus    = req.query?.random_bonus === 'true';
+        const linaje         = (req.query?.linaje ?? '').trim().replace(/\p{L}+/gu, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+
+        // Validate linaje
+        if (!linaje || linaje.length < 3 || linaje.length > 30) {
+            return res.status(400).json({ success: false, message: 'El nombre del linaje debe tener entre 3 y 30 caracteres.' });
+        }
+        if (!/^[\p{L}\s\-']+$/u.test(linaje)) {
+            return res.status(400).json({ success: false, message: 'El linaje solo puede contener letras, espacios y guiones.' });
+        }
+        if (isProfane(linaje)) {
+            return res.status(400).json({ success: false, message: 'Ese nombre no está permitido.' });
+        }
+
+        console.log(`[Init] player=${player_id} culture_id=${forceCultureId} random_bonus=${randomBonus} linaje=${linaje} | query:`, req.query);
+        try {
+            const result = await initializePlayer(player_id, { forceCultureId, randomBonus, linaje });
+            if (result.alreadyInitialized) {
+                return res.status(409).json({ success: false, message: 'El jugador ya ha sido inicializado' });
+            }
+            if (result.linajeTaken) {
+                return res.status(409).json({ success: false, linaje_taken: true, message: `El linaje "${linaje}" ya está en uso. Elige otro nombre.` });
+            }
+            Logger.action(
+                `✅ Inicialización completada. Capital: ${result.capitalHex}, feudos: ${result.allHexes.length}, señorío: ${result.senorioName ?? 'ninguno'}`,
+                player_id
+            );
+            logGameEvent(`[INIT] Jugador ${player_id} inicializado. Capital: ${result.capitalHex}`);
+            res.json({ success: true, capital_h3: result.capitalHex, bonus_hexes: result.allHexes });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/game/initialize', method: 'POST', userId: player_id });
+            res.status(500).json({ success: false, message: 'Error al inicializar jugador: ' + error.message });
         }
     }
 }

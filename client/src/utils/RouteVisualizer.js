@@ -17,26 +17,36 @@
  */
 
 import L from 'leaflet';
-import { cellToLatLng } from 'h3-js';
+import 'leaflet-polylinedecorator';
+import { cellToLatLng, gridPathCells } from 'h3-js';
 
 // Máximo de casillas que recorre un ejército por turno (debe coincidir con backend)
 const MAX_CELLS_PER_TURN = 4;
 
-// Segmento del turno actual: naranja, más grueso y opaco
+// Segmento del turno actual: negro fino
 const ROUTE_STYLE_CURRENT = {
-  color: '#f39c12',
-  weight: 3,
-  opacity: 0.85,
+  color: '#000000',
+  weight: 2,
+  opacity: 0.9,
   dashArray: '5, 8',
   pane: 'routePane'
 };
 
-// Segmento de turnos futuros: gris tenue y fino
+// Segmento de turnos futuros: mismo estilo que el actual
 const ROUTE_STYLE_FUTURE = {
-  color: '#8e9ba8',
+  color: '#000000',
   weight: 2,
-  opacity: 0.4,
-  dashArray: '4, 10',
+  opacity: 0.9,
+  dashArray: '5, 8',
+  pane: 'routePane'
+};
+
+// Ruta de constructores: azul discontinuo
+const ROUTE_STYLE_WORKER = {
+  color: '#3b82f6',
+  weight: 2,
+  opacity: 0.85,
+  dashArray: '6, 7',
   pane: 'routePane'
 };
 
@@ -45,11 +55,20 @@ class RouteVisualizer {
     /** @type {L.LayerGroup|null} Capa Leaflet que contiene todas las polylines */
     this._routeLayer = null;
 
+    /** @type {L.Map|null} Referencia al mapa Leaflet */
+    this._map = null;
+
     /**
      * armyId → { current: L.Polyline|null, future: L.Polyline|null }
      * @type {Map<number|string, {current: L.Polyline|null, future: L.Polyline|null}>}
      */
     this._armyPolylines = new Map();
+
+    /**
+     * armyId → L.PolylineDecorator|null
+     * @type {Map<number|string, L.PolylineDecorator|null>}
+     */
+    this._armyArrows = new Map();
   }
 
   /**
@@ -73,6 +92,7 @@ class RouteVisualizer {
       pane.style.pointerEvents = 'none'; // las líneas no deben interceptar clics en hexágonos
     }
 
+    this._map = map;
     // L.layerGroup NO propaga pane a sus hijos — el pane va en cada L.polyline (via ROUTE_STYLE_*)
     this._routeLayer = L.layerGroup().addTo(map);
     console.log('[RouteVisualizer] Inicializado');
@@ -120,6 +140,26 @@ class RouteVisualizer {
 
     this._armyPolylines.set(armyId, { current: currentPolyline, future: futurePolyline });
 
+    // ── Flecha en el destino final ────────────────────────────────────────────
+    const lastPolyline = futurePolyline || currentPolyline;
+    const arrowDecorator = L.polylineDecorator(lastPolyline, {
+      patterns: [{
+        offset: '100%',
+        repeat: 0,
+        symbol: L.Symbol.arrowHead({
+          pixelSize: 10,
+          polygon: false,
+          pathOptions: {
+            color: '#000000',
+            opacity: 0.9,
+            weight: 2,
+            pane: 'routePane'
+          }
+        })
+      }]
+    }).addTo(this._map);
+    this._armyArrows.set(armyId, arrowDecorator);
+
     console.log(
       `[RouteVisualizer] Ejército ${armyId}: ${currentSegmentHexes.length - 1} casillas este turno` +
       (futurePolyline ? `, ${h3Path.length - MAX_CELLS_PER_TURN} casillas en turnos futuros` : '')
@@ -137,6 +177,11 @@ class RouteVisualizer {
       if (existing.future)  this._routeLayer.removeLayer(existing.future);
       this._armyPolylines.delete(armyId);
     }
+    const arrow = this._armyArrows.get(armyId);
+    if (arrow && this._map) {
+      this._map.removeLayer(arrow);
+      this._armyArrows.delete(armyId);
+    }
   }
 
   /**
@@ -150,6 +195,57 @@ class RouteVisualizer {
   }
 
   /**
+   * Dibuja la ruta recta de un constructor desde su posición actual hasta su destino.
+   * Usa gridPathCells para calcular el camino H3 más corto y lo pinta en azul.
+   *
+   * @param {number|string} workerId   - ID del worker (key único)
+   * @param {string}        fromH3     - Índice H3 actual del worker
+   * @param {string}        toH3       - Índice H3 destino
+   */
+  drawWorkerPath(workerId, fromH3, toH3) {
+    if (!this._routeLayer) return;
+
+    const key = `worker_${workerId}`;
+    this._clearArmy(key);
+
+    if (!fromH3 || !toH3 || fromH3 === toH3) return;
+
+    let path;
+    try {
+      path = gridPathCells(fromH3, toH3);
+    } catch {
+      return;
+    }
+    if (!path || path.length < 2) return;
+
+    const coords = path.map(hex => cellToLatLng(hex));
+    const polyline = L.polyline(coords, ROUTE_STYLE_WORKER);
+    this._routeLayer.addLayer(polyline);
+    this._armyPolylines.set(key, { current: polyline, future: null });
+
+    const arrowDecorator = L.polylineDecorator(polyline, {
+      patterns: [{
+        offset: '100%',
+        repeat: 0,
+        symbol: L.Symbol.arrowHead({
+          pixelSize: 10,
+          polygon: false,
+          pathOptions: { color: '#3b82f6', opacity: 0.85, weight: 2, pane: 'routePane' }
+        })
+      }]
+    }).addTo(this._map);
+    this._armyArrows.set(key, arrowDecorator);
+  }
+
+  /**
+   * Elimina la ruta de un constructor específico.
+   * @param {number|string} workerId
+   */
+  clearWorker(workerId) {
+    this._clearArmy(`worker_${workerId}`);
+  }
+
+  /**
    * Elimina TODAS las líneas de ruta del mapa.
    * Útil antes de un re-fetch completo de rutas.
    */
@@ -158,6 +254,10 @@ class RouteVisualizer {
       this._routeLayer.clearLayers();
     }
     this._armyPolylines.clear();
+    if (this._map) {
+      this._armyArrows.forEach(arrow => this._map.removeLayer(arrow));
+    }
+    this._armyArrows.clear();
   }
 }
 

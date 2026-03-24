@@ -9,12 +9,19 @@
 
     <div v-else class="troops-content">
       <!-- Summary Row -->
-      <div class="troops-summary" style="grid-template-columns: repeat(5, 1fr)">
+      <div class="troops-summary" style="grid-template-columns: repeat(6, 1fr)">
+        <div class="summary-card">
+          <div class="card-icon">⚔️</div>
+          <div class="card-content">
+            <span class="card-label">Ejércitos</span>
+            <span class="card-value">{{ fieldArmiesCount }}</span>
+          </div>
+        </div>
         <div class="summary-card">
           <div class="card-icon">🏰</div>
           <div class="card-content">
-            <span class="card-label">Ejércitos</span>
-            <span class="card-value">{{ armies.length }}</span>
+            <span class="card-label">Guarniciones</span>
+            <span class="card-value">{{ garrisonCount }}</span>
           </div>
         </div>
         <div class="summary-card">
@@ -63,7 +70,10 @@
           <tbody>
             <tr v-for="army in armies" :key="army.army_id" class="troop-row">
               <td class="unit-cell">
-                <div class="unit-name">{{ army.name }}</div>
+                <div class="unit-name">
+                  <span v-if="army.is_garrison" class="garrison-badge" title="Tropas acuarteladas — no pueden moverse">🏰</span>
+                  {{ army.name }}
+                </div>
               </td>
               <td class="quantity-cell">
                 <span class="quantity-badge">{{ army.total_troops }}</span>
@@ -128,6 +138,12 @@
                     :title="getReinforceTooltip(army)"
                     @click="openReinforce(army)"
                   >➕</button>
+                  <button
+                    v-if="coLocatedCount(army) > 0 && !army.destination"
+                    class="btn-icon btn-icon-transfer"
+                    :title="`Unir con ${coLocatedCount(army)} ejército(s) co-ubicado(s)`"
+                    @click="openTransfer(army)"
+                  >🔗</button>
                 </div>
               </td>
             </tr>
@@ -142,8 +158,20 @@
     :show="inspectModalVisible"
     :army="inspectArmy"
     :autoReinforce="inspectAutoReinforce"
+    :playerCultureId="props.playerCultureId"
     @close="inspectModalVisible = false; inspectAutoReinforce = false"
     @dismissed="(payload) => emit('armyDismissed', payload)"
+  />
+
+  <!-- Army Transfer Panel -->
+  <ArmyTransferPanel
+    :show="transferPanelVisible"
+    :armyAId="transferArmyA?.army_id"
+    :armyBId="transferArmyB"
+    :h3_index="transferArmyA?.h3_index"
+    :fiefName="transferArmyA?.location_name"
+    @close="transferPanelVisible = false"
+    @done="emit('armiesTransferred')"
   />
 </template>
 
@@ -151,6 +179,7 @@
 import { ref, computed } from 'vue';
 import { stopArmy, attackArmy } from '../services/mapApi.js';
 import ArmyDetailModal from './ArmyDetailModal.vue';
+import ArmyTransferPanel from './ArmyTransferPanel.vue';
 
 const props = defineProps({
   armies: {
@@ -160,10 +189,11 @@ const props = defineProps({
   loading: {
     type: Boolean,
     default: false
-  }
+  },
+  playerCultureId: { type: Number, default: null },
 });
 
-const emit = defineEmits(['locate', 'armyStopped', 'armyStopFailed', 'armyAttacked', 'armyAttackFailed', 'armyDismissed']);
+const emit = defineEmits(['locate', 'armyStopped', 'armyStopFailed', 'armyAttacked', 'armyAttackFailed', 'armyDismissed', 'armiesTransferred']);
 
 const stoppingArmies = ref(new Set());
 const attackingArmies = ref(new Set());
@@ -175,11 +205,42 @@ const inspectAutoReinforce  = ref(false);
 const openInspect   = (army) => { inspectArmy.value = army; inspectAutoReinforce.value = false; inspectModalVisible.value = true; };
 const openReinforce = (army) => { inspectArmy.value = army; inspectAutoReinforce.value = true;  inspectModalVisible.value = true; };
 
+// Transfer panel
+const transferPanelVisible = ref(false);
+const transferArmyA        = ref(null);
+const transferArmyB        = ref(null);
+
+// Group armies by h3_index for co-location detection
+const armiesByHex = computed(() => {
+  const map = {};
+  for (const a of props.armies) {
+    if (!map[a.h3_index]) map[a.h3_index] = [];
+    map[a.h3_index].push(a);
+  }
+  return map;
+});
+
+const coLocatedCount = (army) => {
+  const group = armiesByHex.value[army.h3_index] || [];
+  return group.filter(a => a.army_id !== army.army_id && !a.destination).length;
+};
+
+const openTransfer = (army) => {
+  const group = armiesByHex.value[army.h3_index] || [];
+  const others = group.filter(a => a.army_id !== army.army_id && !a.destination);
+  transferArmyA.value = army;
+  transferArmyB.value = others.length === 1 ? others[0].army_id : null;
+  transferPanelVisible.value = true;
+};
+
 const getReinforceTooltip = (army) => {
   if (!army.is_own_fief)       return 'El ejército no está estacionado en un feudo propio';
   if (army.fief_grace_turns > 0) return `Feudo en período de ocupación (${army.fief_grace_turns} turnos restantes)`;
   return 'Reforzar ejército con nuevas tropas';
 };
+
+const fieldArmiesCount = computed(() => props.armies.filter(a => !a.is_garrison).length);
+const garrisonCount    = computed(() => props.armies.filter(a =>  a.is_garrison).length);
 
 const totalUnits = computed(() => {
   return props.armies.reduce((sum, a) => sum + (a.total_troops || 0), 0);
@@ -414,6 +475,13 @@ const handleAttack = async (army) => {
 .unit-name {
   font-size: 1.2rem;
   font-family: 'Cinzel', serif;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.garrison-badge {
+  font-size: 1rem;
+  line-height: 1;
 }
 
 /* Quantity Column */
@@ -693,5 +761,13 @@ const handleAttack = async (army) => {
   cursor: not-allowed;
   border-color: #444;
   color: #555;
+}
+.btn-icon-transfer {
+  border: 1px solid #4a3f6b;
+  color: #c8b8f0;
+}
+.btn-icon-transfer:hover {
+  background: rgba(200, 184, 240, 0.2);
+  border-color: #c8b8f0;
 }
 </style>

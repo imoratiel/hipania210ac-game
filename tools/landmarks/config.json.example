@@ -1,0 +1,20 @@
+{
+  "overpass_url": "https://overpass-api.de/api/interpreter",
+  "h3_resolution": 7,
+  "batch_size": 500,
+
+  "bbox": {
+    "min_lat": 41.80,
+    "max_lat": 43.20,
+    "min_lng": -7.10,
+    "max_lng": -4.70
+  },
+
+  "db": {
+    "host": "localhost",
+    "port": "5444",
+    "database": "marca_hispanica",
+    "user": "postgres",
+    "password": "your_password_here"
+  }
+}

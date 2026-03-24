@@ -1,11 +1,14 @@
 const { Logger } = require('../utils/logger');
 const ArmyModel = require('../models/ArmyModel.js');
+const CharacterModel = require('../models/CharacterModel.js');
 const ArmySimulationService = require('./ArmySimulationService.js');
 const h3 = require('h3-js');
 const pool = require('../../db.js');
 const GAME_CONFIG = require('../config/constants.js');
 const { getArmyLimit, getPopulationCap } = require('../config/gameFunctions.js');
 const NameGenerator = require('../logic/NameGenerator.js');
+const recruitmentNetwork = require('../logic/recruitmentNetwork.js');
+const { executeRecruitment, GameActionError } = require('./gameActions.js');
 
 class ArmyService {
     async GetArmyDetails(req, res) {
@@ -69,96 +72,21 @@ class ArmyService {
         try {
             const player_id = req.user.player_id;
             const { h3_index, unit_type_id, quantity } = req.body;
-            const army_name = req.body.army_name || NameGenerator.generate();
-
-            if (!h3_index || !unit_type_id || !quantity) {
-                return res.status(400).json({ success: false, message: 'Faltan parámetros requeridos' });
-            }
-            if (quantity <= 0) {
-                return res.status(400).json({ success: false, message: 'La cantidad debe ser mayor a 0' });
-            }
 
             await client.query('BEGIN');
 
-            const reqResult = await ArmyModel.GetUnitRequirements(client, unit_type_id);
-            const requirements = reqResult.rows;
-
-            const terrResult = await ArmyModel.GetTerritoryForRecruitment(client, h3_index);
-            if (terrResult.rows.length === 0) {
-                await client.query('ROLLBACK');
-                return res.status(404).json({ success: false, message: 'Territorio no encontrado' });
-            }
-            const territory = terrResult.rows[0];
-
-            if (territory.player_id !== player_id) {
-                await client.query('ROLLBACK');
-                return res.status(403).json({ success: false, message: 'No posees este territorio' });
-            }
-
-            // Validate population: recruiting reduces local population; can't go below MIN_FIEF_POPULATION
-            const MIN_POP = GAME_CONFIG.ECONOMY.MIN_FIEF_POPULATION;
-            const currentPop = parseInt(territory.population) || 0;
-            if (currentPop - quantity < MIN_POP) {
-                await client.query('ROLLBACK');
-                const available = Math.max(0, currentPop - MIN_POP);
-                return res.status(400).json({
-                    success: false,
-                    message: `Población insuficiente. Puedes reclutar como máximo ${available} unidades (mínimo de ${MIN_POP} habitantes garantizados).`
-                });
-            }
-
-            const playerResult = await ArmyModel.GetPlayerGold(client, player_id);
-            const player = playerResult.rows[0];
-
-            // Validate resources
-            for (const req of requirements) {
-                const needed = req.amount * quantity;
-                if (req.resource_type === 'gold' && player.gold < needed) {
-                    await client.query('ROLLBACK');
-                    return res.status(400).json({ success: false, message: `Oro insuficiente. Necesitas ${needed} oro, pero solo tienes ${player.gold}.` });
-                } else if (req.resource_type === 'wood_stored' && (territory.wood_stored || 0) < needed) {
-                    await client.query('ROLLBACK');
-                    return res.status(400).json({ success: false, message: `Madera insuficiente. Necesitas ${needed}, pero solo tienes ${territory.wood_stored || 0}.` });
-                } else if (req.resource_type === 'stone_stored' && (territory.stone_stored || 0) < needed) {
-                    await client.query('ROLLBACK');
-                    return res.status(400).json({ success: false, message: `Piedra insuficiente. Necesitas ${needed}, pero solo tienes ${territory.stone_stored || 0}.` });
-                } else if (req.resource_type === 'iron_stored' && (territory.iron_stored || 0) < needed) {
-                    await client.query('ROLLBACK');
-                    return res.status(400).json({ success: false, message: `Hierro insuficiente. Necesitas ${needed}, pero solo tienes ${territory.iron_stored || 0}.` });
-                }
-            }
-
-            // Deduct resources
-            for (const req of requirements) {
-                const cost = req.amount * quantity;
-                if (req.resource_type === 'gold') {
-                    await ArmyModel.DeductPlayerGold(client, player_id, cost);
-                } else {
-                    await ArmyModel.DeductTerritoryResource(client, h3_index, req.resource_type, cost);
-                }
-            }
-
-            // Deduct population: recruited soldiers leave the local population
-            await ArmyModel.DeductPopulation(client, h3_index, quantity);
-
-            // Find or create army
-            const existingArmy = await ArmyModel.FindArmy(client, h3_index, army_name, player_id);
-            let army_id;
-            if (existingArmy.rows.length === 0) {
-                const newArmy = await ArmyModel.CreateArmy(client, army_name, player_id, h3_index);
-                army_id = newArmy.rows[0].army_id;
-            } else {
-                army_id = existingArmy.rows[0].army_id;
-            }
-
-            await ArmyModel.AddTroops(client, army_id, unit_type_id, quantity);
-            await ArmyModel.refreshDetectionRange(client, army_id);
+            const cultureRow = await client.query('SELECT culture_id FROM players WHERE player_id = $1', [player_id]);
+            const culture_id = cultureRow.rows[0]?.culture_id ?? null;
+            const army_name = req.body.army_name || NameGenerator.generate(culture_id);
+            const result = await executeRecruitment(client, player_id, { h3_index, unit_type_id, quantity, army_name });
             await client.query('COMMIT');
 
-            Logger.action(`Reclutó ${quantity} unidades (tipo ${unit_type_id}) en ${h3_index}`, player_id, { army_name, unit_type_id, quantity });
-            res.json({ success: true, message: 'Unidades reclutadas exitosamente', army_id });
+            res.json({ success: true, ...result });
         } catch (error) {
             await client.query('ROLLBACK');
+            if (error instanceof GameActionError) {
+                return res.status(400).json({ success: false, message: error.message });
+            }
             Logger.error(error, { endpoint: '/military/recruit', method: 'POST', userId: req.user?.player_id, payload: req.body });
             res.status(500).json({ success: false, message: 'Error al reclutar unidades', error: error.message });
         } finally {
@@ -252,6 +180,10 @@ class ArmyService {
                 return res.status(403).json({ success: false, message: 'No tienes permiso para mover este ejército' });
             }
 
+            if (army.is_garrison) {
+                return res.status(400).json({ success: false, message: 'Las tropas acuarteladas no pueden moverse. Forman parte de la guarnición del feudo.' });
+            }
+
             const distance = h3.gridDistance(army.h3_index, target_h3);
             const MAX_DISTANCE = GAME_CONFIG.MAP.MAX_MOVEMENT_DISTANCE;
             if (distance > MAX_DISTANCE) {
@@ -303,7 +235,8 @@ class ArmyService {
         const client = await pool.connect();
         try {
             const player_id = req.user.player_id;
-            const { h3_index, army_name, units } = req.body;
+            const { h3_index, army_name, units, mode = 'field' } = req.body;
+            const is_garrison = mode === 'garrison';
             // units: [{ unit_type_id, quantity }, ...]
 
             if (!h3_index || !Array.isArray(units) || units.length === 0) {
@@ -318,10 +251,38 @@ class ArmyService {
             await client.query('BEGIN');
 
             // Verify territory ownership
-            const territory = await ArmyModel.GetTerritoryForRecruitment(client, h3_index);
-            if (!territory.rows.length || territory.rows[0].player_id !== player_id) {
+            const terrResult = await ArmyModel.GetTerritoryForRecruitment(client, h3_index);
+            if (!terrResult.rows.length || terrResult.rows[0].player_id !== player_id) {
                 await client.query('ROLLBACK');
                 return res.status(403).json({ success: false, message: 'No eres propietario de este territorio' });
+            }
+            const territory = terrResult.rows[0];
+
+            // ── Validación de ubicación: Capital o edificio militar ───────────────
+            const isCapital = territory.capital_h3 === h3_index;
+            if (!isCapital) {
+                const hasMilitary = await ArmyModel.CheckMilitaryBuildingInFief(client, h3_index);
+                if (!hasMilitary) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Solo puedes reclutar en tu Capital o en feudos con un edificio militar (Cuartel o Fortaleza).'
+                    });
+                }
+            }
+
+            // ── Validación de población por red conectada ─────────────────────────
+            const totalTroops = units.reduce((s, u) => s + u.quantity, 0);
+            const connectedH3s = await recruitmentNetwork.getConnectedNetwork(client, h3_index, player_id);
+            const fiefPops = await recruitmentNetwork.getFiefPopulations(client, connectedH3s);
+            const recruitablePool = recruitmentNetwork.calcRecruitablePool(fiefPops);
+
+            if (recruitablePool < totalTroops) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Población insuficiente. Tu red de feudos puede aportar ${recruitablePool} reclutas (mínimo garantizado por feudo: ${GAME_CONFIG.ECONOMY.MIN_FIEF_POPULATION} hab.; límite en señorío: ${GAME_CONFIG.DIVISIONS.MAX_RECRUITS_DIVISION}, en feudo libre: ${GAME_CONFIG.DIVISIONS.MAX_RECRUITS_INDEPENDENT}).`
+                });
             }
 
             // Fetch all requirements in one query
@@ -342,24 +303,22 @@ class ArmyService {
                 }
             }
 
-            // Validate resources (anti-exploit double-check)
+            // Validate resources
             const goldResult = await ArmyModel.GetPlayerGold(client, player_id);
             const playerGold = parseFloat(goldResult.rows[0]?.gold) || 0;
             if (playerGold < totalCost.gold) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({ success: false, message: 'Oro insuficiente' });
             }
-
-            const td = territory.rows[0];
-            if ((td.wood_stored || 0) < totalCost.wood_stored) {
+            if ((territory.wood_stored || 0) < totalCost.wood_stored) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({ success: false, message: 'Madera insuficiente' });
             }
-            if ((td.stone_stored || 0) < totalCost.stone_stored) {
+            if ((territory.stone_stored || 0) < totalCost.stone_stored) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({ success: false, message: 'Piedra insuficiente' });
             }
-            if ((td.iron_stored || 0) < totalCost.iron_stored) {
+            if ((territory.iron_stored || 0) < totalCost.iron_stored) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({ success: false, message: 'Hierro insuficiente' });
             }
@@ -370,7 +329,33 @@ class ArmyService {
             if (totalCost.stone_stored > 0) await ArmyModel.DeductTerritoryResource(client, h3_index, 'stone_stored', totalCost.stone_stored);
             if (totalCost.iron_stored > 0) await ArmyModel.DeductTerritoryResource(client, h3_index, 'iron_stored', totalCost.iron_stored);
 
-            // ── Army limit check (server-side, cannot be bypassed from client) ──
+            // Deduct population from network (recruiting fief first, then neighbors in BFS order)
+            await recruitmentNetwork.deductFromNetwork(client, connectedH3s, fiefPops, totalTroops);
+
+            let army_id;
+            let resolvedName;
+
+            if (is_garrison) {
+                // ── Garrison mode: add to existing garrison or create a new one ──
+                const existingGarrison = await ArmyModel.GetGarrisonAtHex(client, h3_index, player_id);
+                if (existingGarrison) {
+                    army_id = existingGarrison.army_id;
+                } else {
+                    resolvedName = 'Guarnición';
+                    const armyResult = await ArmyModel.CreateArmy(client, resolvedName, player_id, h3_index, true);
+                    army_id = armyResult.rows[0].army_id;
+                }
+                for (const u of units) {
+                    await ArmyModel.AddTroops(client, army_id, u.unit_type_id, u.quantity);
+                }
+                await ArmyModel.refreshDetectionRange(client, army_id);
+                await client.query('COMMIT');
+                Logger.action(`Acuarteló lote: ${totalTroops} tropas en ${h3_index}`, player_id);
+                return res.json({ success: true, army_id, mode: 'garrison', total_troops: totalTroops });
+            }
+
+            // ── Field army mode ───────────────────────────────────────────────────
+            // Army limit check (server-side, cannot be bypassed from client)
             const capacity = await ArmyModel.GetPlayerArmyCapacity(client, player_id);
             const armyLimit = getArmyLimit(capacity.fief_count);
             if (capacity.army_count >= armyLimit) {
@@ -382,9 +367,9 @@ class ArmyService {
             }
 
             // Create army
-            const resolvedName = (army_name || '').trim() || NameGenerator.generate();
+            resolvedName = (army_name || '').trim() || NameGenerator.generate(territory.culture_id);
             const armyResult = await ArmyModel.CreateArmy(client, resolvedName, player_id, h3_index);
-            const army_id = armyResult.rows[0].army_id;
+            army_id = armyResult.rows[0].army_id;
 
             // Add troops
             for (const u of units) {
@@ -394,9 +379,8 @@ class ArmyService {
 
             await client.query('COMMIT');
 
-            const totalTroops = units.reduce((s, u) => s + u.quantity, 0);
             Logger.action(`Reclutó lote: ${totalTroops} tropas en ${h3_index}`, player_id);
-            res.json({ success: true, army_id, army_name: resolvedName, total_troops: totalTroops });
+            res.json({ success: true, army_id, army_name: resolvedName, total_troops: totalTroops, mode: 'field' });
         } catch (error) {
             await client.query('ROLLBACK');
             Logger.error(error, { endpoint: '/military/bulk-recruit', method: 'POST', userId: req.user?.player_id });
@@ -596,6 +580,172 @@ class ArmyService {
         }
     }
 
+    async GetArmiesAtHex(req, res) {
+        try {
+            const player_id = req.user.player_id;
+            const { h3_index } = req.params;
+            if (!h3_index) return res.status(400).json({ success: false, message: 'Falta h3_index' });
+            const armies = await ArmyModel.GetArmiesAtHex(h3_index, player_id);
+            res.json({ success: true, armies });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/military/armies-at-hex', method: 'GET', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al obtener ejércitos' });
+        }
+    }
+
+    async GetRecruitablePool(req, res) {
+        const client = await pool.connect();
+        try {
+            const player_id = req.user.player_id;
+            const { h3_index } = req.query;
+            if (!h3_index) return res.status(400).json({ success: false, message: 'Falta h3_index' });
+
+            const connectedH3s = await recruitmentNetwork.getConnectedNetwork(client, h3_index, player_id);
+            // Read-only query (no FOR UPDATE) — just for display
+            const popResult = connectedH3s.length > 0
+                ? await client.query('SELECT h3_index, population FROM territory_details WHERE h3_index = ANY($1::text[])', [connectedH3s])
+                : { rows: [] };
+            const recruitable  = recruitmentNetwork.calcRecruitablePool(popResult.rows);
+            const min_pop      = GAME_CONFIG.ECONOMY.MIN_FIEF_POPULATION;
+
+            res.json({ success: true, recruitable, fiefs: connectedH3s.length, min_pop });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/military/recruitable-pool', method: 'GET', userId: req.user?.player_id });
+            res.status(500).json({ success: false, message: 'Error al calcular población reclutable' });
+        } finally {
+            client.release();
+        }
+    }
+
+    async TransferArmy(req, res) {
+        const client = await pool.connect();
+        try {
+            const player_id = req.user.player_id;
+            const { from_army_id, to_army_id, troops = [], provisions = {} } = req.body;
+
+            if (!from_army_id || !to_army_id) {
+                return res.status(400).json({ success: false, message: 'Faltan parámetros: from_army_id, to_army_id' });
+            }
+            if (from_army_id === to_army_id) {
+                return res.status(400).json({ success: false, message: 'Los ejércitos de origen y destino deben ser distintos' });
+            }
+
+            await client.query('BEGIN');
+
+            // Validate both armies belong to player and share same h3_index
+            const armiesResult = await client.query(
+                `SELECT army_id, name, h3_index, destination,
+                        gold_provisions, food_provisions, wood_provisions, stone_provisions, iron_provisions
+                 FROM armies
+                 WHERE army_id = ANY($1::int[]) AND player_id = $2`,
+                [[from_army_id, to_army_id], player_id]
+            );
+
+            if (armiesResult.rows.length !== 2) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Uno o ambos ejércitos no encontrados o no te pertenecen' });
+            }
+
+            const fromArmy = armiesResult.rows.find(a => parseInt(a.army_id) === from_army_id);
+            const toArmy   = armiesResult.rows.find(a => parseInt(a.army_id) === to_army_id);
+
+            if (!fromArmy || !toArmy) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Ejércitos no encontrados' });
+            }
+            if (fromArmy.h3_index !== toArmy.h3_index) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'Los ejércitos deben estar en la misma casilla' });
+            }
+            if (fromArmy.destination || toArmy.destination) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'No se puede transferir entre ejércitos en movimiento' });
+            }
+
+            // Transfer troops
+            for (const { unit_type_id, quantity } of troops) {
+                if (!unit_type_id || !quantity || quantity <= 0) continue;
+                await ArmyModel.TransferTroops(client, from_army_id, to_army_id, unit_type_id, quantity);
+            }
+
+            // Transfer provisions
+            const PROV_FIELDS = ['gold', 'food', 'wood', 'stone', 'iron'];
+            for (const field of PROV_FIELDS) {
+                const amount = parseFloat(provisions[field] || 0);
+                if (amount <= 0) continue;
+                const col = `${field}_provisions`;
+                const available = parseFloat(fromArmy[col] || 0);
+                if (amount > available) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({ success: false, message: `Suministros de ${field} insuficientes en ejército origen` });
+                }
+                await client.query(
+                    `UPDATE armies SET ${col} = ${col} - $1 WHERE army_id = $2`,
+                    [amount, from_army_id]
+                );
+                await client.query(
+                    `UPDATE armies SET ${col} = ${col} + $1 WHERE army_id = $2`,
+                    [amount, to_army_id]
+                );
+            }
+
+            // Check if either army is now empty — dissolve it and pass remaining provisions to the other
+            const PROV_COLS = ['gold_provisions', 'food_provisions', 'wood_provisions', 'stone_provisions', 'iron_provisions'];
+            let dissolved_army_id = null;
+            let dissolved_name    = null;
+            let survivor_army_id  = null;
+
+            for (const [emptyId, survivorId] of [[from_army_id, to_army_id], [to_army_id, from_army_id]]) {
+                const troopCheck = await client.query(
+                    'SELECT COALESCE(SUM(quantity), 0) AS total FROM troops WHERE army_id = $1',
+                    [emptyId]
+                );
+                if (parseInt(troopCheck.rows[0].total) === 0) {
+                    // Transfer all remaining provisions to survivor
+                    const emptyRow = await client.query(
+                        `SELECT ${PROV_COLS.join(', ')} FROM armies WHERE army_id = $1`, [emptyId]
+                    );
+                    const ep = emptyRow.rows[0];
+                    const setClauses = PROV_COLS.map(c => `${c} = ${c} + ${parseFloat(ep[c] || 0)}`).join(', ');
+                    if (setClauses) {
+                        await client.query(`UPDATE armies SET ${setClauses} WHERE army_id = $1`, [survivorId]);
+                    }
+                    // Delete routes and army
+                    await client.query('DELETE FROM army_routes WHERE army_id = $1', [emptyId]);
+                    await client.query('DELETE FROM armies WHERE army_id = $1', [emptyId]);
+                    dissolved_army_id = emptyId;
+                    dissolved_name    = emptyId === from_army_id ? fromArmy.name : toArmy.name;
+                    survivor_army_id  = survivorId;
+                    break;
+                }
+            }
+
+            // Refresh detection ranges (only for armies that still exist)
+            if (dissolved_army_id !== from_army_id) await ArmyModel.refreshDetectionRange(client, from_army_id);
+            if (dissolved_army_id !== to_army_id)   await ArmyModel.refreshDetectionRange(client, to_army_id);
+
+            await client.query('COMMIT');
+
+            const msg = dissolved_army_id
+                ? `Transferencia aplicada. El ejército "${dissolved_name}" quedó vacío y fue disuelto.`
+                : 'Transferencia realizada correctamente';
+
+            Logger.action(
+                `Transferencia entre ejércitos "${fromArmy.name}" → "${toArmy.name}" (${fromArmy.h3_index})`,
+                player_id,
+                { from_army_id, to_army_id, troop_types: troops.length, provisions, dissolved_army_id }
+            );
+
+            res.json({ success: true, message: msg, dissolved_army_id });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            Logger.error(error, { endpoint: '/military/transfer', method: 'POST', userId: req.user?.player_id, payload: req.body });
+            res.status(500).json({ success: false, message: error.message || 'Error al transferir tropas' });
+        } finally {
+            client.release();
+        }
+    }
+
     async GetArmiesInRegion(req, res) {
         try {
             const { minLat, maxLat, minLng, maxLng } = req.query;
@@ -616,7 +766,7 @@ class ArmyService {
             }
 
             const playerId = req.user.player_id;
-            const H3_RESOLUTION = 8;
+            const H3_RESOLUTION = 7;
             const polygon = [
                 [bounds.minLat, bounds.minLng],
                 [bounds.minLat, bounds.maxLng],
@@ -630,16 +780,19 @@ class ArmyService {
             }
 
             // Fetch armies in viewport + player's vision sources in parallel
-            const [armiesResult, ownArmyVision, ownFiefPositions] = await Promise.all([
+            const [armiesResult, ownArmyVision, ownFiefPositions, characterPositions] = await Promise.all([
                 ArmyModel.GetArmiesInBounds(h3CellsArray),
                 ArmyModel.GetPlayerArmiesWithDetection(playerId),
-                ArmyModel.GetPlayerFiefPositions(playerId)
+                ArmyModel.GetPlayerFiefPositions(playerId),
+                CharacterModel.getStandalonePositions(playerId),
             ]);
 
             // ── Build fog-of-war visible hex set using gridDisk ──────────────
             // Each own army reveals a disk of hexes equal to its max detection_range.
             // Each owned fief reveals a disk of FIEF_DETECTION_RANGE hexes.
-            const fiefRange = GAME_CONFIG.MILITARY.FIEF_DETECTION_RANGE;
+            // Each standalone character reveals a disk of CHARACTER_DETECTION_RANGE hexes.
+            const fiefRange      = GAME_CONFIG.MILITARY.FIEF_DETECTION_RANGE;
+            const characterRange = GAME_CONFIG.CHARACTERS.DETECTION_RANGE;
             const visibleHexes = new Set();
 
             for (const army of ownArmyVision) {
@@ -648,11 +801,18 @@ class ArmyService {
             for (const fiefH3 of ownFiefPositions) {
                 h3.gridDisk(fiefH3, fiefRange).forEach(hex => visibleHexes.add(hex));
             }
+            for (const charH3 of characterPositions) {
+                h3.gridDisk(charH3, characterRange).forEach(hex => visibleHexes.add(hex));
+            }
 
             // Own armies always visible; enemy armies only if in the visible zone
-            const visibleArmies = armiesResult.rows.filter(army =>
-                army.player_id === playerId || visibleHexes.has(army.h3_index)
-            );
+            const visibleArmies = armiesResult.rows
+                .filter(army => army.player_id === playerId || visibleHexes.has(army.h3_index))
+                .map(army => {
+                    if (army.player_id === playerId) return army;
+                    // Enemy army: only expose position and owner, no military intelligence
+                    return { h3_index: army.h3_index, player_id: army.player_id };
+                });
 
             res.json({ success: true, armies: visibleArmies, current_player_id: playerId });
         } catch (error) {
@@ -834,6 +994,23 @@ class ArmyService {
                     success: false,
                     message: `Feudo en período de ocupación (${territory.grace_turns} turnos restantes). No se puede reforzar hasta que se estabilice.`
                 });
+            }
+
+            // 2b. Verify location: must be capital or fief with completed military building
+            const playerCapResult = await client.query(
+                'SELECT capital_h3 FROM players WHERE player_id = $1',
+                [player_id]
+            );
+            const isCapital = playerCapResult.rows[0]?.capital_h3 === h3_index;
+            if (!isCapital) {
+                const hasMilitary = await ArmyModel.CheckMilitaryBuildingInFief(client, h3_index);
+                if (!hasMilitary) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Solo puedes reforzar en tu Capital o en feudos con un edificio militar completado (Cuartel o Fortaleza).'
+                    });
+                }
             }
 
             // 3. Compute total cost (same as recruitment)

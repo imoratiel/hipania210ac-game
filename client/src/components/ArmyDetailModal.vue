@@ -7,8 +7,9 @@
           <!-- Header -->
           <div class="adm-header">
             <div class="adm-title-row">
-              <span class="adm-icon">⚔️</span>
+              <span class="adm-icon">{{ armyDetail?.is_garrison ? '🏰' : '⚔️' }}</span>
               <h2 class="adm-title">{{ army?.name ?? '—' }}</h2>
+              <span v-if="armyDetail?.is_garrison" class="adm-garrison-badge">GUARNICIÓN</span>
             </div>
             <button class="adm-close" @click="$emit('close')" title="Cerrar (Escape)">✕</button>
           </div>
@@ -20,7 +21,37 @@
           <div v-else-if="error" class="adm-error">❌ {{ error }}</div>
 
           <template v-else>
-            <!-- Tabla de tropas -->
+            <!-- Comandante -->
+            <template v-if="commander">
+              <div class="adm-section-label">👑 COMANDANTE</div>
+              <div class="adm-commander-card">
+                <div class="adm-commander-avatar">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="28" height="28">
+                    <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
+                  </svg>
+                </div>
+                <div class="adm-commander-info">
+                  <div class="adm-commander-name">{{ commander.full_title }}</div>
+                  <div class="adm-commander-meta">
+                    <span class="adm-commander-level">Nivel {{ commander.level }}</span>
+                    <span class="adm-commander-buff">⚔️ +{{ commander.combat_buff_pct }}% combate</span>
+                    <span v-if="commander.is_captive" class="adm-commander-captive">⛓️ Cautivo</span>
+                  </div>
+                  <div class="adm-commander-guard-row">
+                    <span class="adm-commander-guard-label">Guardia personal</span>
+                    <div class="adm-commander-guard-bar-wrap">
+                      <div class="adm-commander-guard-bar-fill"
+                           :style="{ width: Math.round(commander.personal_guard / 25 * 100) + '%',
+                                     background: barColor(Math.round(commander.personal_guard / 25 * 100)) }">
+                      </div>
+                    </div>
+                    <span class="adm-commander-guard-count">{{ commander.personal_guard }}/25</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+          <!-- Tabla de tropas -->
             <div class="adm-section-label">🗡 COMPOSICIÓN DE TROPAS</div>
             <div class="adm-table-wrap">
               <table v-if="troops.length > 0" class="adm-table">
@@ -28,7 +59,7 @@
                   <tr>
                     <th class="adm-th-name">Unidad</th>
                     <th class="adm-th-num">Cant.</th>
-                    <th class="adm-th-num">Exp.</th>
+                    <th class="adm-th-bar">Exp.</th>
                     <th class="adm-th-bar">Moral</th>
                     <th class="adm-th-bar">Estamina</th>
                     <th class="adm-th-num">Atq.</th>
@@ -38,9 +69,17 @@
                 </thead>
                 <tbody>
                   <tr v-for="t in troops" :key="t.unit_name" class="adm-tr">
-                    <td class="adm-td-name">{{ t.unit_name }}</td>
+                    <td class="adm-td-name">
+                      <span class="adm-unit-icon" :title="t.unit_class">{{ unitClassIcon(t.unit_class) }}</span>
+                      {{ t.unit_name }}
+                    </td>
                     <td class="adm-td-num">{{ t.quantity }}</td>
-                    <td class="adm-td-num adm-gold">{{ t.experience }}</td>
+                    <td class="adm-td-bar">
+                      <div class="adm-bar-wrap">
+                        <div class="adm-bar-fill adm-bar-exp" :style="{ width: Math.min(t.experience, 100) + '%' }"></div>
+                        <span class="adm-bar-label adm-gold">{{ t.experience }}%</span>
+                      </div>
+                    </td>
                     <td class="adm-td-bar">
                       <div class="adm-bar-wrap">
                         <div class="adm-bar-fill" :style="{ width: t.morale + '%', background: barColor(t.morale) }"></div>
@@ -98,13 +137,13 @@
                   {{ armyDetail?.food_provisions ?? 0 }}
                 </span>
               </div>
+              <!-- DISABLED: wood provisions hidden
               <div class="adm-prov-item">
                 <span class="adm-prov-icon">🌲</span>
                 <span class="adm-prov-label">Madera</span>
-                <span class="adm-prov-val" :class="{ 'adm-zero': !armyDetail?.wood_provisions }">
-                  {{ armyDetail?.wood_provisions ?? 0 }}
-                </span>
+                <span class="adm-prov-val">{{ armyDetail?.wood_provisions ?? 0 }}</span>
               </div>
+              -->
             </div>
           <!-- Refuerzo (solo cuando el ejército está en feudo propio) -->
           <template v-if="armyDetail?.is_own_fief">
@@ -121,18 +160,27 @@
               No se puede reclutar hasta que el feudo se estabilice.
             </div>
 
+            <!-- Bloqueado: sin edificio militar -->
+            <div
+              v-else-if="armyDetail.h3_index !== armyDetail.capital_h3 && !armyDetail.fief_has_military"
+              class="adm-reinforce-blocked"
+            >
+              🏗️ Este feudo no tiene un edificio militar completado.<br>
+              Solo puedes reforzar en tu Capital o en feudos con un Cuartel o Fortaleza.
+            </div>
+
             <!-- Formulario de refuerzo -->
             <template v-else-if="showReinforce">
               <div class="adm-reinforce-wrap">
                 <!-- Recursos disponibles -->
                 <div class="adm-reinforce-resources">
                   <span>👥 Pob. disponible: <b>{{ Math.max(0, armyDetail.fief_population - 20) }}</b></span>
-                  <span>🌲 Madera: <b>{{ armyDetail.fief_wood }}</b></span>
-                  <span>⛰️ Piedra: <b>{{ armyDetail.fief_stone }}</b></span>
-                  <span>⛏️ Hierro: <b>{{ armyDetail.fief_iron }}</b></span>
+                  <!-- DISABLED: <span>🌲 Madera: <b>{{ armyDetail.fief_wood }}</b></span> -->
+                  <!-- DISABLED: <span>⛰️ Piedra: <b>{{ armyDetail.fief_stone }}</b></span> -->
+                  <!-- DISABLED: <span>⛏️ Hierro: <b>{{ armyDetail.fief_iron }}</b></span> -->
                 </div>
 
-                <table class="adm-table" v-if="unitTypes.length > 0">
+                <table class="adm-table" v-if="availableUnitTypes.length > 0">
                   <thead>
                     <tr>
                       <th class="adm-th-name">Unidad</th>
@@ -141,8 +189,11 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="ut in unitTypes" :key="ut.unit_type_id" class="adm-tr">
-                      <td class="adm-td-name">{{ ut.name }}</td>
+                    <tr v-for="ut in availableUnitTypes" :key="ut.unit_type_id" class="adm-tr">
+                      <td class="adm-td-name">
+                        <span class="adm-unit-icon" :title="ut.unit_class">{{ unitClassIcon(ut.unit_class) }}</span>
+                        {{ ut.name }}
+                      </td>
                       <td class="adm-td-num adm-gold" style="font-size:0.75rem; white-space:nowrap;">
                         <span v-for="req in (ut.requirements || [])" :key="req.resource_type">
                           {{ req.resource_type === 'gold' ? '💰' : req.resource_type === 'wood_stored' ? '🌲' : req.resource_type === 'stone_stored' ? '⛰️' : '⛏️' }}{{ req.amount }}
@@ -165,9 +216,9 @@
                 <div class="adm-reinforce-summary" v-if="totalReinforceQty > 0">
                   <span>Total: <b>{{ totalReinforceQty }}</b> tropas</span>
                   <span v-if="totalReinforceCost.gold  > 0">💰 {{ totalReinforceCost.gold }}</span>
-                  <span v-if="totalReinforceCost.wood  > 0">🌲 {{ totalReinforceCost.wood }}</span>
-                  <span v-if="totalReinforceCost.stone > 0">⛰️ {{ totalReinforceCost.stone }}</span>
-                  <span v-if="totalReinforceCost.iron  > 0">⛏️ {{ totalReinforceCost.iron }}</span>
+                  <!-- DISABLED: <span v-if="totalReinforceCost.wood  > 0">🌲 {{ totalReinforceCost.wood }}</span> -->
+                  <!-- DISABLED: <span v-if="totalReinforceCost.stone > 0">⛰️ {{ totalReinforceCost.stone }}</span> -->
+                  <!-- DISABLED: <span v-if="totalReinforceCost.iron  > 0">⛏️ {{ totalReinforceCost.iron }}</span> -->
                   <span>👥 -{{ totalReinforceQty }}</span>
                 </div>
 
@@ -204,9 +255,10 @@ import { dismissTroops, reinforceArmy } from '../services/mapApi.js';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const props = defineProps({
-  show:          { type: Boolean, default: false },
-  army:          { type: Object,  default: null  },  // datos básicos del panel (name, army_id, …)
-  autoReinforce: { type: Boolean, default: false },  // auto-abre la sección de refuerzo
+  show:            { type: Boolean, default: false },
+  army:            { type: Object,  default: null  },  // datos básicos del panel (name, army_id, …)
+  autoReinforce:   { type: Boolean, default: false },  // auto-abre la sección de refuerzo
+  playerCultureId: { type: Number,  default: null  },
 });
 const emit = defineEmits(['close', 'dismissed']);
 
@@ -214,6 +266,7 @@ const loading    = ref(false);
 const error      = ref('');
 const armyDetail = ref(null);  // army con provisiones
 const troops     = ref([]);
+const commander  = ref(null);  // personaje comandante del ejército
 const dismissQty  = ref({});   // { [unit_type_id]: quantity }
 const dismissing  = ref(new Set());
 
@@ -224,6 +277,12 @@ const reinforceQty    = ref({});   // { [unit_type_id]: quantity }
 const reinforcing     = ref(false);
 const reinforceError  = ref('');
 const reinforceMsg    = ref('');
+
+// Unit types filtered by player culture
+const availableUnitTypes = computed(() => {
+  if (!props.playerCultureId) return unitTypes.value;
+  return unitTypes.value.filter(u => u.culture_id === props.playerCultureId);
+});
 
 // Calculates how many people would be lost per unit type if dismissed (cap overflow)
 const dismissSurplus = computed(() => {
@@ -240,7 +299,7 @@ const dismissSurplus = computed(() => {
 // Total gold cost for current reinforce inputs
 const totalReinforceCost = computed(() => {
   const costs = { gold: 0, wood: 0, stone: 0, iron: 0 };
-  for (const ut of unitTypes.value) {
+  for (const ut of availableUnitTypes.value) {
     const qty = parseInt(reinforceQty.value[ut.unit_type_id]) || 0;
     if (qty <= 0) continue;
     for (const req of (ut.requirements || [])) {
@@ -255,7 +314,7 @@ const totalReinforceCost = computed(() => {
 
 // Total troops being added in reinforce form
 const totalReinforceQty = computed(() =>
-  unitTypes.value.reduce((s, ut) => s + (parseInt(reinforceQty.value[ut.unit_type_id]) || 0), 0)
+  availableUnitTypes.value.reduce((s, ut) => s + (parseInt(reinforceQty.value[ut.unit_type_id]) || 0), 0)
 );
 
 const handleDismiss = async (troop) => {
@@ -285,7 +344,7 @@ const handleDismiss = async (troop) => {
 };
 
 const handleReinforce = async () => {
-  const units = unitTypes.value
+  const units = availableUnitTypes.value
     .map(ut => ({ unit_type_id: ut.unit_type_id, quantity: parseInt(reinforceQty.value[ut.unit_type_id]) || 0 }))
     .filter(u => u.quantity > 0);
 
@@ -335,6 +394,18 @@ const barColor = (val) => {
   return '#ef4444';
 };
 
+const UNIT_CLASS_ICON = {
+  INFANTRY_1:     '🛡',
+  INFANTRY_2:     '⚔',
+  INFANTRY_ELITE: '⭐',
+  ARCHER_1:       '🏹',
+  ARCHER_2:       '🏹',
+  CAVALRY_1:      '🐎',
+  CAVALRY_2:      '🐎',
+  SIEGE:          '🪨',
+};
+const unitClassIcon = (unit_class) => UNIT_CLASS_ICON[unit_class] || '⚔';
+
 const fetchDetail = async (armyId) => {
   loading.value = true;
   error.value   = '';
@@ -343,6 +414,7 @@ const fetchDetail = async (armyId) => {
     if (data.success) {
       armyDetail.value = data.army;
       troops.value     = data.troops;
+      commander.value  = data.commander ?? null;
       // Init dismiss inputs to 1 for each unit type
       dismissQty.value = Object.fromEntries(data.troops.map(t => [t.unit_type_id, 1]));
       // Auto-expand reinforce section if requested and conditions met
@@ -370,6 +442,7 @@ watch(() => props.show, (val) => {
     // Limpiar al cerrar
     armyDetail.value  = null;
     troops.value      = [];
+    commander.value   = null;
     error.value       = '';
     showReinforce.value = false;
     reinforceMsg.value  = '';
@@ -400,7 +473,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleEsc));
   border: 1px solid #374151;
   border-radius: 10px;
   width: 100%;
-  max-width: 700px;
+  max-width: 900px;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
@@ -419,8 +492,19 @@ onUnmounted(() => document.removeEventListener('keydown', handleEsc));
   background: #0d1117;
   flex-shrink: 0;
 }
-.adm-title-row { display: flex; align-items: center; gap: 10px; }
+.adm-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .adm-icon { font-size: 1.4rem; }
+.adm-garrison-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  padding: 2px 8px;
+  background: rgba(100, 160, 255, 0.15);
+  border: 1px solid rgba(100, 160, 255, 0.4);
+  border-radius: 4px;
+  color: #90b8ff;
+  text-transform: uppercase;
+}
 .adm-title {
   margin: 0;
   font-size: 1.1rem;
@@ -468,7 +552,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleEsc));
   width: 100%;
   border-collapse: collapse;
   font-size: 0.84rem;
-  min-width: 540px;
+  min-width: 660px;
 }
 .adm-table thead th {
   padding: 7px 10px;
@@ -486,7 +570,8 @@ onUnmounted(() => document.removeEventListener('keydown', handleEsc));
 .adm-tr { border-bottom: 1px solid #0d1117; }
 .adm-tr:hover { background: rgba(255,255,255,0.02); }
 
-.adm-td-name { padding: 9px 10px; color: #e2e8f0; font-weight: 600; }
+.adm-td-name { padding: 9px 10px; color: #e2e8f0; font-weight: 600; white-space: nowrap; }
+.adm-unit-icon { font-size: 13px; margin-right: 5px; }
 .adm-td-num { padding: 9px 10px; text-align: center; color: #9ca3af; }
 .adm-td-bar { padding: 9px 10px; min-width: 100px; }
 .adm-gold { color: #fbbf24 !important; }
@@ -505,6 +590,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleEsc));
   transition: width 0.3s;
   border-radius: 4px;
 }
+.adm-bar-exp { background: #d97706; }
 .adm-bar-label {
   position: absolute;
   inset: 0;
@@ -673,4 +759,102 @@ onUnmounted(() => document.removeEventListener('keydown', handleEsc));
 }
 .adm-reinforce-btn:hover:not(:disabled) { background: #1e4a1e; }
 .adm-reinforce-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Comandante */
+.adm-commander-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 20px 14px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(251,191,36,0.08) 0%, rgba(31,41,55,0.9) 100%);
+  border: 1px solid rgba(251,191,36,0.3);
+  border-radius: 8px;
+}
+.adm-commander-avatar {
+  width: 44px;
+  height: 44px;
+  background: rgba(251,191,36,0.15);
+  border: 1px solid rgba(251,191,36,0.4);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fbbf24;
+  flex-shrink: 0;
+}
+.adm-commander-info {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+.adm-commander-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fbbf24;
+  font-family: 'Georgia', serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.adm-commander-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.adm-commander-level {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  background: #1f2937;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #374151;
+}
+.adm-commander-buff {
+  font-size: 0.75rem;
+  color: #4ade80;
+  background: rgba(34,197,94,0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(34,197,94,0.25);
+}
+.adm-commander-captive {
+  font-size: 0.75rem;
+  color: #f87171;
+  background: rgba(239,68,68,0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(239,68,68,0.25);
+}
+.adm-commander-guard-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.adm-commander-guard-label {
+  font-size: 0.72rem;
+  color: #6b7280;
+  white-space: nowrap;
+}
+.adm-commander-guard-bar-wrap {
+  flex: 1;
+  height: 6px;
+  background: #1f2937;
+  border-radius: 3px;
+  overflow: hidden;
+  max-width: 120px;
+}
+.adm-commander-guard-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+.adm-commander-guard-count {
+  font-size: 0.72rem;
+  color: #9ca3af;
+  white-space: nowrap;
+}
 </style>

@@ -244,6 +244,14 @@ button {
   border: 1px solid #c5a059;
 }
 
+.leaflet-popup-close-button {
+  font-size: 22px !important;
+  width: 28px !important;
+  height: 28px !important;
+  line-height: 26px !important;
+  color: #8b6914 !important;
+}
+
 .leaflet-popup-content {
   margin: 0 !important;
   width: auto !important;
@@ -616,6 +624,91 @@ button {
   margin: 10px 15px !important;
 }
 
+.btn-build {
+  background: linear-gradient(135deg, #1a4a2e 0%, #2d7a4f 100%) !important;
+  color: white !important;
+  margin-top: 6px !important;
+}
+
+.btn-build:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+
+.btn-upgrade.btn-popup {
+  background: linear-gradient(135deg, #2d1a6e 0%, #5d3abf 100%) !important;
+  color: white !important;
+  margin-top: 6px !important;
+}
+
+.btn-upgrade.btn-popup:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+
+.btn-recruit {
+  background: linear-gradient(135deg, #4a1a1a 0%, #b03030 100%) !important;
+  color: white !important;
+  margin-top: 6px !important;
+}
+
+.btn-recruit:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+
+.btn-naval {
+  background: linear-gradient(135deg, #0a2a4a 0%, #1565c0 100%) !important;
+  color: white !important;
+  margin-top: 6px !important;
+}
+
+.btn-naval:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+
+/* Division boundary tooltip */
+.leaflet-division-tooltip {
+  background: rgba(20, 10, 5, 0.92) !important;
+  border: 1px solid rgba(139, 26, 26, 0.6) !important;
+  border-radius: 6px !important;
+  color: #e8d5b5 !important;
+  font-family: serif !important;
+  font-size: 0.82rem !important;
+  padding: 5px 10px !important;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.5) !important;
+  white-space: nowrap;
+}
+.leaflet-division-tooltip small {
+  color: #a08060;
+}
+
+.btn-fueros {
+  background: linear-gradient(135deg, #3a2a0a 0%, #8a6020 100%) !important;
+  color: #e8d5b5 !important;
+  margin-top: 6px !important;
+}
+
+.btn-fueros:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+
+.popup-building-status {
+  font-size: 12px !important;
+  margin: 6px 14px 4px !important;
+  padding: 6px 10px !important;
+  border-radius: 5px !important;
+}
+
+.popup-building-progress {
+  background: rgba(197, 160, 89, 0.12) !important;
+  border: 1px solid rgba(197, 160, 89, 0.35) !important;
+  color: #c5a059 !important;
+}
+
+.popup-building-done {
+  background: rgba(76, 175, 80, 0.12) !important;
+  border: 1px solid rgba(76, 175, 80, 0.35) !important;
+  color: #81c784 !important;
+}
+
 /* ================================================ */
 /* ARMY POPUP STYLES - Medieval Theme */
 /* ================================================ */
@@ -713,6 +806,22 @@ button {
   background: rgba(255, 255, 255, 0.4);
   border-radius: 3px;
   border-left: 2px solid #c5a059;
+}
+
+.army-troop-commander {
+  background: rgba(197, 160, 89, 0.15);
+  border-left: 2px solid #c5a059;
+  border-bottom: 1px solid rgba(197, 160, 89, 0.3);
+  margin-bottom: 3px;
+}
+
+.guard-bar-mini {
+  width: 32px;
+  height: 4px;
+  background: rgba(0,0,0,0.15);
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
 .troop-icon {

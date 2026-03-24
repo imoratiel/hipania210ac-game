@@ -58,9 +58,13 @@ Procesado en `processMilitaryConsumption()`. Cada ejército consume en **cascada
 
 ### Fórmula
 
+`food_consumption` es un **multiplicador del consumo civil per cápita** (`0.001` comida/turno/persona):
+
 ```
-consumo_total_ejército = SUM(troops.quantity × unit_types.food_consumption)
+consumo_total_ejército = SUM(troops.quantity × unit_types.food_consumption × 0.001)
 ```
+
+**Ejemplos:** Un hondero (food_consumption=1) consume lo mismo que 1 aldeano. Un elefante (food_consumption=4) consume como 4 aldeanos.
 
 ### Flujo detallado
 

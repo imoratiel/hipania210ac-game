@@ -20,10 +20,13 @@
 
 const pool = require('../../db.js');
 const h3   = require('h3-js');
-const { Logger }            = require('../utils/logger');
-const CombatModel           = require('../models/CombatModel.js');
-const ArmyModel             = require('../models/ArmyModel.js');
-const NotificationService   = require('./NotificationService.js');
+const { Logger }                        = require('../utils/logger');
+const CombatModel                       = require('../models/CombatModel.js');
+const ArmyModel                         = require('../models/ArmyModel.js');
+const CharacterModel                    = require('../models/CharacterModel.js');
+const NotificationService               = require('./NotificationService.js');
+const GAME_CONFIG                       = require('../config/constants.js');
+const { canPerformAction, applyCooldown } = require('./gameActions.js');
 
 class CombatService {
     // ─────────────────────────────────────────────────────────────────────────
@@ -64,7 +67,17 @@ class CombatService {
             }
             const attacker = attackerResult.rows[0];
 
-            // 2. Buscar el primer ejército enemigo en el mismo hexágono
+            // 2. Cooldown check — el ejército atacante no puede atacar si está en enfriamiento
+            if (!(await canPerformAction(client, armyId, 'attack'))) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: 'Este ejército no puede atacar todavía. Debe esperar a que pase el período de enfriamiento.',
+                    code: 'COOLDOWN_ACTIVE',
+                });
+            }
+
+            // 3. Buscar el primer ejército enemigo en el mismo hexágono
             const defenderResult = await client.query(
                 'SELECT army_id, name, player_id FROM armies WHERE h3_index = $1 AND player_id != $2 LIMIT 1',
                 [attacker.h3_index, player_id]
@@ -78,13 +91,13 @@ class CombatService {
             }
             const defender = defenderResult.rows[0];
 
-            // 3. Obtener turno actual para las notificaciones
+            // 4. Obtener turno actual para las notificaciones
             const worldResult = await client.query(
                 'SELECT current_turn FROM world_state LIMIT 1'
             );
             const turn = worldResult.rows[0]?.current_turn ?? 0;
 
-            // 4. Resolver combate — el atacante NO recibe el bono defensivo
+            // 5. Resolver combate — el atacante NO recibe el bono defensivo
             const battle = await this.resolveCombat(
                 client,
                 attacker.army_id,
@@ -148,7 +161,17 @@ class CombatService {
             }
             const attacker = attackerResult.rows[0];
 
-            // 2. Verificar que el objetivo es enemigo
+            // 2. Cooldown check
+            if (!(await canPerformAction(client, attackerArmyId, 'attack'))) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: 'Este ejército no puede atacar todavía. Debe esperar a que pase el período de enfriamiento.',
+                    code: 'COOLDOWN_ACTIVE',
+                });
+            }
+
+            // 3. Verificar que el objetivo es enemigo
             const defenderResult = await client.query(
                 'SELECT army_id, name, h3_index FROM armies WHERE army_id = $1 AND player_id != $2',
                 [targetArmyId, player_id]
@@ -159,13 +182,13 @@ class CombatService {
             }
             const defender = defenderResult.rows[0];
 
-            // 3. Verificar mismo hexágono
+            // 4. Verificar mismo hexágono
             if (attacker.h3_index !== defender.h3_index) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({ success: false, message: 'El ejército objetivo no está en el mismo hexágono' });
             }
 
-            // 4. Tropas PRE-combate para desglose
+            // 5. Tropas PRE-combate para desglose
             const preTroops = (armyId) => client.query(
                 `SELECT t.quantity, ut.name AS unit_name
                  FROM troops t
@@ -214,7 +237,7 @@ class CombatService {
 
             // 10. Mensaje de resultado
             const lootLine = battle.loot
-                ? ` · Botín: 🪙${battle.loot.gold} 🍖${battle.loot.food} 🌲${battle.loot.wood}`
+                ? ` · Botín: 💰${battle.loot.gold} 🍖${battle.loot.food} 🌲${battle.loot.wood}`
                 : '';
 
             let message;
@@ -247,7 +270,7 @@ class CombatService {
                     Milicia:  makeDesglose(preDefender, enemyBattle.lossRate)
                 },
                 message,
-                experience_gained: 0
+                experience_gained: playerBattle.xp
             });
 
         } catch (error) {
@@ -281,139 +304,197 @@ class CombatService {
         const armyB  = armies.find(a => a.army_id === armyBId);
 
         if (!armyA || !armyB) {
-            Logger.error(new Error('Army not found during combat resolution'), {
-                armyAId, armyBId, h3Index, turn
-            });
-            return null;
-        }
-        if (!armyA.troops.length || !armyB.troops.length) {
-            Logger.engine(`[TURN ${turn}] Combate omitido en ${h3Index}: ejército sin tropas`);
+            Logger.error(new Error('Army not found during combat resolution'), { armyAId, armyBId, h3Index, turn });
             return null;
         }
 
-        // 2. Determinar quién defiende (recibe +10% de PC)
-        //    Si attackerArmyId es A → B defiende; si es B → A defiende; si null → nadie
+        // 2. Cargar comandantes (para combate de guardia y destino post-combate)
+        const commanderA = await CharacterModel.getCommanderForArmy(client, armyAId);
+        const commanderB = await CharacterModel.getCommanderForArmy(client, armyBId);
+
+        const aHasTroops = armyA.troops.length > 0;
+        const bHasTroops = armyB.troops.length > 0;
+        const aHasGuard  = !aHasTroops && commanderA?.personal_guard > 0;
+        const bHasGuard  = !bHasTroops && commanderB?.personal_guard > 0;
+
+        if (!aHasTroops && !aHasGuard) {
+            Logger.engine(`[TURN ${turn}] Combate omitido en ${h3Index}: ejército ${armyAId} sin tropas ni guardia`);
+            return null;
+        }
+        if (!bHasTroops && !bHasGuard) {
+            Logger.engine(`[TURN ${turn}] Combate omitido en ${h3Index}: ejército ${armyBId} sin tropas ni guardia`);
+            return null;
+        }
+
+        // 3. Determinar quién defiende
         const aIsDefender = attackerArmyId !== null && attackerArmyId === armyBId;
         const bIsDefender = attackerArmyId !== null && attackerArmyId === armyAId;
 
-        // 3. Terreno
+        // 4. Terreno
         const terrain = await CombatModel.getTerrainAtHex(client, h3Index);
 
-        // 4. Calcular Poder de Combate
-        const pcA = await this._calculateCombatPower(client, armyA.troops, armyB.troops, terrain, aIsDefender);
-        const pcB = await this._calculateCombatPower(client, armyB.troops, armyA.troops, terrain, bIsDefender);
+        // 5. Tropas efectivas (reales o guardia virtual)
+        const troopsA = aHasTroops ? armyA.troops : this._buildGuardTroops(commanderA);
+        const troopsB = bHasTroops ? armyB.troops : this._buildGuardTroops(commanderB);
+
+        // 6. Calcular tasas de bajas con el nuevo sistema daño-por-unidad
+        // tasaOnB = % de bajas que A inflige sobre B
+        // tasaOnA = % de bajas que B inflige sobre A
+        const tasaOnB = await this._calculateDamageRate(client, troopsA, troopsB, terrain, bIsDefender, armyA.player_id, armyAId);
+        const tasaOnA = await this._calculateDamageRate(client, troopsB, troopsA, terrain, aIsDefender, armyB.player_id, armyBId);
+
+        // 7. Resultado: gana quien inflige más presión al enemigo
+        const DRAW_THRESHOLD = GAME_CONFIG.MILITARY.COMBAT_DRAW_THRESHOLD;
+        const isDraw = Math.abs(tasaOnB - tasaOnA) < DRAW_THRESHOLD;
+
+        let winner = null, loser = null;
+        if (!isDraw) {
+            winner = tasaOnB > tasaOnA ? armyA : armyB;
+            loser  = winner === armyA  ? armyB : armyA;
+        }
 
         Logger.engine(
             `[TURN ${turn}] BATTLE at ${h3Index}: ` +
-            `${armyA.name}(PC=${pcA.toFixed(1)}) vs ${armyB.name}(PC=${pcB.toFixed(1)}) ` +
-            `| Defensor: ${bIsDefender ? armyA.name : aIsDefender ? armyB.name : 'ninguno'}`
+            `${armyA.name}(presión→B=${(tasaOnB*100).toFixed(1)}%)${aHasGuard ? '[guardia]' : ''} vs ` +
+            `${armyB.name}(presión→A=${(tasaOnA*100).toFixed(1)}%)${bHasGuard ? '[guardia]' : ''} ` +
+            `| ${isDraw ? 'EMPATE' : `Victoria ${winner.name}`}`
         );
 
-        // 5. Resultado
-        const maxPC  = Math.max(pcA, pcB);
-        const minPC  = Math.max(1, Math.min(pcA, pcB));
-        const ratio  = maxPC / minPC;
-        const isDraw = ratio < 1.1;
+        // 8. Tasas de bajas = las tasas calculadas (sin azar en el resultado)
+        const lossRateA = tasaOnA;  // bajas que sufre A (B se las inflige)
+        const lossRateB = tasaOnB;  // bajas que sufre B (A se las inflige)
 
-        let winner = null;
-        let loser  = null;
-        if (!isDraw) {
-            winner = pcA >= pcB ? armyA : armyB;
-            loser  = pcA >= pcB ? armyB : armyA;
-        }
+        // 9. Aplicar bajas (tropas reales o guardia personal)
+        let deadA, deadB;
+        if (aHasTroops) {
+            deadA = await this._applyCasualties(client, armyA.troops, lossRateA);
+        } else if (aHasGuard) {
+            const lost = Math.ceil(commanderA.personal_guard * lossRateA);
+            deadA = lost;
+            commanderA.personal_guard = Math.max(0, commanderA.personal_guard - lost);
+            await CharacterModel.updateGuard(client, commanderA.id, commanderA.personal_guard);
+        } else { deadA = 0; }
 
-        // 6. Tasas de bajas
-        let lossRateA, lossRateB;
-        if (isDraw) {
-            lossRateA = 0.05 + Math.random() * 0.05;
-            lossRateB = 0.05 + Math.random() * 0.05;
-        } else {
-            const winnerLoss = Math.random() * 0.10;
-            const loserLoss  = 0.05 + Math.random() * 0.15;
-            lossRateA = (winner === armyA) ? winnerLoss : loserLoss;
-            lossRateB = (winner === armyB) ? winnerLoss : loserLoss;
-        }
+        if (bHasTroops) {
+            deadB = await this._applyCasualties(client, armyB.troops, lossRateB);
+        } else if (bHasGuard) {
+            const lost = Math.ceil(commanderB.personal_guard * lossRateB);
+            deadB = lost;
+            commanderB.personal_guard = Math.max(0, commanderB.personal_guard - lost);
+            await CharacterModel.updateGuard(client, commanderB.id, commanderB.personal_guard);
+        } else { deadB = 0; }
 
-        // 7. Aplicar bajas
-        const deadA = await this._applyCasualties(client, armyA.troops, lossRateA);
-        const deadB = await this._applyCasualties(client, armyB.troops, lossRateB);
-
-        // 8. Saqueo (solo si hay ganador claro)
+        // 10. Saqueo — fracción proporcional a la diferencia de presión
         let loot = null;
         if (!isDraw && winner && loser) {
-            const lootFraction = Math.min(0.75, Math.max(0.25, (ratio - 1) / 4));
+            const winnerTasa = winner === armyA ? tasaOnB : tasaOnA;
+            const loserTasa  = winner === armyA ? tasaOnA : tasaOnB;
+            const pressRatio = winnerTasa / Math.max(0.001, loserTasa);
+            const lootFraction = Math.min(0.75, Math.max(0.25, (pressRatio - 1) / 4));
             loot = await CombatModel.transferProvisions(client, loser.army_id, winner.army_id, lootFraction);
         }
 
-        // 9. Experiencia para supervivientes
-        const survivorsA = await this._getSurvivors(client, armyAId);
-        const survivorsB = await this._getSurvivors(client, armyBId);
-        if (survivorsA.length > 0) await this._distributeExperience(client, survivorsA, deadB + deadA * 2);
-        if (survivorsB.length > 0) await this._distributeExperience(client, survivorsB, deadA + deadB * 2);
+        // 11. Experiencia (solo tropas reales)
+        const survivorsA = aHasTroops ? await this._getSurvivors(client, armyAId) : [];
+        const survivorsB = bHasTroops ? await this._getSurvivors(client, armyBId) : [];
+        const xpA = await this._distributeExperience(client, survivorsA, deadB + deadA * 2);
+        const xpB = await this._distributeExperience(client, survivorsB, deadA + deadB * 2);
 
-        // 10. Verificar ejércitos aniquilados
-        const armyADestroyed = await CombatModel.deleteArmyIfEmpty(client, armyAId);
-        const armyBDestroyed = await CombatModel.deleteArmyIfEmpty(client, armyBId);
+        // 12. Verificar ejércitos aniquilados
+        // Los ejércitos de guardia se destruyen si personal_guard llega a 0
+        let armyADestroyed, armyBDestroyed;
+        if (aHasGuard) {
+            armyADestroyed = commanderA.personal_guard <= 0;
+            if (armyADestroyed) await this._destroyArmy(client, armyAId);
+        } else {
+            armyADestroyed = await CombatModel.deleteArmyIfEmpty(client, armyAId);
+        }
+        if (bHasGuard) {
+            armyBDestroyed = commanderB.personal_guard <= 0;
+            if (armyBDestroyed) await this._destroyArmy(client, armyBId);
+        } else {
+            armyBDestroyed = await CombatModel.deleteArmyIfEmpty(client, armyBId);
+        }
 
-        // Actualizar caché de detection_range para ejércitos supervivientes
         if (!armyADestroyed) await ArmyModel.refreshDetectionRange(client, armyAId);
         if (!armyBDestroyed) await ArmyModel.refreshDetectionRange(client, armyBId);
 
-        // 11. Huida del perdedor (si no está ya destruido)
-        let retreatA = null;
-        let retreatB = null;
-        if (!isDraw && loser) {
-            if (loser === armyA && !armyADestroyed) {
-                retreatA = await this._retreatArmy(client, armyAId, h3Index);
-            } else if (loser === armyB && !armyBDestroyed) {
-                retreatB = await this._retreatArmy(client, armyBId, h3Index);
-            }
+        // 12b. XP de personajes por participar en la batalla
+        // Victoria: +5 XP al mejor personaje del ejército ganador; derrota: +2 XP
+        const winnerArmyId = winner?.army_id ?? null;
+        const loserArmyId  = loser?.army_id  ?? null;
+        if (winnerArmyId) {
+            const bestWinner = await CharacterModel.getBestInArmy(client, winnerArmyId);
+            if (bestWinner) await CharacterModel.addXp(client, bestWinner.id, 5);
+        }
+        if (loserArmyId) {
+            const bestLoser = await CharacterModel.getBestInArmy(client, loserArmyId);
+            if (bestLoser) await CharacterModel.addXp(client, bestLoser.id, 2);
+        }
+        if (isDraw) {
+            // En empate: ambos ganan 2 XP
+            const bestA = await CharacterModel.getBestInArmy(client, armyAId);
+            if (bestA) await CharacterModel.addXp(client, bestA.id, 2);
+            const bestB = await CharacterModel.getBestInArmy(client, armyBId);
+            if (bestB) await CharacterModel.addXp(client, bestB.id, 2);
         }
 
-        // 12. El combate agota al ganador: stamina -20 y force_rest = TRUE.
-        //     Además se cancela su ruta para que no continúe marchando tras la batalla.
+        // 13. Huida del perdedor
+        let retreatA = null, retreatB = null;
+        if (!isDraw && loser) {
+            if (loser === armyA && !armyADestroyed) retreatA = await this._retreatArmy(client, armyAId, h3Index);
+            else if (loser === armyB && !armyBDestroyed) retreatB = await this._retreatArmy(client, armyBId, h3Index);
+        }
+
+        // 14. Cansancio post-batalla — ambos ejércitos supervivientes
+        const totalA = troopsA.reduce((s, t) => s + t.quantity, 0);
+        const totalB = troopsB.reduce((s, t) => s + t.quantity, 0);
+        const battleType = this._getBattleType(totalA, totalB);
+
+        if (!armyADestroyed && aHasTroops) await this._applyBattleStamina(client, armyAId, battleType);
+        if (!armyBDestroyed && bHasTroops) await this._applyBattleStamina(client, armyBId, battleType);
+
+        // El ganador detiene su marcha
         if (!isDraw && winner) {
-            await client.query(
-                `UPDATE troops SET
-                    stamina = GREATEST(0, stamina - 20),
-                    force_rest = TRUE
-                 WHERE army_id = $1`,
-                [winner.army_id]
-            );
-            await client.query(
-                'UPDATE armies SET destination = NULL WHERE army_id = $1',
-                [winner.army_id]
-            );
+            await client.query('UPDATE armies SET destination = NULL WHERE army_id = $1', [winner.army_id]);
             await client.query('DELETE FROM army_routes WHERE army_id = $1', [winner.army_id]);
         }
 
-        // 13. Construir resumen
+        // 15. Destino post-combate de los personajes
+        const characterEvents = await this._handleCharacterPostCombat(
+            client, winner, loser, isDraw,
+            armyAId, armyBId,
+            commanderA, commanderB,
+            armyADestroyed, armyBDestroyed,
+            aHasGuard, bHasGuard
+        );
+
+        // 16. Construir resumen
         const battleResult = {
             h3Index, turn, isDraw,
             armyA: {
                 id: armyAId, name: armyA.name, playerId: armyA.player_id,
-                pc: pcA, dead: deadA, lossRate: lossRateA,
-                destroyed: armyADestroyed,
-                retreat: retreatA,
+                pressure: tasaOnB, dead: deadA, lossRate: lossRateA, xp: xpA,
+                destroyed: armyADestroyed, retreat: retreatA,
             },
             armyB: {
                 id: armyBId, name: armyB.name, playerId: armyB.player_id,
-                pc: pcB, dead: deadB, lossRate: lossRateB,
-                destroyed: armyBDestroyed,
-                retreat: retreatB,
+                pressure: tasaOnA, dead: deadB, lossRate: lossRateB, xp: xpB,
+                destroyed: armyBDestroyed, retreat: retreatB,
             },
             winner: winner ? { id: winner.army_id, name: winner.name, playerId: winner.player_id } : null,
             loser:  loser  ? { id: loser.army_id,  name: loser.name,  playerId: loser.player_id  } : null,
             loot,
+            characterEvents,
         };
 
-        // 14. Notificar
+        // 17. Notificar
         await this._sendBattleNotifications(battleResult);
 
         Logger.engine(
             `[TURN ${turn}] BATTLE RESULT at ${h3Index}: ` +
-            `${isDraw ? 'EMPATE' : `Victoria ${winner.name}`} | ` +
-            `Bajas: A=${deadA}, B=${deadB}`
+            `${isDraw ? 'EMPATE' : `Victoria ${winner.name}`} | Bajas: A=${deadA}, B=${deadB}` +
+            (characterEvents.length ? ` | Personajes: ${characterEvents.map(e => `${e.characterName}→${e.type}`).join(', ')}` : '')
         );
 
         return battleResult;
@@ -424,44 +505,109 @@ class CombatService {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Calcula el Poder de Combate total de un ejército.
-     * Si isDefender = true, el resultado se multiplica por 1.10 (bono defensivo).
+     * Calcula la tasa de bajas que el ejército A inflige sobre el ejército B.
+     *
+     * Fórmula por unidad enemiga:
+     *   damage_per_B  = total_atk_A / qty_B
+     *   avg_def_B     = Σ(qty_b × def_b × morale × stamina) / qty_B  [×1.15 si B defiende]
+     *   mitigation    = avg_def_B / (avg_def_B + K)
+     *   tasa_B        = damage_per_B × (1 - mitigation) × SCALE / avg_hp_B
+     *
+     * @param {Object[]} troopsA       - Tropas atacantes (con attack, defense, morale, stamina, health_points)
+     * @param {Object[]} troopsB       - Tropas defensoras
+     * @param {Object}   terrain       - Terreno del hex
+     * @param {boolean}  bIsDefender   - Si B recibe bono defensivo (+15% def)
+     * @param {number}   attackerPlayerId - Para bonus devotio del atacante
+     * @param {number}   attackerArmyId  - Para bonus de personaje
+     * @returns {Promise<number>} Tasa de bajas sobre B en [0, 1]
      */
-    async _calculateCombatPower(client, troops, enemyTroops, terrain, isDefender = false) {
+    async _calculateDamageRate(client, troopsA, troopsB, terrain, bIsDefender = false, attackerPlayerId = null, attackerArmyId = null) {
+        const K             = GAME_CONFIG.MILITARY.COMBAT_K_NORM;
+        const SCALE         = GAME_CONFIG.MILITARY.COMBAT_DAMAGE_SCALE;
+        const DEF_BONUS     = GAME_CONFIG.MILITARY.COMBAT_DEFENDER_BONUS;
         const terrainName   = terrain?.terrain_name ?? null;
-        const totalEnemyQty = enemyTroops.reduce((s, t) => s + t.quantity, 0) || 1;
-        let totalPC = 0;
 
-        for (const troop of troops) {
-            const qty    = troop.quantity;
-            const attack = parseFloat(troop.attack);
+        const totalQtyA = troopsA.reduce((s, t) => s + t.quantity, 0);
+        const totalQtyB = troopsB.reduce((s, t) => s + t.quantity, 0);
+        if (totalQtyA === 0) return 0;
+        if (totalQtyB === 0) return 1.0;
 
-            const moraleFactor  = Math.max(0.5, parseFloat(troop.morale)  / 100);
-            const staminaFactor = troop.force_rest ? 0.5 : Math.max(0.1, parseFloat(troop.stamina) / 100);
+        // ── Paso 1: Ataque total de A ────────────────────────────────────────
+        let total_atk_A = 0;
+        for (const ta of troopsA) {
+            const morale  = Math.max(0.1, parseFloat(ta.morale)  / 100);
+            const stamina = Math.max(0.1, parseFloat(ta.stamina) / 100);
+            let   atk     = parseFloat(ta.attack);
 
-            let terrainFactor = 1.0;
+            // Modificador de terreno (ataque)
             if (terrainName) {
-                const mod = await CombatModel.getTerrainModifier(client, troop.unit_type_id, terrainName);
-                if (mod) terrainFactor = 1 + parseFloat(mod.attack_modificator);
+                const mod = await CombatModel.getTerrainModifier(client, ta.unit_type_id, terrainName);
+                if (mod) atk *= (1 + parseFloat(mod.attack_modificator));
             }
 
+            // Factor de counter ponderado por composición de B
             let counterFactor = 1.0;
-            if (enemyTroops.length > 0) {
+            if (troopsB.length > 0) {
                 let weighted = 0;
-                for (const enemy of enemyTroops) {
-                    const mult = await CombatModel.getCombatCounter(
-                        client, troop.unit_type_id, enemy.unit_type_id
-                    );
-                    weighted += (enemy.quantity / totalEnemyQty) * mult;
+                for (const tb of troopsB) {
+                    const mult = await CombatModel.getCombatCounter(client, ta.unit_type_id, tb.unit_type_id);
+                    weighted += (tb.quantity / totalQtyB) * mult;
                 }
                 counterFactor = weighted;
             }
 
-            totalPC += qty * attack * terrainFactor * counterFactor * moraleFactor * staminaFactor;
+            total_atk_A += ta.quantity * atk * counterFactor * morale * stamina;
         }
 
-        if (isDefender) totalPC *= 1.10;
-        return totalPC;
+        // Bonus devotio del atacante: +5% ataque
+        if (attackerPlayerId) {
+            const { rows } = await client.query(`
+                SELECT 1 FROM player_relations pr
+                JOIN relation_types rt ON rt.id = pr.type_id
+                WHERE pr.status = 'active' AND rt.code = 'devotio'
+                  AND pr.from_player_id = $1 LIMIT 1
+            `, [attackerPlayerId]);
+            if (rows.length > 0) total_atk_A *= 1.05;
+        }
+
+        // Bonus de personaje atacante: +2% por nivel mostrado (máx +20%)
+        if (attackerArmyId) {
+            const bestChar = await CharacterModel.getBestInArmy(client, attackerArmyId);
+            if (bestChar) {
+                const displayLevel = Math.floor(bestChar.level / 10);
+                if (displayLevel > 0) total_atk_A *= (1 + displayLevel * 0.02);
+            }
+        }
+
+        // ── Paso 2: Defensa media y HP medio de B ───────────────────────────
+        let total_def_B = 0;
+        let total_hp_B  = 0;
+        for (const tb of troopsB) {
+            const morale  = Math.max(0.1, parseFloat(tb.morale)  / 100);
+            const stamina = Math.max(0.1, parseFloat(tb.stamina) / 100);
+            let   def     = parseFloat(tb.defense ?? 5);
+
+            // Modificador de terreno (defensa)
+            if (terrainName) {
+                const mod = await CombatModel.getTerrainModifier(client, tb.unit_type_id, terrainName);
+                if (mod) def *= (1 + parseFloat(mod.defense_modificator));
+            }
+
+            total_def_B += tb.quantity * def * morale * stamina;
+            total_hp_B  += tb.quantity * parseFloat(tb.health_points ?? 5);
+        }
+
+        let avg_def_B = total_def_B / totalQtyB;
+        if (bIsDefender) avg_def_B *= DEF_BONUS;  // +15% si B está en posición defensiva
+        const avg_hp_B = total_hp_B / totalQtyB;
+
+        // ── Paso 3: Daño por unidad enemiga y tasa de bajas ─────────────────
+        const damage_per_B  = total_atk_A / totalQtyB;
+        const mitigation    = avg_def_B / (avg_def_B + K);
+        const net_per_B     = damage_per_B * (1 - mitigation);
+        const tasa          = Math.min(1.0, (net_per_B * SCALE) / avg_hp_B);
+
+        return tasa;
     }
 
     /**
@@ -491,17 +637,26 @@ class CombatService {
     }
 
     /**
-     * Distribuye experiencia entre supervivientes de forma proporcional.
-     * EXP = (bajas enemigas × 1) + (bajas propias × 2). Cap 100.
+     * Distribuye experiencia entre supervivientes como pool compartido.
+     * EXP_pool = (bajas enemigas × 1) + (bajas propias × 2)
+     * XP_por_unidad = (EXP_pool × MULTIPLIER) / total_supervivientes
+     * Ejércitos grandes diluyen la XP; supervivientes de masacres ganan mucho.
+     * Cap 100 por tropa.
+     * @returns {number} XP otorgada a cada unidad individual
      */
     async _distributeExperience(client, survivors, totalExp) {
-        if (totalExp <= 0 || survivors.length === 0) return;
-        const totalQty = survivors.reduce((s, t) => s + t.quantity, 0) || 1;
+        if (totalExp <= 0 || survivors.length === 0) return 0;
+        const totalSurvivors = survivors.reduce((s, t) => s + t.quantity, 0);
+        if (totalSurvivors === 0) return 0;
+        const xpPerUnit = Math.max(1, Math.round(
+            (totalExp * GAME_CONFIG.MILITARY.COMBAT_XP_MULTIPLIER) / totalSurvivors
+        ));
         for (const troop of survivors) {
-            const share  = (troop.quantity / totalQty) * totalExp;
-            const newExp = Math.min(100, Math.round(parseFloat(troop.experience) + share));
+            const newExp = Math.min(100, Math.round(parseFloat(troop.experience) + xpPerUnit));
             await CombatModel.updateTroopExperience(client, troop.troop_id, newExp);
+            Logger.action(`[XP] troop_id=${troop.troop_id} +${xpPerUnit} XP → ${newExp}/100`);
         }
+        return xpPerUnit;
     }
 
     /**
@@ -530,6 +685,14 @@ class CombatService {
         );
         const playerId  = armyRow.rows[0]?.player_id;
         const capitalH3 = armyRow.rows[0]?.capital_h3 ?? null;
+
+        // Si el ejército está en la capital, no puede retirarse más — se queda
+        if (capitalH3 && fromH3 === capitalH3) {
+            await client.query('UPDATE armies SET destination = NULL WHERE army_id = $1', [armyId]);
+            await client.query('DELETE FROM army_routes WHERE army_id = $1', [armyId]);
+            Logger.engine(`[COMBAT] Army ${armyId} at capital ${fromH3} — holds position, no retreat`);
+            return { retreated: false, destroyed: false, newHex: fromH3 };
+        }
 
         // Obtener hexes pasables del mapa
         const passableResult = await client.query(`
@@ -580,6 +743,168 @@ class CombatService {
         return { retreated: true, destroyed: false, newHex: retreatHex };
     }
 
+    /**
+     * Clasifica la batalla según la relación de fuerzas (nº de soldados).
+     * GREAT    → ratio ≤ 1.5   (Gran Batalla, fuerzas similares)
+     * MASSACRE → ratio ≥ 50    (Matanza, sin pérdida de stamina)
+     * SKIRMISH → resto          (Batalla intermedia)
+     */
+    _getBattleType(totalA, totalB) {
+        if (totalA === 0 || totalB === 0) return 'MASSACRE';
+        const ratio = Math.max(totalA, totalB) / Math.min(totalA, totalB);
+        const M = GAME_CONFIG.MILITARY;
+        if (ratio >= M.COMBAT_MASSACRE_RATIO)      return 'MASSACRE';
+        if (ratio <= M.COMBAT_GREAT_BATTLE_RATIO)  return 'GREAT';
+        return 'SKIRMISH';
+    }
+
+    /**
+     * Aplica el cansancio post-batalla a un ejército superviviente.
+     * GREAT:    stamina → LEAST(stamina, floor=20); tasa de recuperación rápida durante 4 turnos
+     * SKIRMISH: stamina -= 20; recuperado en 1 turno
+     * MASSACRE: sin cambio
+     */
+    async _applyBattleStamina(client, armyId, battleType) {
+        const M = GAME_CONFIG.MILITARY;
+        if (battleType === 'MASSACRE') return;
+
+        if (battleType === 'GREAT') {
+            const { rows } = await client.query(
+                'SELECT AVG(stamina)::float AS avg FROM troops WHERE army_id = $1',
+                [armyId]
+            );
+            const avgStamina = rows[0]?.avg ?? 100;
+            const floor      = M.COMBAT_GREAT_STAMINA_FLOOR;
+            const recoveryRate = avgStamina > floor
+                ? parseFloat(((avgStamina - floor) / M.COMBAT_GREAT_RECOVERY_TURNS).toFixed(2))
+                : 0;
+
+            await client.query(
+                `UPDATE troops SET stamina = LEAST(stamina, $1), force_rest = FALSE WHERE army_id = $2`,
+                [floor, armyId]
+            );
+            await client.query(
+                `UPDATE armies SET battle_recovery_rate = $1, battle_recovery_turns_left = $2 WHERE army_id = $3`,
+                [recoveryRate, M.COMBAT_GREAT_RECOVERY_TURNS, armyId]
+            );
+        } else { // SKIRMISH
+            await client.query(
+                `UPDATE troops SET stamina = GREATEST(0, stamina - $1), force_rest = FALSE WHERE army_id = $2`,
+                [M.COMBAT_SKIRMISH_STAMINA_LOSS, armyId]
+            );
+            await client.query(
+                `UPDATE armies SET battle_recovery_rate = $1, battle_recovery_turns_left = 1 WHERE army_id = $2`,
+                [M.COMBAT_SKIRMISH_STAMINA_LOSS, armyId]
+            );
+        }
+    }
+
+    /**
+     * Construye tropas virtuales de guardia personal para el cálculo de PC.
+     * Simula la guardia como Caballería Pesada (unit_type_id=7) con stats al 100%.
+     */
+    _buildGuardTroops(commander) {
+        return [{
+            unit_type_id:  7,    // Guardia de élite (stats de Pretorianos)
+            quantity:      commander.personal_guard,
+            attack:        22,
+            defense:       9,
+            health_points: 10,
+            morale:        100,
+            stamina:       100,
+            troop_id:      null, // virtual — sin fila en DB
+        }];
+    }
+
+    /**
+     * Determina el destino post-combate de los comandantes.
+     * - Perdedor con ejército destruido: 25% captura, si no → huye a capital.
+     * - Perdedor en combate de guardia: prob. captura = (GUARD_MAX - guardia_restante) / GUARD_MAX.
+     * - En empate: solo huida si guardia agotada (sin captura).
+     */
+    async _handleCharacterPostCombat(
+        client, winner, loser, isDraw,
+        armyAId, armyBId,
+        commanderA, commanderB,
+        armyADestroyed, armyBDestroyed,
+        aHasGuard, bHasGuard
+    ) {
+        const GUARD_MAX = GAME_CONFIG.CHARACTERS.GUARD_MAX;
+        const events = [];
+
+        const resolveCharacter = async (commander, isDestroyed, isGuardArmy, capturingArmy) => {
+            if (!commander) return null;
+
+            let captureProb = 0;
+            if (capturingArmy) {
+                captureProb = isGuardArmy
+                    ? (GUARD_MAX - commander.personal_guard) / GUARD_MAX  // guardia: según bajas
+                    : (isDestroyed ? 0.25 : 0);                           // ejército destruido: 25%
+            }
+            if (!captureProb && !isDestroyed && !(isGuardArmy && commander.personal_guard <= 0)) {
+                return null; // El personaje sobrevive sin consecuencias
+            }
+
+            const playerRow = await client.query(
+                'SELECT capital_h3 FROM players WHERE player_id = $1',
+                [commander.player_id]
+            );
+            const capitalH3 = playerRow.rows[0]?.capital_h3;
+
+            if (capturingArmy && Math.random() < captureProb) {
+                await CharacterModel.setCaptive(client, commander.id, capturingArmy.army_id, commander.level);
+                Logger.action(
+                    `[COMBAT] ${commander.name} capturado por ejército ${capturingArmy.army_id}`,
+                    commander.player_id
+                );
+                return {
+                    type:              'captured',
+                    characterId:       commander.id,
+                    characterName:     commander.name,
+                    originalPlayerId:  commander.player_id,
+                    capturingArmyId:   capturingArmy.army_id,
+                    capturingPlayerId: capturingArmy.player_id,
+                };
+            } else {
+                await CharacterModel.flee(client, commander.id, capitalH3);
+                Logger.action(
+                    `[COMBAT] ${commander.name} huye hacia capital ${capitalH3}`,
+                    commander.player_id
+                );
+                return {
+                    type:             'escaped',
+                    characterId:      commander.id,
+                    characterName:    commander.name,
+                    originalPlayerId: commander.player_id,
+                    capitalH3,
+                };
+            }
+        };
+
+        if (!isDraw && loser && winner) {
+            // Solo el perdedor arriesga a su personaje
+            if (loser.army_id === armyAId) {
+                const ev = await resolveCharacter(commanderA, armyADestroyed, aHasGuard, winner);
+                if (ev) events.push(ev);
+            } else {
+                const ev = await resolveCharacter(commanderB, armyBDestroyed, bHasGuard, winner);
+                if (ev) events.push(ev);
+            }
+        } else if (isDraw) {
+            // En empate, si la guardia queda a 0 el personaje huye (sin captura)
+            if (aHasGuard && commanderA.personal_guard <= 0) {
+                const ev = await resolveCharacter(commanderA, true, false, null);
+                if (ev) events.push(ev);
+            }
+            if (bHasGuard && commanderB.personal_guard <= 0) {
+                const ev = await resolveCharacter(commanderB, true, false, null);
+                if (ev) events.push(ev);
+            }
+        }
+
+        return events.filter(Boolean);
+    }
+
     /** Elimina un ejército y su ruta de la base de datos. */
     async _destroyArmy(client, armyId) {
         await client.query('DELETE FROM army_routes WHERE army_id = $1', [armyId]);
@@ -591,13 +916,27 @@ class CombatService {
      * Envía notificaciones de batalla a ambos jugadores.
      */
     async _sendBattleNotifications(battle) {
-        const { armyA, armyB, isDraw, winner, loot, h3Index, turn } = battle;
+        const { armyA, armyB, isDraw, winner, loot, h3Index, turn, characterEvents = [] } = battle;
+
+        const charLines = (forPlayerId) => characterEvents.map(ev => {
+            if (ev.type === 'captured' && ev.originalPlayerId === forPlayerId)
+                return `\n⛓️ ${ev.characterName} ha sido capturado por el enemigo.`;
+            if (ev.type === 'captured' && ev.capturingPlayerId === forPlayerId)
+                return `\n⛓️ Has capturado a ${ev.characterName}.`;
+            if (ev.type === 'escaped' && ev.originalPlayerId === forPlayerId)
+                return `\n🏃 ${ev.characterName} ha huido hacia la capital.`;
+            return '';
+        }).filter(Boolean).join('');
 
         const formatLoot = (l) =>
-            `🪙${l.gold} oro, 🍖${l.food} comida, 🌲${l.wood} madera`;
+            `💰${l.gold} oro, 🍖${l.food} comida, 🌲${l.wood} madera`;
 
-        const retreatLine = (r) =>
-            r ? (r.destroyed ? '\n💀 Sin retirada posible — ejército destruido.' : `\n🏃 Se retira a ${r.newHex}.`) : '';
+        const retreatLine = (r) => {
+            if (!r) return '';
+            if (r.destroyed)  return '\n💀 Sin retirada posible — ejército destruido.';
+            if (!r.retreated) return '\n🏰 El ejército mantiene posición en la capital.';
+            return `\n🏃 Se retira a ${r.newHex}.`;
+        };
 
         let contentA, contentB;
 
@@ -605,11 +944,13 @@ class CombatService {
             contentA =
                 `⚔️ EMPATE en ${h3Index} (Turno ${turn})\n` +
                 `${armyA.name} vs ${armyB.name}\n` +
-                `Bajas propias: ${armyA.dead} unidades`;
+                `Bajas propias: ${armyA.dead} unidades` +
+                charLines(armyA.playerId);
             contentB =
                 `⚔️ EMPATE en ${h3Index} (Turno ${turn})\n` +
                 `${armyB.name} vs ${armyA.name}\n` +
-                `Bajas propias: ${armyB.dead} unidades`;
+                `Bajas propias: ${armyB.dead} unidades` +
+                charLines(armyB.playerId);
         } else if (winner.id === armyA.id) {
             const lootLine = loot ? `\n💰 Botín: ${formatLoot(loot)}` : '';
             contentA =
@@ -617,13 +958,15 @@ class CombatService {
                 `${armyA.name} derrotó a ${armyB.name}\n` +
                 `Bajas propias: ${armyA.dead} | Bajas enemigas: ${armyB.dead}` +
                 lootLine +
-                (armyB.destroyed ? '\n🏳️ Ejército enemigo aniquilado.' : retreatLine(armyB.retreat));
+                (armyB.destroyed ? '\n🏳️ Ejército enemigo aniquilado.' : retreatLine(armyB.retreat)) +
+                charLines(armyA.playerId);
             contentB =
                 `⚔️ DERROTA en ${h3Index} (Turno ${turn})\n` +
                 `${armyA.name} derrotó a ${armyB.name}\n` +
                 `Bajas propias: ${armyB.dead} | Bajas enemigas: ${armyA.dead}` +
                 (loot ? `\n💸 Provisiones saqueadas: ${formatLoot(loot)}` : '') +
-                retreatLine(armyB.retreat);
+                retreatLine(armyB.retreat) +
+                charLines(armyB.playerId);
         } else {
             const lootLine = loot ? `\n💰 Botín: ${formatLoot(loot)}` : '';
             contentA =
@@ -631,17 +974,19 @@ class CombatService {
                 `${armyB.name} derrotó a ${armyA.name}\n` +
                 `Bajas propias: ${armyA.dead} | Bajas enemigas: ${armyB.dead}` +
                 (loot ? `\n💸 Provisiones saqueadas: ${formatLoot(loot)}` : '') +
-                retreatLine(armyA.retreat);
+                retreatLine(armyA.retreat) +
+                charLines(armyA.playerId);
             contentB =
                 `⚔️ VICTORIA en ${h3Index} (Turno ${turn})\n` +
                 `${armyB.name} derrotó a ${armyA.name}\n` +
                 `Bajas propias: ${armyB.dead} | Bajas enemigas: ${armyA.dead}` +
                 lootLine +
-                (armyA.destroyed ? '\n🏳️ Ejército enemigo aniquilado.' : retreatLine(armyA.retreat));
+                (armyA.destroyed ? '\n🏳️ Ejército enemigo aniquilado.' : retreatLine(armyA.retreat)) +
+                charLines(armyB.playerId);
         }
 
-        await NotificationService.createSystemNotification(armyA.playerId, 'COMBAT', contentA, turn);
-        await NotificationService.createSystemNotification(armyB.playerId, 'COMBAT', contentB, turn);
+        await NotificationService.createSystemNotification(armyA.playerId, 'Militar', contentA, turn);
+        await NotificationService.createSystemNotification(armyB.playerId, 'Militar', contentB, turn);
     }
 }
 

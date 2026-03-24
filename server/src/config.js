@@ -8,7 +8,9 @@ const CONFIG = {
     },
     infrastructure: {
         prod_multiplier_per_level: 0.20,
-        upgrade_cost_gold_base: 100
+        upgrade_cost_gold_base: 100,
+        farm_upgrade_base_cost: 3000,
+        farm_prod_multiplier: 0.10
     },
     buildings: {
         port_base_cost: 10000

@@ -189,13 +189,13 @@ class ScoutingService {
                     `Composición completa:\n${lines}`;
             }
 
-            await NotificationService.createSystemNotification(player_id, 'COMBAT', notifContent, turn);
+            await NotificationService.createSystemNotification(player_id, 'Militar', notifContent, turn);
 
             if (detected) {
                 const scoutName = req.user.display_name || req.user.username;
                 await NotificationService.createSystemNotification(
                     targetArmy.player_id,
-                    'COMBAT',
+                    'Militar',
                     `👁️ EXPLORADORES DETECTADOS (Turno ${turn})\n` +
                     `Se han avistado exploradores de ${scoutName}\n` +
                     `merodeando tus tropas en ${targetArmy.h3_index}.`,

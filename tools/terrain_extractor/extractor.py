@@ -504,9 +504,13 @@ def get_river_h3_set(data_dir: Path = BASE_DATA_DIR, h3_resolution: int = 8) -> 
 
         logger.info(f"Rios validos: {len(gdf)} segmentos")
 
-        # Buffer de 800m (aumentado para continuidad) y convertir a H3
+        # Buffer calibrado por resolución H3 (≈ 1.5× longitud de arista de celda)
+        # res 6: arista ~3.2km, res 7: ~1.2km, res 8: ~0.46km
+        BUFFER_BY_RES = {5: 8000, 6: 3500, 7: 1800, 8: 800, 9: 350, 10: 150}
+        buffer_meters = BUFFER_BY_RES.get(h3_resolution, 800)
+        logger.info(f"Buffer de rio: {buffer_meters}m (para resolucion H3={h3_resolution})")
         gdf_metric = gdf.to_crs('EPSG:3857')
-        gdf_buffered = gdf_metric.buffer(800)  # AUMENTADO: 800 metros
+        gdf_buffered = gdf_metric.buffer(buffer_meters)
         gdf_buffered_wgs84 = gdf_buffered.to_crs('EPSG:4326')
 
         river_h3_set = set()
@@ -539,6 +543,20 @@ def get_river_h3_set(data_dir: Path = BASE_DATA_DIR, h3_resolution: int = 8) -> 
                     logger.warning(f"Error convirtiendo rio a H3: {e}")
                 error_count += 1
                 continue
+
+        # Bridge-fill: rellenar celdas intermedias entre dos celdas de río a distancia 2.
+        # Garantiza continuidad cuando el buffer no alcanza a cubrir la celda entre dos segmentos.
+        logger.info("Ejecutando bridge-fill para garantizar continuidad de rios...")
+        bridge_start = time.time()
+        bridged = set()
+        for cell in list(river_h3_set):
+            for k2_cell in h3.grid_ring(cell, 2):
+                if k2_cell in river_h3_set:
+                    path = h3.grid_path_cells(cell, k2_cell)
+                    bridged.update(path)
+        added = bridged - river_h3_set
+        river_h3_set.update(bridged)
+        logger.info(f"Bridge-fill: {len(added):,} celdas intermedias añadidas en {time.time()-bridge_start:.2f}s")
 
         # Liberar memoria
         del gdf, gdf_metric, gdf_buffered, gdf_buffered_wgs84
@@ -1473,6 +1491,11 @@ def insert_terrain_data_batch(
     """
     logger.info(f"Connecting to database at {db_config['host']}...")
 
+    sql_dump_path = BASE_DATA_DIR / 'extractor.sql'
+    if sql_dump_path.exists():
+        sql_dump_path.unlink()
+    logger.info(f"SQL dump will be written to: {sql_dump_path}")
+
     conn = psycopg2.connect(
         host=db_config['host'],
         port=db_config['port'],
@@ -1482,25 +1505,25 @@ def insert_terrain_data_batch(
     )
 
     try:
-        with conn.cursor() as cursor:
+        with open(sql_dump_path, 'w', encoding='utf-8') as sql_file, conn.cursor() as cursor:
             # NO TRUNCATE: Preserve has_road column set by setup_history.py
             logger.info("Updating h3_map data (preserving has_road markers and inserting coordinates)...")
 
             # Prepare insert query that PRESERVES has_road on conflict and includes coord_x, coord_y
-            # New schema includes player_id, building_type_id, coord_x, coord_y (defaults: NULL, 0, 0, 0)
+            # New schema includes player_id, coord_x, coord_y (defaults: NULL, 0, 0, 0)
             insert_query = """
-                INSERT INTO h3_map (h3_index, terrain_type_id, player_id, building_type_id, has_road, coord_x, coord_y)
+                INSERT INTO h3_map (h3_index, terrain_type_id, player_id, has_road, coord_x, coord_y)
                 VALUES %s
                 ON CONFLICT (h3_index)
                 DO UPDATE SET
                     terrain_type_id = EXCLUDED.terrain_type_id,
                     coord_x = EXCLUDED.coord_x,
                     coord_y = EXCLUDED.coord_y
-                    -- player_id, building_type_id, has_road NOT updated, preserving existing values
+                    -- player_id, has_road NOT updated, preserving existing values
             """
 
             # Note: We need to provide all fields for new inserts
-            # Defaults: player_id=NULL, building_type_id=0, has_road=FALSE
+            # Defaults: player_id=NULL, has_road=FALSE
             # h3_index is already a hexadecimal string, coord_x and coord_y are integers
 
             # VALIDACIÓN: Verificar que coord_x y coord_y son enteros
@@ -1517,7 +1540,7 @@ def insert_terrain_data_batch(
             logger.info("✓ All coordinates are valid integers")
 
             terrain_data_with_fields = [
-                (h3_index, terrain_id, None, 0, False, int(coord_x), int(coord_y))
+                (h3_index, terrain_id, None, False, int(coord_x), int(coord_y))
                 for h3_index, terrain_id, coord_x, coord_y in terrain_data
             ]
 
@@ -1528,7 +1551,7 @@ def insert_terrain_data_batch(
                 sample_size = min(5, len(terrain_data_with_fields))
                 logger.info(f"Sample of first {sample_size} records (h3_index, terrain_id, coord_x, coord_y):")
                 for i in range(sample_size):
-                    h3_idx, terrain_id, _, _, _, cx, cy = terrain_data_with_fields[i]
+                    h3_idx, terrain_id, _, _, cx, cy = terrain_data_with_fields[i]
                     logger.info(f"  {i+1}. {h3_idx} -> terrain={terrain_id}, coords=({cx}, {cy})")
 
             # Insert in batches with progress logging
@@ -1539,6 +1562,13 @@ def insert_terrain_data_batch(
                 batch = terrain_data_with_fields[i:i + BATCH_SIZE]
                 execute_values(cursor, insert_query, batch, page_size=BATCH_SIZE)
                 conn.commit()
+
+                # Write executed SQL to dump file
+                rows_sql = ',\n    '.join(
+                    cursor.mogrify("(%s, %s, %s, %s,%s, %s)", row).decode('utf-8')
+                    for row in batch
+                )
+                sql_file.write(insert_query.replace('VALUES %s', f'VALUES\n    {rows_sql}') + ';\n\n')
 
                 total_inserted += len(batch)
 
@@ -1587,14 +1617,16 @@ def postprocess_coastal_detection(terrain_data: List[Tuple[str, int, int, int]])
 
     logger.info(f"Total de celdas a procesar: {len(terrain_data)}")
 
-    # Identificar candidatos a costa: celdas Río (ID 4) o Agua (ID 3)
+    # Identificar candidatos a costa: SOLO Agua (ID 3).
+    # Los Ríos (ID 4) adyacentes al mar son desembocaduras y se gestionan
+    # en postprocess_river_mouth — NO deben convertirse en Costa aquí.
     water_candidates = [
         h3_hex
         for h3_hex, terrain_id, _, _ in terrain_data
-        if terrain_id in [3, 4]
+        if terrain_id == 3
     ]
 
-    logger.info(f"Candidatos a costa (Rio/Agua): {len(water_candidates)} celdas")
+    logger.info(f"Candidatos a costa (solo Agua ID=3, Rios excluidos): {len(water_candidates)} celdas")
 
     # Reclasificar celdas que tocan el mar
     reclassified_count = 0
@@ -1642,6 +1674,187 @@ def postprocess_coastal_detection(terrain_data: List[Tuple[str, int, int, int]])
     return updated_terrain_data
 
 
+def fix_isolated_rivers(terrain_data: List[Tuple[str, int, int, int]]) -> List[Tuple[str, int, int, int]]:
+    """
+    Reclasifica rios (ID 4) aislados como pantanos (ID 5).
+
+    Un rio se considera aislado si ninguno de sus 6 vecinos H3 inmediatos
+    es tambien un rio. Estos rios sueltos son artefactos del proceso de
+    extraccion y no representan cauces reales continuos.
+
+    PROCESO:
+    1. Construye un Set con todos los h3_index de tipo Rio (ID 4)
+    2. Para cada celda de tipo Rio, comprueba si al menos un vecino
+       (h3.grid_disk k=1, excluyendo el propio) esta en el set de rios
+    3. Si ningun vecino es rio -> celda aislada -> reclasificar como Pantanos (ID 5)
+
+    Args:
+        terrain_data: Lista de tuplas (h3_index, terrain_type_id, coord_x, coord_y)
+
+    Returns:
+        Lista actualizada con rios aislados convertidos en pantanos
+    """
+    logger.info("=" * 80)
+    logger.info("PASO 2.6: Reclasificacion de rios aislados como pantanos")
+    logger.info("=" * 80)
+    start_time = time.time()
+
+    WATER_IDS = {1, 3, 4}  # Mar, Agua, Río
+
+    # Sets de lookup
+    river_set    = {h3_idx for h3_idx, terrain_id, _, _ in terrain_data if terrain_id == 4}
+    terrain_dict = {h3_idx: terrain_id for h3_idx, terrain_id, _, _ in terrain_data}
+    logger.info(f"Total celdas de tipo Rio (ID 4): {len(river_set)}")
+
+    if not river_set:
+        logger.info("No hay celdas de tipo Rio. Saltando paso.")
+        return terrain_data
+
+    isolated_rivers = set()  # Sin vecino río ni mar → pantano
+    mouth_rivers    = set()  # Adyacente al mar con vecino río → proteger
+    river_to_sea    = set()  # Rodeado SOLO de mar → mar
+    river_to_coast  = set()  # Rodeado de mar + tierra → costa
+
+    for h3_idx in river_set:
+        try:
+            neighbors         = set(h3.grid_disk(h3_idx, 1)) - {h3_idx}
+            neighbor_terrains = [terrain_dict[n] for n in neighbors if n in terrain_dict]
+
+            has_river_neighbor = any(n in river_set for n in neighbors)
+            has_sea_neighbor   = any(t == 1 for t in neighbor_terrains)
+            has_land_neighbor  = any(t not in WATER_IDS for t in neighbor_terrains)
+            all_sea            = neighbor_terrains and all(t == 1 for t in neighbor_terrains)
+
+            if has_river_neighbor:
+                pass  # Parte de una cadena de río — no tocar
+            elif all_sea:
+                river_to_sea.add(h3_idx)          # Solo mar, sin río → mar
+            elif has_sea_neighbor and has_land_neighbor:
+                river_to_coast.add(h3_idx)        # Mar + tierra, sin río → costa
+            elif has_sea_neighbor:
+                mouth_rivers.add(h3_idx)          # Desembocadura aislada — proteger
+            else:
+                isolated_rivers.add(h3_idx)       # Aislado real — pantano
+        except Exception as e:
+            logger.warning(f"Error comprobando vecinos de {h3_idx}: {e}")
+            continue
+
+    logger.info(f"Rios aislados (sin vecino rio ni mar) → Pantano: {len(isolated_rivers)}")
+    logger.info(f"Desembocaduras protegidas (rio junto al mar):     {len(mouth_rivers)}")
+    logger.info(f"Rios rodeados solo de mar → Mar:                  {len(river_to_sea)}")
+    logger.info(f"Rios entre mar y tierra → Costa:                  {len(river_to_coast)}")
+    for idx in sorted(isolated_rivers):
+        logger.info(f"  RIO_AISLADO -> PANTANO: {idx}")
+
+    # Reclasificar
+    updated_terrain_data = []
+    for h3_idx, terrain_id, coord_x, coord_y in terrain_data:
+        if h3_idx in river_to_sea:
+            updated_terrain_data.append((h3_idx, 1, coord_x, coord_y))   # Mar
+        elif h3_idx in river_to_coast:
+            updated_terrain_data.append((h3_idx, 2, coord_x, coord_y))   # Costa
+        elif h3_idx in isolated_rivers:
+            updated_terrain_data.append((h3_idx, 5, coord_x, coord_y))   # Pantanos
+        else:
+            updated_terrain_data.append((h3_idx, terrain_id, coord_x, coord_y))
+
+    elapsed = time.time() - start_time
+    logger.info(f"Reclasificacion completada en {elapsed:.2f}s")
+    logger.info("=" * 80)
+
+    return updated_terrain_data
+
+
+def postprocess_river_mouth(terrain_data: List[Tuple[str, int, int, int]]) -> List[Tuple[str, int, int, int]]:
+    """
+    Conecta los ríos con el mar creando celdas de desembocadura.
+
+    LÓGICA:
+    - Encuentra ríos "terminales": celdas de río con exactamente 1 vecino río
+      (o 0, si son el único tramo) que estén a ≤2 celdas del mar.
+    - Para cada uno, traza el camino mínimo hacia el mar (BFS sobre vecinos)
+      y marca las celdas intermedias como Río (ID 4).
+    - Las celdas de Costa (ID 2) intermedias en el trayecto también se
+      reclasifican como Río para garantizar continuidad visual.
+
+    IDs:  Mar=1, Costa=2, Río=4
+    """
+    logger.info("=" * 80)
+    logger.info("PASO 2.7: Conexión de desembocaduras de ríos al mar")
+    logger.info("=" * 80)
+    start_time = time.time()
+
+    terrain_dict  = {h3_hex: terrain_id for h3_hex, terrain_id, _, _ in terrain_data}
+    coords_dict   = {h3_hex: (cx, cy)   for h3_hex, _, cx, cy in terrain_data}
+
+    river_set = {h for h, t, _, _ in terrain_data if t == 4}
+    sea_set   = {h for h, t, _, _ in terrain_data if t == 1}
+
+    if not river_set or not sea_set:
+        logger.info("Sin ríos o sin mar. Saltando paso.")
+        return terrain_data
+
+    # Identificar terminales de río: celdas de río con ≤1 vecino río
+    terminals = set()
+    for h3_idx in river_set:
+        neighbors = set(h3.grid_disk(h3_idx, 1)) - {h3_idx}
+        river_neighbors = [n for n in neighbors if n in river_set]
+        if len(river_neighbors) <= 1:
+            terminals.add(h3_idx)
+
+    logger.info(f"Terminales de río detectados: {len(terminals)}")
+
+    # Para cada terminal, BFS hasta encontrar el mar (máx k=2 pasos)
+    new_river_cells = set()
+    connected = 0
+
+    for terminal in terminals:
+        # BFS con profundidad máxima 2
+        visited = {terminal}
+        queue   = [(terminal, [])]  # (celda_actual, camino_recorrido)
+        found   = False
+
+        while queue and not found:
+            current, path = queue.pop(0)
+            neighbors = set(h3.grid_disk(current, 1)) - {current}
+
+            for nb in neighbors:
+                if nb in visited:
+                    continue
+                visited.add(nb)
+
+                nb_terrain = terrain_dict.get(nb)
+
+                if nb_terrain == 1:  # Tocamos el mar
+                    # Marcar todas las celdas del camino como río
+                    for step in path + [current]:
+                        if terrain_dict.get(step) != 4:
+                            new_river_cells.add(step)
+                    found = True
+                    connected += 1
+                    break
+
+                # Continuar BFS solo si no hemos superado profundidad 2
+                if len(path) < 2 and nb_terrain in (2, 4, None):
+                    queue.append((nb, path + [current]))
+
+    logger.info(f"Ríos extendidos al mar: {connected} (nuevas celdas río: {len(new_river_cells)})")
+
+    # Aplicar nuevas celdas de río
+    updated_terrain_data = []
+    for h3_hex, terrain_id, coord_x, coord_y in terrain_data:
+        if h3_hex in new_river_cells:
+            updated_terrain_data.append((h3_hex, 4, coord_x, coord_y))
+        else:
+            updated_terrain_data.append((h3_hex, terrain_id, coord_x, coord_y))
+
+    elapsed = time.time() - start_time
+    logger.info(f"Desembocaduras procesadas en {elapsed:.2f}s")
+    logger.info("=" * 80)
+
+    return updated_terrain_data
+
+
 def main():
     """
     Main execution function.
@@ -1670,7 +1883,15 @@ def main():
         terrain_data = extract_terrain_from_raster(str(raster_dir), h3_cells, h3_coords)
 
         # Step 2.5: Post-procesamiento - Detección de Costa Inteligente
+        # (solo convierte Agua ID=3; los Ríos ID=4 se gestionan en 2.7)
         terrain_data = postprocess_coastal_detection(terrain_data)
+
+        # Step 2.6: Reclasificar rios aislados (sin vecinos rio ni mar) como pantanos
+        # Las desembocaduras (rio junto al mar) quedan protegidas
+        terrain_data = fix_isolated_rivers(terrain_data)
+
+        # Step 2.7: Conectar desembocaduras de rios al mar (extiende ≤2 celdas)
+        terrain_data = postprocess_river_mouth(terrain_data)
 
         # Step 3: Insert data into database (includes coord_x, coord_y)
         insert_terrain_data_batch(DB_CONFIG, terrain_data)

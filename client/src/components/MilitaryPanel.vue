@@ -6,6 +6,28 @@
         Reclutando en <strong>{{ fief.name }}</strong>
       </p>
       <p v-else class="recruitment-subtitle">Selecciona un feudo desde la tabla para reclutar</p>
+
+      <!-- Recruitable pool indicator -->
+      <div v-if="fief" class="recruitable-pool-bar">
+        <span class="pool-label">👥 Reclutas disponibles:</span>
+        <span v-if="recruitablePool === null" class="pool-value pool-loading">calculando...</span>
+        <span v-else class="pool-value" :class="{ 'pool-zero': recruitablePool === 0 }">
+          {{ formatNumber(recruitablePool) }}
+        </span>
+      </div>
+
+      <!-- Mode toggle -->
+      <div v-if="fief" class="recruit-mode-toggle">
+        <button
+          :class="['mode-btn', { 'mode-active': recruitMode === 'field' }]"
+          @click="recruitMode = 'field'"
+        >⚔️ Incorporar al Ejército</button>
+        <button
+          :class="['mode-btn', { 'mode-active': recruitMode === 'garrison' }]"
+          @click="recruitMode = 'garrison'"
+        >🏰 Acuartelar</button>
+      </div>
+
       <div class="army-capacity-bar">
         <span class="army-capacity-label">Capacidad de Ejércitos:</span>
         <span class="army-capacity-value" :class="{ 'at-limit': armyCount >= armyLimit }">
@@ -22,9 +44,9 @@
       <div class="recruitment-section current-fief-mini">
         <div class="fief-resources-compact">
           <div class="resource-pill">💰 Oro: {{ formatNumber(playerGold) }}</div>
-          <div class="resource-pill">🌲 Madera: {{ formatNumber(fief.wood) }}</div>
-          <div class="resource-pill">⛰️ Piedra: {{ formatNumber(fief.stone) }}</div>
-          <div class="resource-pill">⛏️ Hierro: {{ formatNumber(fief.iron) }}</div>
+          <!-- DISABLED: <div class="resource-pill">🌲 Madera: {{ formatNumber(fief.wood) }}</div> -->
+          <!-- DISABLED: <div class="resource-pill">⛰️ Piedra: {{ formatNumber(fief.stone) }}</div> -->
+          <!-- DISABLED: <div class="resource-pill">⛏️ Hierro: {{ formatNumber(fief.iron) }}</div> -->
         </div>
         <button class="btn-back-to-fiefs" @click="$emit('back')">
           ← Volver a la lista de feudos
@@ -37,7 +59,7 @@
         <div v-if="loading" class="loading-text">Cargando unidades...</div>
         <div v-else class="unit-types-grid">
           <div
-            v-for="unit in unitTypes"
+            v-for="unit in availableUnitTypes"
             :key="unit.unit_type_id"
             :class="[
               'unit-card',
@@ -67,7 +89,7 @@
               </div>
             </div>
             <div class="unit-upkeep">
-              <small>Manutención: 💰{{ unit.gold_upkeep }}/turno 🌾{{ unit.food_consumption }}/turno</small>
+              <small>Manutención: 💰{{ unit.gold_upkeep }}/turno</small>
             </div>
 
             <!-- Quantity selector -->
@@ -87,8 +109,8 @@
         </div>
       </div>
 
-      <!-- Army name -->
-      <div class="recruitment-section army-name-section">
+      <!-- Army name (field mode only) -->
+      <div v-if="recruitMode === 'field'" class="recruitment-section army-name-section">
         <h4>2. Nombre del Ejército <span class="optional-hint">(opcional)</span></h4>
         <input
           v-model="armyName"
@@ -97,6 +119,15 @@
           maxlength="100"
           class="recruitment-input"
         />
+      </div>
+      <!-- Garrison info -->
+      <div v-else class="recruitment-section garrison-info">
+        <h4>2. Acuartelamiento</h4>
+        <p class="garrison-desc">
+          Las tropas quedarán guarnecidas en este feudo. No podrán moverse pero defenderán el territorio
+          y se beneficiarán de los bonus del edificio militar.
+          Si ya existe una guarnición, las nuevas tropas se incorporarán a ella.
+        </p>
       </div>
     </div>
 
@@ -116,27 +147,25 @@
           <span v-if="totalCost.gold > 0" :class="['footer-cost-item', { 'cost-insufficient': playerGold < totalCost.gold }]">
             💰 {{ totalCost.gold }}
           </span>
-          <span v-if="totalCost.wood_stored > 0" :class="['footer-cost-item', { 'cost-insufficient': (fief.wood || 0) < totalCost.wood_stored }]">
-            🌲 {{ totalCost.wood_stored }}
-          </span>
-          <span v-if="totalCost.stone_stored > 0" :class="['footer-cost-item', { 'cost-insufficient': (fief.stone || 0) < totalCost.stone_stored }]">
-            ⛰️ {{ totalCost.stone_stored }}
-          </span>
-          <span v-if="totalCost.iron_stored > 0" :class="['footer-cost-item', { 'cost-insufficient': (fief.iron || 0) < totalCost.iron_stored }]">
-            ⛏️ {{ totalCost.iron_stored }}
-          </span>
+          <!-- DISABLED: wood/stone/iron costs hidden
+          <span v-if="totalCost.wood_stored > 0" ...>🌲 {{ totalCost.wood_stored }}</span>
+          <span v-if="totalCost.stone_stored > 0" ...>⛰️ {{ totalCost.stone_stored }}</span>
+          <span v-if="totalCost.iron_stored > 0" ...>⛏️ {{ totalCost.iron_stored }}</span>
+          -->
         </div>
         <div class="footer-upkeep">
-          <small>Mantenimiento: 💰{{ totalUpkeep.gold }}/turno 🌾{{ totalUpkeep.food }}/turno</small>
+          <small>Mantenimiento: 💰{{ totalUpkeep.gold }}/turno</small>
         </div>
       </div>
       <button
         class="btn-recruit"
-        :disabled="!canBulkRecruit || isRecruiting || armyCount >= armyLimit"
-        :title="armyCount >= armyLimit ? 'Necesitas más feudos para comandar más ejércitos' : ''"
+        :disabled="!canBulkRecruit || isRecruiting || (recruitMode === 'field' && armyCount >= armyLimit)"
+        :title="recruitMode === 'field' && armyCount >= armyLimit ? 'Necesitas más feudos para comandar más ejércitos' : ''"
         @click="handleBulkRecruit"
       >
-        {{ isRecruiting ? 'Reclutando...' : `⚔️ Reclutar Lote (${totalSelectedTroops} tropas)` }}
+        <template v-if="isRecruiting">Procesando...</template>
+        <template v-else-if="recruitMode === 'garrison'">🏰 Acuartelar ({{ totalSelectedTroops }} tropas)</template>
+        <template v-else>⚔️ Reclutar Lote ({{ totalSelectedTroops }} tropas)</template>
       </button>
     </div>
   </div>
@@ -153,12 +182,22 @@ const props = defineProps({
   isRecruiting: Boolean,
   armyCount: { type: Number, default: 0 },
   armyLimit: { type: Number, default: 2 },
+  recruitablePool: { type: Number, default: null },
+  playerCultureId: { type: Number, default: null },
 });
 
 const emit = defineEmits(['bulkRecruit', 'back']);
 
 const armyName = ref('');
+const recruitMode = ref('field');  // 'field' | 'garrison'
 const unitQuantities = reactive({});
+
+// Solo muestra unidades de la cultura del jugador
+const availableUnitTypes = computed(() => {
+  if (!props.unitTypes) return [];
+  if (!props.playerCultureId) return props.unitTypes;
+  return props.unitTypes.filter(u => u.culture_id === props.playerCultureId);
+});
 
 const formatNumber = (val) => {
   if (val === null || val === undefined || isNaN(val)) return '0';
@@ -202,8 +241,7 @@ const totalSelectedTroops = computed(() =>
 
 const totalCost = computed(() => {
   const cost = { gold: 0, wood_stored: 0, stone_stored: 0, iron_stored: 0 };
-  if (!props.unitTypes) return cost;
-  for (const unit of props.unitTypes) {
+  for (const unit of availableUnitTypes.value) {
     const qty = unitQuantities[unit.unit_type_id] || 0;
     if (qty === 0) continue;
     for (const req of unit.requirements) {
@@ -214,12 +252,10 @@ const totalCost = computed(() => {
 });
 
 const totalUpkeep = computed(() => {
-  const result = { gold: 0, food: 0 };
-  if (!props.unitTypes) return result;
-  for (const unit of props.unitTypes) {
+  const result = { gold: 0 };
+  for (const unit of availableUnitTypes.value) {
     const qty = unitQuantities[unit.unit_type_id] || 0;
     result.gold += (unit.gold_upkeep || 0) * qty;
-    result.food += (unit.food_consumption || 0) * qty;
   }
   return result;
 });
@@ -243,6 +279,7 @@ const handleBulkRecruit = () => {
     fief: props.fief,
     army_name: armyName.value.trim(),
     units,
+    mode: recruitMode.value,
   });
 
   Object.keys(unitQuantities).forEach(k => { unitQuantities[k] = 0; });
@@ -266,6 +303,47 @@ const handleBulkRecruit = () => {
 
 .recruitment-header h3 { font-family: 'Cinzel', serif; font-size: 1.8rem; color: #ffd700; margin: 0; }
 .recruitment-subtitle { color: #a89875; margin-top: 5px; }
+
+.recruitable-pool-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 14px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 215, 0, 0.25);
+  border-radius: 20px;
+  font-size: 0.9rem;
+}
+
+.pool-label { color: #a89875; }
+.pool-value { color: #ffd700; font-weight: bold; }
+.pool-value.pool-zero { color: #ff6b6b; }
+.pool-loading { color: #a89875; font-style: italic; }
+
+.recruit-mode-toggle {
+  display: flex;
+  margin: 12px 0 0;
+  border: 1px solid rgba(197, 160, 89, 0.4);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.mode-btn {
+  flex: 1;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: none;
+  color: #a89875;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.mode-btn:first-child { border-right: 1px solid rgba(197, 160, 89, 0.4); }
+.mode-btn.mode-active { background: rgba(197, 160, 89, 0.25); color: #ffd700; font-weight: bold; }
+.mode-btn:not(.mode-active):hover { background: rgba(197, 160, 89, 0.1); color: #c5a059; }
+
+.garrison-info { background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(197, 160, 89, 0.2); border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+.garrison-desc { color: #a89875; font-size: 0.9rem; line-height: 1.6; margin: 0; }
 
 .fief-resources-compact {
   display: flex;

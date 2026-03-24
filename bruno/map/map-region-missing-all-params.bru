@@ -1,0 +1,16 @@
+meta {
+  name: Map Region - Error Sin Parametros
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{base_url}}/api/map/region
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 400
+  res.body.error: eq "Missing bounding box parameters"
+}

@@ -1,0 +1,16 @@
+meta {
+  name: Map Region - Error Un Parametro Invalido
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{base_url}}/api/map/region?minLat={{region_minLat}}&maxLat=not-a-number&minLng={{region_minLng}}&maxLng={{region_maxLng}}
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 400
+  res.body.error: eq "Invalid bounding box parameters"
+}

@@ -14,6 +14,7 @@ const config = require('../config/constants.js');
 const pool = require('../../db');
 const { Logger } = require('../../src/utils/logger');
 const h3 = require('h3-js');
+const { auditEvent, TOPICS } = require('../infrastructure/kafkaFacade');
 
 class ArmySimulationService {
   /**
@@ -172,7 +173,7 @@ class ArmySimulationService {
 
       // Validar que el ejército existe
       const armyCheck = await client.query(
-        'SELECT army_id, name FROM armies WHERE army_id = $1',
+        'SELECT army_id, name, battle_recovery_rate, battle_recovery_turns_left FROM armies WHERE army_id = $1',
         [armyId]
       );
 
@@ -185,7 +186,7 @@ class ArmySimulationService {
         };
       }
 
-      const armyName = armyCheck.rows[0].name;
+      const { name: armyName, battle_recovery_rate, battle_recovery_turns_left } = armyCheck.rows[0];
 
       // Obtener todas las unidades del ejército
       const troopsResult = await client.query(
@@ -205,12 +206,15 @@ class ArmySimulationService {
       }
 
       let releasedCount = 0;
-      const RECOVERY_RATE = config.MILITARY.STAMINA_RECOVERY_PER_TURN;
+      const MAX_STAMINA      = config.MILITARY.STAMINA_MAX;
       const RELEASE_THRESHOLD = config.MILITARY.FORCE_REST_THRESHOLD;
-      const MAX_STAMINA = config.MILITARY.STAMINA_MAX;
 
-      // Calcular stamina mínima antes de la recuperación
-      // parseFloat: troops.stamina es DECIMAL(5,2) → pg lo devuelve como string → hay que parsear antes de operar
+      // Usar tasa de recuperación rápida post-batalla si está activa; si no, la normal
+      const turnsLeft   = parseInt(battle_recovery_turns_left) || 0;
+      const RECOVERY_RATE = turnsLeft > 0
+        ? parseFloat(battle_recovery_rate) || config.MILITARY.STAMINA_RECOVERY_PER_TURN
+        : config.MILITARY.STAMINA_RECOVERY_PER_TURN;
+
       const minStaminaBefore = Math.min(...troopsResult.rows.map(t => parseFloat(t.stamina)));
       const unitsInForceRest = troopsResult.rows.filter(t => t.force_rest).length;
 
@@ -229,7 +233,7 @@ class ArmySimulationService {
         await client.query(
           `UPDATE troops
            SET stamina = $1,
-               force_rest = CASE WHEN force_rest = TRUE AND $2 >= $3 THEN FALSE ELSE force_rest END
+               force_rest = CASE WHEN force_rest = TRUE AND $2::numeric >= $3::numeric THEN FALSE ELSE force_rest END
            WHERE troop_id = $4`,
           [newStamina, newStamina, RELEASE_THRESHOLD, troop.troop_id]
         );
@@ -243,22 +247,31 @@ class ArmySimulationService {
         }
       }
 
-      // Calcular stamina mínima después de la recuperación
+      // Decrementar contador de recuperación rápida
+      if (turnsLeft > 0) {
+        await client.query(
+          `UPDATE armies
+           SET battle_recovery_turns_left = GREATEST(0, battle_recovery_turns_left - 1),
+               battle_recovery_rate = CASE WHEN battle_recovery_turns_left <= 1 THEN 0 ELSE battle_recovery_rate END
+           WHERE army_id = $1`,
+          [armyId]
+        );
+      }
+
       const minStaminaAfter = Math.min(MAX_STAMINA, minStaminaBefore + RECOVERY_RATE);
 
       await client.query('COMMIT');
 
-      // Log de recuperación
+      const recoveryLabel = turnsLeft > 0 ? `rápida (batalla, ${turnsLeft} turnos restantes)` : 'normal';
       Logger.army(armyId, 'STAMINA_RECOVERY',
-        `+${RECOVERY_RATE} puntos aplicados. Stamina mínima: ${minStaminaBefore} → ${minStaminaAfter}. Force_rest: ${unitsInForceRest - releasedCount}/${unitsInForceRest} unidades`,
+        `+${RECOVERY_RATE} pts (${recoveryLabel}). Stamina mínima: ${minStaminaBefore} → ${minStaminaAfter}. Force_rest: ${unitsInForceRest - releasedCount}/${unitsInForceRest} unidades`,
         {
           army_name: armyName,
           recovery_rate: RECOVERY_RATE,
+          battle_recovery_turns_left: turnsLeft,
           min_stamina_before: minStaminaBefore,
           min_stamina_after: minStaminaAfter,
           units_released: releasedCount,
-          units_still_resting: unitsInForceRest - releasedCount,
-          total_units_resting: unitsInForceRest
         }
       );
 
@@ -390,7 +403,7 @@ class ArmySimulationService {
     try {
       // 1. Obtener posición actual del ejército
       const armyResult = await client.query(
-        'SELECT army_id, name, h3_index FROM armies WHERE army_id = $1',
+        'SELECT army_id, name, h3_index, is_naval FROM armies WHERE army_id = $1',
         [armyId]
       );
       if (armyResult.rows.length === 0) {
@@ -405,13 +418,14 @@ class ArmySimulationService {
       }
 
       // 2. A* con caché de costes de terreno (consultas en batch)
+      // Flotas navales usan is_naval_passable; ejércitos terrestres usan movement_cost > 0
       const terrainCache = new Map();
 
       const fetchTerrainCosts = async (hexes) => {
         const uncached = hexes.filter(h => !terrainCache.has(h));
         if (uncached.length === 0) return;
         const result = await client.query(
-          `SELECT hm.h3_index, tt.movement_cost
+          `SELECT hm.h3_index, tt.movement_cost, tt.is_naval_passable, tt.terrain_type_id
            FROM h3_map hm
            JOIN terrain_types tt ON hm.terrain_type_id = tt.terrain_type_id
            WHERE hm.h3_index = ANY($1)`,
@@ -419,7 +433,19 @@ class ArmySimulationService {
         );
         const found = new Set();
         for (const row of result.rows) {
-          terrainCache.set(row.h3_index, parseFloat(row.movement_cost));
+          let cost;
+          if (army.is_naval) {
+            if (!row.is_naval_passable) {
+              cost = -1; // tierra: impasable
+            } else if (row.terrain_type_id === 1) {
+              cost = 1;  // Mar: preferido
+            } else {
+              cost = 5;  // Costa: pasable pero caro — evita cortar penínsulas
+            }
+          } else {
+            cost = parseFloat(row.movement_cost);
+          }
+          terrainCache.set(row.h3_index, cost);
           found.add(row.h3_index);
         }
         // Hexágonos no encontrados en mapa = impasables
@@ -527,10 +553,12 @@ class ArmySimulationService {
 
   /**
    * Ejecuta el turno de movimiento completo de un ejército.
-   * Lee la ruta pre-calculada de army_routes y avanza tantos pasos como permitan los PM.
+   * Lee la ruta pre-calculada de army_routes y avanza hasta min(speed) pasos.
+   * Reglas: stamina > 0 → mueve y descuenta; stamina = 0 → bloqueado.
+   * Si la stamina llega a 0 durante el movimiento → force_rest = TRUE y para.
    *
    * @param {number} armyId - ID del ejército
-   * @returns {Promise<Object>} - { success, moved, arrived, stepsCount, forceExhausted, message }
+   * @returns {Promise<Object>} - { success, moved, arrived, stepsCount, staminaExhausted, message }
    */
   static async executeArmyTurn(armyId) {
     const client = await pool.connect();
@@ -540,7 +568,8 @@ class ArmySimulationService {
 
       // 1. Obtener estado del ejército + ruta pre-calculada
       const armyResult = await client.query(
-        `SELECT a.army_id, a.name, a.h3_index, a.destination, a.recovering, a.player_id,
+        `SELECT a.army_id, a.name, a.h3_index, a.destination, a.player_id,
+                a.is_naval,
                 ar.path
          FROM armies a
          LEFT JOIN army_routes ar ON ar.army_id = a.army_id
@@ -562,16 +591,6 @@ class ArmySimulationService {
         return { success: true, moved: false, message: `${army.name} no tiene destino` };
       }
 
-      // En recovering → no puede moverse
-      if (parseInt(army.recovering) > 0) {
-        await client.query('ROLLBACK');
-        Logger.army(armyId, 'MOVE_BLOCKED',
-          `En recuperación (${army.recovering} turnos restantes)`,
-          { recovering: army.recovering }
-        );
-        return { success: true, moved: false, message: `${army.name} se está recuperando` };
-      }
-
       // Parsear path desde JSONB (pg devuelve el array directamente si es JSONB)
       const rawPath = army.path;
       const remainingPath = Array.isArray(rawPath)
@@ -584,40 +603,59 @@ class ArmySimulationService {
         return { success: true, moved: false, message: `${army.name} sin ruta calculada` };
       }
 
-      // ── PASO 1: Calcular Puntos de Movimiento ────────────────────────────────
-      const troopsResult = await client.query(
-        `SELECT t.troop_id, t.stamina, t.force_rest, ut.speed
-         FROM troops t
-         JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
-         WHERE t.army_id = $1`,
-        [armyId]
-      );
+      // ── PASO 1: Obtener velocidad (troops para terrestres, fleet_ships para navales) ──
+      let maxCells;
 
-      if (troopsResult.rows.length === 0) {
-        await client.query('ROLLBACK');
-        Logger.army(armyId, 'ERROR', 'Sin unidades');
-        return { success: false, moved: false, message: `${army.name} no tiene unidades` };
+      if (army.is_naval) {
+        const shipsResult = await client.query(
+          `SELECT MIN(st.speed) AS min_speed
+           FROM fleet_ships fs
+           JOIN ship_types st ON fs.ship_type_id = st.id
+           WHERE fs.army_id = $1`,
+          [armyId]
+        );
+        const minSpeed = shipsResult.rows[0]?.min_speed;
+        if (!minSpeed) {
+          await client.query('ROLLBACK');
+          Logger.army(armyId, 'ERROR', 'Flota sin barcos');
+          return { success: false, moved: false, message: `${army.name} no tiene barcos` };
+        }
+        maxCells = parseInt(minSpeed) || 1;
+      } else {
+        const troopsResult = await client.query(
+          `SELECT t.troop_id, t.stamina, t.force_rest, ut.speed
+           FROM troops t
+           JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
+           WHERE t.army_id = $1`,
+          [armyId]
+        );
+
+        if (troopsResult.rows.length === 0) {
+          await client.query('ROLLBACK');
+          Logger.army(armyId, 'ERROR', 'Sin unidades');
+          return { success: false, moved: false, message: `${army.name} no tiene unidades` };
+        }
+
+        const hasForceRestTroops = troopsResult.rows.some(t => t.force_rest);
+        maxCells = Math.min(...troopsResult.rows.map(t => parseInt(t.speed) || 1));
+
+        if (hasForceRestTroops) {
+          await client.query('ROLLBACK');
+          Logger.army(armyId, 'MOVE_BLOCKED', 'Sin stamina - force_rest activo');
+          return { success: true, moved: false, message: `${army.name} no puede moverse (agotado)` };
+        }
       }
-
-      const hasForceRest = troopsResult.rows.some(t => t.force_rest);
-      const minSpeed     = Math.min(...troopsResult.rows.map(t => parseInt(t.speed) || 1));
-      let pm             = hasForceRest ? 0 : minSpeed;
 
       Logger.army(armyId, 'TURN_START',
-        `PM totales ${pm}. Ruta: ${remainingPath.length} pasos restantes`,
-        { army_name: army.name, pm_assigned: pm, path_remaining: remainingPath.length, has_force_rest: hasForceRest }
+        `MaxCells: ${maxCells}. Ruta: ${remainingPath.length} pasos restantes`,
+        { army_name: army.name, max_cells: maxCells, path_remaining: remainingPath.length, is_naval: army.is_naval }
       );
 
-      if (pm === 0) {
-        await client.query('ROLLBACK');
-        Logger.army(armyId, 'MOVE_BLOCKED', 'Sin PM - force_rest activo');
-        return { success: true, moved: false, message: `${army.name} no puede moverse (force_rest activo)` };
-      }
-
       // Pre-fetch costes de terreno para los primeros pasos de la ruta
-      const pathSlice = remainingPath.slice(0, minSpeed + 2);
+      // Flotas navales usan is_naval_passable; ejércitos terrestres usan movement_cost > 0
+      const pathSlice = remainingPath.slice(0, maxCells + 2);
       const terrainResult = await client.query(
-        `SELECT hm.h3_index, tt.movement_cost
+        `SELECT hm.h3_index, tt.movement_cost, tt.is_naval_passable, tt.terrain_type_id
          FROM h3_map hm
          JOIN terrain_types tt ON hm.terrain_type_id = tt.terrain_type_id
          WHERE hm.h3_index = ANY($1)`,
@@ -625,22 +663,30 @@ class ArmySimulationService {
       );
       const costMap = {};
       for (const row of terrainResult.rows) {
-        costMap[row.h3_index] = parseFloat(row.movement_cost);
+        if (army.is_naval) {
+          if (!row.is_naval_passable) {
+            costMap[row.h3_index] = -1; // tierra: bloquea movimiento
+          } else if (row.terrain_type_id === 1) {
+            costMap[row.h3_index] = 1;  // Mar
+          } else {
+            costMap[row.h3_index] = 5;  // Costa
+          }
+        } else {
+          costMap[row.h3_index] = parseFloat(row.movement_cost);
+        }
       }
 
-      // ── PASO 2: Procesar desplazamiento siguiendo la ruta ─────────────────────
-      const MAX_CELLS_PER_TURN = config.MILITARY.MAX_CELLS_PER_TURN;
-      let currentPos     = army.h3_index;
-      let stepsCount     = 0;
-      let forceExhausted = false;
-      let cellLimitReached = false;
+      // ── PASO 2: Movimiento por stamina ────────────────────────────────────────
+      const STAMINA_COST_PER_HEX = config.MILITARY.STAMINA_COST_PER_HEX;
+      let currentPos       = army.h3_index;
+      let stepsCount       = 0;
+      let staminaExhausted = false;
 
-      while (pm > 0 && remainingPath.length > 0 && stepsCount < MAX_CELLS_PER_TURN) {
-        const nextHex  = remainingPath[0];
-        const rawCost  = costMap[nextHex];
+      while (stepsCount < maxCells && remainingPath.length > 0) {
+        const nextHex = remainingPath[0];
+        const rawCost = costMap[nextHex];
 
         if (rawCost === undefined || rawCost < 0) {
-          // Hex impasable o fuera del mapa — ruta inválida en este punto
           Logger.army(armyId, 'MOVE_BLOCKED',
             `Hex ${nextHex} impasable o fuera de mapa en ruta`,
             { hex: nextHex, raw_cost: rawCost }
@@ -648,57 +694,37 @@ class ArmySimulationService {
           break;
         }
 
-        const cost = Math.max(1, rawCost);
+        const cost        = Math.max(1, rawCost);
+        const staminaCost = cost * STAMINA_COST_PER_HEX;
 
-        if (pm >= cost) {
-          // Paso normal: restar coste a PM y stamina
-          pm -= cost;
-          await this._consumeStaminaWithClient(client, armyId, cost);
-        } else {
-          // Esfuerzo extra: PM insuficiente pero el ejército fuerza el último paso
-          forceExhausted = true;
-          const pmBeforeExhaustion = pm;
-          pm = 0;
-          await client.query(
-            'UPDATE troops SET stamina = 0, force_rest = TRUE WHERE army_id = $1',
-            [armyId]
-          );
-          await client.query(
-            'UPDATE armies SET recovering = 1 WHERE army_id = $1',
-            [armyId]
-          );
-          Logger.army(armyId, 'FATIGUE_COLLAPSE',
-            `Esfuerzo extra! ${pmBeforeExhaustion} PM disponibles, coste ${cost}. force_rest activado`,
-            { pm_available: pmBeforeExhaustion, terrain_cost: cost }
-          );
-        }
-
-        // Mover el ejército al siguiente hexágono de la ruta
+        // Mover el ejército al siguiente hexágono
         const prevPos = currentPos;
         currentPos = nextHex;
         remainingPath.shift();
         stepsCount++;
 
-        await client.query(
-          'UPDATE armies SET h3_index = $1 WHERE army_id = $2',
-          [currentPos, armyId]
-        );
+        await client.query('UPDATE armies SET h3_index = $1 WHERE army_id = $2', [currentPos, armyId]);
+        // El comandante viaja con el ejército
+        await client.query('UPDATE characters SET h3_index = $1 WHERE army_id = $2', [currentPos, armyId]);
 
         Logger.army(armyId, 'ROUTE_STEP',
           `Army ${armyId} avanzado a ${currentPos}. Pasos restantes en ruta: ${remainingPath.length}`,
-          { from: prevPos, to: currentPos, pm_remaining: pm, steps_left: remainingPath.length, terrain_cost: cost }
+          { from: prevPos, to: currentPos, steps_left: remainingPath.length, terrain_cost: cost, stamina_cost: staminaCost }
         );
 
-        if (forceExhausted) break;
-      }
+        // Descontar stamina (solo ejércitos terrestres; flotas no se cansan)
+        if (!army.is_naval) {
+          const staminaResult = await this._consumeStaminaWithClient(client, armyId, staminaCost);
 
-      // Detectar si el bucle terminó por límite de casillas (no por PM ni llegada)
-      cellLimitReached = stepsCount >= MAX_CELLS_PER_TURN && remainingPath.length > 0 && !forceExhausted;
-      if (cellLimitReached) {
-        Logger.army(armyId, 'MOVE_LIMIT',
-          `Army ${armyId} restricted to ${MAX_CELLS_PER_TURN} cells this turn`,
-          { army_name: army.name, steps_taken: stepsCount, steps_remaining: remainingPath.length }
-        );
+          if (staminaResult.exhaustedUnits > 0) {
+            staminaExhausted = true;
+            Logger.army(armyId, 'STAMINA_EXHAUSTED',
+              `${staminaResult.exhaustedUnits} unidad(es) agotada(s). force_rest activado`,
+              { exhausted_units: staminaResult.exhaustedUnits, step: stepsCount }
+            );
+            break;
+          }
+        }
       }
 
       // ── Actualizar/limpiar ruta ───────────────────────────────────────────────
@@ -722,16 +748,29 @@ class ArmySimulationService {
       await client.query('COMMIT');
 
       Logger.army(armyId, 'TURN_END',
-        `Pasos: ${stepsCount}, Llegó: ${arrived}, Agotado: ${forceExhausted}`,
-        { steps: stepsCount, arrived, force_exhausted: forceExhausted, final_pos: currentPos }
+        `Pasos: ${stepsCount}, Llegó: ${arrived}, Agotado: ${staminaExhausted}`,
+        { steps: stepsCount, arrived, stamina_exhausted: staminaExhausted, final_pos: currentPos }
       );
+
+      if (stepsCount > 0) {
+        auditEvent(arrived ? 'ARMY_ARRIVED' : 'ARMY_MOVED', {
+          army_id:          armyId,
+          player_id:        army.player_id,
+          from:             army.h3_index,
+          to:               currentPos,
+          destination:      army.destination,
+          steps:            stepsCount,
+          stamina_exhausted: staminaExhausted,
+          arrived,
+        }, TOPICS.MILITARY);
+      }
 
       return {
         success: true,
         moved: stepsCount > 0,
         arrived,
         stepsCount,
-        forceExhausted,
+        staminaExhausted,
         message: arrived
           ? `${army.name} llegó a su destino`
           : `${army.name} avanzó ${stepsCount} pasos`

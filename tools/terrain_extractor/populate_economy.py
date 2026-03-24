@@ -7,10 +7,12 @@ from psycopg2.extras import execute_values
 # 1. CARGA DE CONFIGURACIÓN
 try:
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    from extractor import DB_CONFIG
+    from config import DB_CONFIG
+    from pathlib import Path
+    BASE_DATA_DIR = Path(__file__).parent.parent.parent.resolve() / 'data'
     print("✅ Configuración cargada correctamente.")
 except ImportError:
-    print("❌ Error: No se pudo encontrar extractor.py para leer la configuración.")
+    print("❌ Error: No se pudo encontrar config.py para leer la configuración.")
     sys.exit(1)
 
 def getRandomInt(min_val, max_val):
@@ -21,13 +23,21 @@ def calculateLoot(baseMin, baseMax, multiplierPercent):
     return int(val * (multiplierPercent / 100.0))
 
 def populate():
+    sql_dump_path = BASE_DATA_DIR / 'populate_economy.sql'
+    if sql_dump_path.exists():
+        sql_dump_path.unlink()
+    print(f"📄 SQL dump will be written to: {sql_dump_path}")
+
+    sql_file = None
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
+        sql_file = open(sql_dump_path, 'w', encoding='utf-8')
 
         # --- PASO 0: TRUNCATE ---
         print("🧹 Limpiando tabla territory_details...")
         cur.execute("TRUNCATE TABLE territory_details RESTART IDENTITY CASCADE;")
+        sql_file.write("TRUNCATE TABLE territory_details RESTART IDENTITY CASCADE;\n\n")
         conn.commit()
 
         # --- PASO 1: LECTURA ---
@@ -71,15 +81,11 @@ def populate():
 
                 # Los recursos mineros físicos se generan pero permanecen ocultos
                 # El turn engine hará el roll de descubrimiento cuando se complete la exploración
-                if stone > 0 or iron > 0:
-                    # Generar recursos físicos potenciales (se descubrirán al explorar)
-                    rand_resource = random.random()
+                gold_s = getRandomInt(2000, 6000)
+                iron_s = getRandomInt(100, 2000)
 
-                    if rand_resource < 0.02:   # 2% chance for gold vein
-                        gold_s = round(random.uniform(0.5, 2.5), 2)  # Small amounts (High Value/Low Volume)
-                    elif rand_resource < 0.05: # 3% chance for iron (5% total)
-                        iron_s = calculateLoot(500, 2500, iron)
-                    # Stone uses the existing stone_s calculation
+                if stone > 0 or iron > 0:
+                    pass  # iron_s and gold_s already set above
 
                 # discovered_resource permanece NULL - se asignará al completar exploración
                 
@@ -98,6 +104,11 @@ def populate():
                 ) VALUES %s
             """
             execute_values(cur, insert_query, inserts)
+            rows_sql = ',\n    '.join(
+                cur.mogrify("(%s, %s, %s, %s, %s, %s, %s, %s, %s)", row).decode('utf-8')
+                for row in inserts
+            )
+            sql_file.write(insert_query.replace('VALUES %s', f'VALUES\n    {rows_sql}') + ';\n\n')
             conn.commit()
             
             # Log de progreso
@@ -111,6 +122,8 @@ def populate():
         print(f"\n❌ Error crítico: {e}")
         if conn: conn.rollback()
     finally:
+        if sql_file:
+            sql_file.close()
         if 'conn' in locals():
             cur.close()
             conn.close()

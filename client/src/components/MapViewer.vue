@@ -10,6 +10,18 @@
         <p>❌ Error: {{ error }}</p>
       </div>
       <div id="map" ref="mapContainer"></div>
+
+      <!-- H3 Search Widget (flotante sobre el mapa, esquina superior izquierda) -->
+      <div class="h3-search-widget">
+        <input
+          type="text"
+          v-model="searchH3Input"
+          placeholder="Índice H3..."
+          @keyup.enter="goToH3Index"
+          class="h3-search-input"
+        />
+        <button @click="goToH3Index" class="h3-search-btn">🔍</button>
+      </div>
     </div>
 
     <!-- Main Sidebar -->
@@ -19,7 +31,7 @@
         <div class="header-stat">
           <span class="stat-icon gold-icon">💰</span>
           <div class="stat-info">
-            <span class="stat-value">{{ playerGold }}</span>
+            <span class="stat-value">{{ Number(playerGold).toLocaleString('es-ES') }}</span>
             <span class="stat-label">Oro</span>
           </div>
         </div>
@@ -43,30 +55,40 @@
       <nav class="sidebar-nav">
         <button
           class="nav-button"
-          :class="{ active: activePanel === 'economy' }"
-          @click="togglePanel('economy')"
+          :class="{ active: activeOverlay === 'reino' }"
+          @click="openOverlay('reino')"
+          title="Imperium"
+        >
+          <span class="nav-icon">🏰</span>
+          <span class="nav-label">Imperium</span>
+        </button>
+        <button
+          class="nav-button"
+          :class="{ active: activeOverlay === 'characters' }"
+          @click="openOverlay('characters')"
+          title="Personajes y Dinastía"
+        >
+          <span class="nav-icon">👑</span>
+          <span class="nav-label">Dinastía</span>
+        </button>
+        <button
+          class="nav-button"
+          :class="{ active: activeOverlay === 'diplomacy' }"
+          @click="openOverlay('diplomacy')"
+          title="Diplomacia"
+        >
+          <span class="nav-icon">⚖️</span>
+          <span class="nav-label">Diplomacia</span>
+          <span v-if="pendingRelationsCount > 0" class="nav-badge">{{ pendingRelationsCount }}</span>
+        </button>
+        <button
+          class="nav-button"
+          :class="{ active: activeOverlay === 'economy' }"
+          @click="openOverlay('economy')"
           title="Economía"
         >
           <span class="nav-icon">💰</span>
           <span class="nav-label">Economía</span>
-        </button>
-        <button
-          class="nav-button"
-          :class="{ active: activeOverlay === 'layers' }"
-          @click="openOverlay('layers')"
-          title="Capas del Mapa"
-        >
-          <span class="nav-icon">🗺️</span>
-          <span class="nav-label">Capas</span>
-        </button>
-        <button
-          class="nav-button"
-          :class="{ active: activeOverlay === 'troops' }"
-          @click="openOverlay('troops')"
-          title="Tropas"
-        >
-          <span class="nav-icon">⚔️</span>
-          <span class="nav-label">Tropas</span>
         </button>
         <button
           class="nav-button"
@@ -79,12 +101,21 @@
         </button>
         <button
           class="nav-button"
-          :class="{ active: activeOverlay === 'reino' }"
-          @click="openOverlay('reino')"
-          title="Reino"
+          :class="{ active: activeOverlay === 'troops' }"
+          @click="openOverlay('troops')"
+          title="Tropas"
         >
-          <span class="nav-icon">🏰</span>
-          <span class="nav-label">Reino</span>
+          <span class="nav-icon">⚔️</span>
+          <span class="nav-label">Tropas</span>
+        </button>
+        <button
+          class="nav-button"
+          :class="{ active: activeOverlay === 'naval' }"
+          @click="openOverlay('naval')"
+          title="Flotas Navales"
+        >
+          <span class="nav-icon">⛵</span>
+          <span class="nav-label">Flotas</span>
         </button>
         <button
           class="nav-button"
@@ -106,6 +137,15 @@
           <span class="nav-label">Notificaciones</span>
           <span v-if="unreadNotifCount > 0" class="nav-badge">{{ unreadNotifCount }}</span>
         </button>
+        <button
+          class="nav-button"
+          :class="{ active: activeOverlay === 'layers' }"
+          @click="openOverlay('layers')"
+          title="Mapa"
+        >
+          <span class="nav-icon">🗺️</span>
+          <span class="nav-label">Mapa</span>
+        </button>
       </nav>
 
       <!-- Sidebar Footer -->
@@ -117,7 +157,8 @@
           @click="togglePanel('profile')"
           title="Editar perfil"
         >
-          <span class="username">{{ currentUser.display_name || currentUser.username }}</span>
+          <span class="username">{{ currentUser.culture_id === 1 ? 'Gens' : 'Casa' }} {{ currentUser.display_name || currentUser.username }}</span>
+          <span v-if="currentUser.culture_name" class="culture-badge">{{ currentUser.culture_name }}</span>
         </button>
         <button
           v-if="currentUser && currentUser.role === 'admin'"
@@ -137,6 +178,13 @@
           <span class="footer-icon">🚪</span>
         </button>
       </div>
+      <div class="legal-links">
+        <a href="/legal/privacidad.html" target="_blank" rel="noopener">Privacidad</a>
+        <span class="legal-sep">·</span>
+        <a href="/legal/terminos.html" target="_blank" rel="noopener">Términos</a>
+        <span class="legal-sep">·</span>
+        <a href="/legal/aviso-legal.html" target="_blank" rel="noopener">Aviso Legal</a>
+      </div>
     </aside>
 
     <!-- Context Panel -->
@@ -154,9 +202,6 @@
       </div>
 
       <div class="panel-content">
-        <!-- Economy Panel -->
-        <EconomyPanel v-if="activePanel === 'economy'" />
-
         <!-- Layers Panel -->
         <div v-if="activeOverlay === 'layers'" class="panel-section layers-panel">
           <!-- Legend -->
@@ -264,25 +309,6 @@
             </div>
           </div>
 
-          <!-- Navigation -->
-          <div class="navigation-section">
-            <h4 class="section-title">Navegación</h4>
-            <div class="search-container">
-              <input
-                type="text"
-                v-model="searchH3Input"
-                placeholder="Índice H3..."
-                @keyup.enter="goToH3Index"
-                class="search-input"
-              />
-              <button @click="goToH3Index" class="search-button">
-                🔍
-              </button>
-            </div>
-            <button @click="goToCapital" class="capital-button">
-              Ir a la Capital ⭐
-            </button>
-          </div>
         </div>
 
         <!-- Kingdom Management Panel - MOVED TO FULLSCREEN OVERLAY -->
@@ -291,7 +317,123 @@
 
         <!-- Market Panel -->
         <div v-if="activePanel === 'market'" class="panel-section market-panel">
-          <p class="panel-placeholder">Contenido de Mercado (próximamente)</p>
+
+          <!-- ── Contratar Trabajador ───────────────────────────────────── -->
+          <div class="market-section">
+            <div class="market-section-title">⛏️ Contratar Trabajador</div>
+            <div class="market-hire-form">
+              <select v-model="marketHireTypeId" class="market-select">
+                <option disabled value="null">Tipo de trabajador…</option>
+                <option v-for="t in workerTypes" :key="t.id" :value="t.id">
+                  {{ t.name }} — {{ t.cost }} 💰
+                </option>
+              </select>
+              <select v-model="marketHireH3" class="market-select">
+                <option disabled value="null">Feudo de contratación…</option>
+                <option v-for="f in marketFiefs" :key="f.h3_index" :value="f.h3_index">
+                  {{ f.is_capital ? '👑 Capital' : '🏛️ ' + (f.settlement_name || f.h3_index) }}
+                </option>
+              </select>
+              <button
+                class="market-btn market-btn-hire"
+                :disabled="!marketHireTypeId || !marketHireH3"
+                @click="buyWorkerFromMarketPanel(marketHireH3, marketHireTypeId)"
+                title="Contratar trabajador en el feudo seleccionado"
+              >⛏️ Contratar</button>
+            </div>
+            <p v-if="marketFiefs.length === 0" class="market-hint">
+              Necesitas una Capital o un <strong>Mercado</strong> completado para contratar.
+            </p>
+          </div>
+
+          <!-- ── Mercado de Alimentos ───────────────────────────────────── -->
+          <div class="market-section">
+            <div class="market-section-title">🌾 Mercado de Alimentos</div>
+            <div class="market-food-price-row">
+              <span class="market-price-label">Precio unitario</span>
+              <span class="market-price-value">— 💰 / u</span>
+            </div>
+            <div class="market-food-form">
+              <input
+                v-model.number="marketFoodAmount"
+                type="number" min="1" step="50"
+                class="market-qty-input"
+                placeholder="Cantidad"
+              />
+              <span class="market-food-total">≈ — 💰</span>
+            </div>
+            <div class="market-food-actions">
+              <button class="market-btn market-btn-buy" disabled title="Próximamente">
+                🛒 Comprar
+              </button>
+              <button class="market-btn market-btn-sell" disabled title="Próximamente">
+                💰 Vender
+              </button>
+            </div>
+          </div>
+
+          <!-- ── Mis Trabajadores ──────────────────────────────────────── -->
+          <div class="market-section">
+            <div class="market-section-header">
+              <div class="market-section-title">
+                👷 Mis Trabajadores
+                <span class="market-worker-count">{{ myWorkers.length }}</span>
+              </div>
+              <button class="btn-refresh-workers" @click="fetchMyWorkers" :disabled="loadingWorkers" title="Actualizar">
+                {{ loadingWorkers ? '⏳' : '🔄' }}
+              </button>
+            </div>
+
+            <div v-if="loadingWorkers" class="workers-loading">Cargando trabajadores...</div>
+
+            <div v-else-if="myWorkers.length === 0" class="workers-empty">
+              <p>No tienes trabajadores contratados.</p>
+            </div>
+
+            <div v-else class="workers-list">
+              <div
+                v-for="worker in myWorkers"
+                :key="worker.id"
+                class="worker-card"
+              >
+                <div class="worker-card-top">
+                  <span class="worker-type-badge">⛏️ {{ worker.type_name }}</span>
+                  <span class="worker-id">#{{ worker.id }}</span>
+                </div>
+                <div class="worker-card-info">
+                  <span title="Ubicación actual">📍 {{ worker.h3_index }}</span>
+                  <span v-if="worker.terrain_type" class="worker-terrain">🌍 {{ worker.terrain_type }}</span>
+                  <span v-if="worker.destination_h3" class="worker-en-route" title="Destino">
+                    ➡️ {{ worker.destination_h3 }}
+                  </span>
+                </div>
+                <div class="worker-card-stats">
+                  <span title="Velocidad">💨 {{ worker.speed }}</span>
+                  <span title="Coste">💰 {{ worker.cost }}</span>
+                </div>
+                <div class="worker-card-actions">
+                  <button
+                    v-if="['Río','Agua'].includes(worker.terrain_type)"
+                    class="worker-btn worker-btn-build-active"
+                    title="Construir puente (consume trabajadores)"
+                    @click="buildBridgeFromPanel(worker.h3_index)"
+                  >🌉 Puente</button>
+                  <button
+                    v-else
+                    class="worker-btn worker-btn-build-active"
+                    title="Construir edificio en este feudo"
+                    @click="buildModalOpenedFromWorker = true; activePanel = null; openBuildModal(worker.h3_index)"
+                  >🏛️ Edificio</button>
+                  <button
+                    class="worker-btn worker-btn-move"
+                    @click="startWorkerMoveFromPanel(worker.id, worker.h3_index)"
+                    title="Mover este trabajador"
+                  >➡️ Mover</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
 
         <!-- Kingdom Panel (Fiefs) -->
@@ -322,6 +464,15 @@
                 <span class="fief-stat">
                   <span class="fief-icon">🌾</span>
                   <span class="fief-value fief-food">{{ Number(fief.food_stored || 0).toFixed(1) }}</span>
+                </span>
+                <span class="fief-stat">
+                  <span class="fief-icon">⏳</span>
+                  <span class="fief-value fief-autonomy"
+                    :class="{
+                      'fief-autonomy--ok':  (() => { const c = Math.floor(Number(fief.population||0)/100)*0.1; return c>0 && Math.floor(Number(fief.food_stored||0)/c) >= 200; })(),
+                      'fief-autonomy--low': (() => { const c = Math.floor(Number(fief.population||0)/100)*0.1; return c>0 && Math.floor(Number(fief.food_stored||0)/c) < 30; })()
+                    }"
+                  >{{ (() => { const c = Math.floor(Number(fief.population||0)/100)*0.1; return c > 0 ? Math.floor(Number(fief.food_stored||0)/c) + 'd' : '∞'; })() }}</span>
                 </span>
               </div>
             </div>
@@ -401,7 +552,7 @@
             :currentTurn="currentTurn"
             :gameDate="gameDate"
             @read="handleNotificationRead"
-            @readAll="handleNotificationsReadAll"
+            @readTab="handleNotificationsReadTab"
           />
         </div>
 
@@ -484,6 +635,7 @@
     <AdminPanel
       v-if="activeOverlay === 'admin'"
       @close="closeOverlay"
+      @go-to-hex="handleAdminGoToHex"
     />
 
     <!-- Full-Screen Messages Overlay -->
@@ -631,7 +783,7 @@
       <div class="overlay-container">
         <!-- Header -->
         <div class="overlay-header">
-          <h1 class="overlay-title">🏰 Gestión del Reino</h1>
+          <h1 class="overlay-title">🏰 Gestión del Imperium</h1>
           <button class="overlay-close" @click="closeOverlay" title="Cerrar">✕</button>
         </div>
 
@@ -652,13 +804,12 @@
                 </button>
                 <button
                   class="kingdom-action-btn-sidebar"
-                  :class="{ active: activeKingdomTab === 'military' }"
-                  @click="openMilitaryTab"
-                  title="Reclutar tropas"
+                  :class="{ active: activeKingdomTab === 'divisions' }"
+                  @click="activeKingdomTab = 'divisions'"
+                  title="Gestionar divisiones politicas y rangos nobiliarios"
                 >
-                  ⚔️ Reclutar
+                  📜 Edictos
                 </button>
-                <button class="kingdom-action-btn-sidebar" title="Próximamente" disabled>📜 Leyes</button>
               </div>
             </div>
 
@@ -675,6 +826,21 @@
                   />
                 </div>
                 <div class="filter-group">
+                  <label>Señorío</label>
+                  <select
+                    v-model="kingdomFilters.division"
+                    class="kingdom-filter-input-sidebar"
+                  >
+                    <option value="">Todos</option>
+                    <option value="__none__">Sin señorío</option>
+                    <option
+                      v-for="div in myDivisions"
+                      :key="div.id"
+                      :value="div.name"
+                    >{{ div.name }}</option>
+                  </select>
+                </div>
+                <div class="filter-group">
                   <label>Población Máxima</label>
                   <input
                     v-model.number="kingdomFilters.maxPopulation"
@@ -688,7 +854,7 @@
 
             <div class="sidebar-section kingdom-summary">
               <h4 class="sidebar-subtitle">📊 Resumen</h4>
-              <p>Total Feudos: <strong>{{ myFiefs.length }}</strong></p>
+              <p>Total Feudos: <strong>{{ fiefsTotalCount }}</strong></p>
               <p>Pob. Total: <strong>{{ formatNumber(myFiefs.reduce((acc, f) => acc + Number(f.population || 0), 0)) }}</strong></p>
             </div>
           </div>
@@ -697,12 +863,27 @@
           <div v-if="activeKingdomTab === 'fiefs'" class="kingdom-table-wrapper">
             <KingdomPanel
               :fiefs="filteredAndSortedFiefs"
+              :total="fiefsTotalCount"
+              :page="fiefsPage"
+              :limit="fiefsLimit"
               :playerGold="playerGold"
               :explorationConfig="explorationConfig"
+              :workerTypes="workerTypes"
               @focusOnFief="focusOnFiefAndClose"
               @exploreFief="exploreFiefFromTable"
               @openRecruitment="openRecruitmentForFief"
+              @openConstruction="openBuildModal"
+              @openUpgrade="(data) => openUpgradeModal(data.h3_index, data.upgrade)"
+              @upgradeFarm="handleUpgradeFarmFromTable"
+              @buyWorker="handleBuyWorkerFromTable"
+              @change-page="handleFiefsPageChange"
+              @change-limit="handleFiefsLimitChange"
             />
+          </div>
+
+          <!-- Edictos Tab -->
+          <div v-if="activeKingdomTab === 'divisions'" class="divisions-panel">
+            <DivisionsTab />
           </div>
 
           <!-- Military Recruitment Tab -->
@@ -715,6 +896,8 @@
               :isRecruiting="isRecruiting"
               :armyCount="armyCount"
               :armyLimit="armyLimit"
+              :recruitablePool="recruitablePool"
+              :playerCultureId="currentUser?.culture_id ?? null"
               @bulkRecruit="handleRecruitmentEmit"
               @back="activeKingdomTab = 'fiefs'"
             />
@@ -737,13 +920,136 @@
           <TroopsPanel
             :armies="armies"
             :loading="loadingTroops"
+            :playerCultureId="currentUser?.culture_id ?? null"
             @locate="handleLocateTroop"
             @armyStopped="handleArmyStopped"
             @armyStopFailed="(msg) => showToast(msg, 'error')"
             @armyAttacked="handleArmyAttacked"
             @armyAttackFailed="(msg) => showToast(msg, 'error')"
             @armyDismissed="handleArmyDismissed"
+            @armiesTransferred="handleArmiesTransferred"
           />
+        </div>
+      </div>
+    </div>
+
+    <!-- Characters Overlay -->
+    <div v-if="activeOverlay === 'characters'" class="game-overlay title-overlay">
+      <div class="overlay-container">
+        <div class="overlay-header">
+          <h1 class="overlay-title">👑 Personajes y Dinastía</h1>
+          <button class="overlay-close" @click="closeOverlay" title="Cerrar">✕</button>
+        </div>
+        <div class="overlay-content">
+          <CharacterPanel :armies="armies" @refresh="fetchArmyData" @focus-hex="focusOnCharacterHex" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Naval Overlay -->
+    <div v-if="activeOverlay === 'naval'" class="game-overlay title-overlay">
+      <div class="overlay-container">
+        <div class="overlay-header">
+          <h1 class="overlay-title">⛵ Flotas Navales</h1>
+          <button class="overlay-close" @click="closeOverlay" title="Cerrar">✕</button>
+        </div>
+        <div class="overlay-content">
+          <NavalPanel
+            :playerGold="playerGold"
+            :playerCultureId="currentUser?.culture_id ?? null"
+            @gold-updated="onGoldUpdated"
+            @refresh="fetchArmyData"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- Building Construction Modal -->
+    <div v-if="showBuildModal" class="build-modal-overlay" @click.self="closeBuildModal">
+      <div class="build-modal">
+        <div class="build-modal-header">
+          <h2 class="build-modal-title">🏗️ Construir Edificio</h2>
+          <button class="build-modal-close" @click="closeBuildModal" title="Cerrar">✕</button>
+        </div>
+        <p class="build-modal-subtitle">Feudo: <span class="build-modal-h3">{{ buildModalH3 }}</span></p>
+
+        <div v-if="!buildModalHasWorker" class="build-worker-warning">
+          ⛏️ Necesitas un constructor en este feudo para iniciar la obra
+        </div>
+
+        <div class="build-cards-grid">
+          <div
+            v-for="building in buildModalBuildings"
+            :key="building.id"
+            class="build-card"
+            :class="{
+              'build-card-disabled': playerGold < building.gold_cost,
+              'build-card-prereq': building.required_building_id
+            }"
+          >
+            <div class="build-card-icon">{{ getBuildingIcon(building.name, building.type_name) }}</div>
+            <div class="build-card-info">
+              <h3 class="build-card-name">{{ building.name }}</h3>
+              <p v-if="building.type_name" class="build-card-type">{{ { military: 'Militar', religious: 'Religioso', economic: 'Económico', maritime: 'Marítimo', other: 'Otro' }[building.type_name] || building.type_name }}</p>
+              <p v-if="building.description" class="build-card-desc">{{ building.description }}</p>
+              <div class="build-card-stats">
+                <span class="build-stat">💰 {{ building.gold_cost }}</span>
+                <span class="build-stat">⏱️ {{ building.construction_time_turns }}t</span>
+              </div>
+            </div>
+            <button
+              class="build-card-btn"
+              :disabled="playerGold < building.gold_cost || isConstructing || !buildModalHasWorker"
+              :title="playerGold < building.gold_cost ? `Oro insuficiente (necesitas ${building.gold_cost} 💰)` : !buildModalHasWorker ? 'Necesitas un constructor en este feudo' : `Construir ${building.name}`"
+              @click="doConstruct(buildModalH3, building.id)"
+            >
+              {{ isConstructing ? '...' : 'Construir' }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="buildModalBuildings.length === 0" class="build-empty">
+          No hay edificios disponibles.
+        </div>
+      </div>
+    </div>
+
+    <!-- Building Upgrade Modal -->
+    <div v-if="showUpgradeModal" class="build-modal-overlay" @click.self="closeUpgradeModal">
+      <div class="build-modal">
+        <div class="build-modal-header">
+          <h2 class="build-modal-title">🏰 Ampliar Edificio</h2>
+          <button class="build-modal-close" @click="closeUpgradeModal" title="Cerrar">✕</button>
+        </div>
+        <p class="build-modal-subtitle">Feudo: <span class="build-modal-h3">{{ upgradeModalH3 }}</span></p>
+
+        <div v-if="!upgradeModalHasWorker" class="build-worker-warning">
+          ⛏️ Necesitas un constructor en este feudo para ampliar el edificio
+        </div>
+
+        <div v-if="upgradeModalBuilding" class="upgrade-preview">
+          <div class="build-card upgrade-card">
+            <div class="build-card-icon">{{ getBuildingIcon(upgradeModalBuilding.name) }}</div>
+            <div class="build-card-info">
+              <h3 class="build-card-name">{{ upgradeModalBuilding.name }}</h3>
+              <p class="build-card-type">Mejora del edificio actual</p>
+              <div class="build-card-stats">
+                <span class="build-stat">💰 {{ upgradeModalBuilding.gold_cost }}</span>
+                <span class="build-stat">⏱️ {{ upgradeModalBuilding.turns }}t</span>
+              </div>
+            </div>
+            <button
+              class="build-card-btn"
+              :disabled="playerGold < upgradeModalBuilding.gold_cost || isUpgrading || !upgradeModalHasWorker"
+              :title="playerGold < upgradeModalBuilding.gold_cost ? `Oro insuficiente (necesitas ${upgradeModalBuilding.gold_cost} 💰)` : !upgradeModalHasWorker ? 'Necesitas un constructor en este feudo' : `Ampliar a ${upgradeModalBuilding.name}`"
+              @click="doUpgrade"
+            >
+              {{ isUpgrading ? '...' : 'Ampliar' }}
+            </button>
+          </div>
+          <p v-if="playerGold < upgradeModalBuilding.gold_cost" class="upgrade-warning">
+            ⚠️ Necesitas {{ upgradeModalBuilding.gold_cost - playerGold }} 💰 más para esta ampliación
+          </p>
         </div>
       </div>
     </div>
@@ -760,11 +1066,65 @@
       </div>
     </div>
 
+    <!-- Full-Screen Diplomacy Overlay -->
+    <div v-if="activeOverlay === 'diplomacy'" class="game-overlay title-overlay">
+      <div class="overlay-container">
+        <div class="overlay-header">
+          <h1 class="overlay-title">⚖️ Diplomacia</h1>
+          <button class="overlay-close" @click="closeOverlay" title="Cerrar">✕</button>
+        </div>
+        <div class="overlay-content">
+          <DiplomacyPanel
+            :myPlayerId="currentUser?.player_id"
+            :myCultureId="currentUser?.culture_id ?? null"
+            @refresh="fetchPendingRelations"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- Full-Screen Economy Overlay -->
+    <EconomyPanel
+      v-if="activeOverlay === 'economy'"
+      :playerCultureId="currentUser?.culture_id ?? null"
+      @close="closeOverlay"
+      @gold-updated="onGoldUpdated"
+    />
+
     <!-- Battle Summary Modal -->
     <BattleSummaryModal
       :show="battleSummaryVisible"
       :battle="battleSummaryData"
       @close="battleSummaryVisible = false"
+    />
+
+    <!-- Army Transfer Panel (opened from map popup split button) -->
+    <ArmyTransferPanel
+      :show="showTransferPanel"
+      :armyAId="transferPanelArmyAId"
+      :armyBId="transferPanelArmyBId"
+      :h3_index="transferPanelHex"
+      :fiefName="transferPanelFiefName"
+      @close="showTransferPanel = false"
+      @done="handleArmiesTransferred"
+    />
+
+    <!-- Epic Initialization Panel (first-time players only) -->
+    <WelcomePanel
+      v-if="showWelcomePanel"
+      @done="onInitDone"
+    />
+
+    <!-- Edictos Panel -->
+    <FueroPanel
+      v-if="showFueroPanel"
+      :h3_index="fueroPanelH3"
+      :fiefName="fueroPanelFiefName"
+      :gender="currentUser?.gender || 'M'"
+      @close="showFueroPanel = false; clearDivisionHighlights()"
+      @highlight-fiefs="highlightDivisionFiefs"
+      @clear-highlights="clearDivisionHighlights"
+      @division-proclaimed="onDivisionProclaimed"
     />
   </div>
 </template>
@@ -772,14 +1132,15 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import L from 'leaflet';
-import { cellToBoundary, cellToLatLng, gridDistance, latLngToCell } from 'h3-js';
+import { cellToBoundary, cellToLatLng, gridDistance, gridPathCells, latLngToCell } from 'h3-js';
 import 'leaflet/dist/leaflet.css';
 
 // Import map utilities
 import { getHexagonStyles } from '@/utils/mapStyles.js';
-import { generateCellPopupContent, generateArmyPopup } from '@/utils/popupGenerator.js';
+import { generateCellPopupContent, generateArmyPopup } from '@/utils/PopupGenerator.js';
 import MapInteractionController from '@/utils/MapInteractionController.js';
 import RouteVisualizer from '@/utils/RouteVisualizer.js';
+import { createStackerDivIcon } from '@/utils/HexStacker.js';
 
 // Import API service
 import * as mapApi from '@/services/mapApi.js';
@@ -792,14 +1153,21 @@ import NotificationsPanel from './NotificationsPanel.vue';
 import BattleSummaryModal from './BattleSummaryModal.vue';
 import EconomyPanel from './EconomyPanel.vue';
 import AdminPanel from './AdminPanel.vue';
+import ArmyTransferPanel from './ArmyTransferPanel.vue';
+import WelcomePanel from './WelcomePanel.vue';
+import FueroPanel from './FueroPanel.vue';
+import DivisionsTab from './DivisionsTab.vue';
+import CharacterPanel from './CharacterPanel.vue';
+import DiplomacyPanel from './DiplomacyPanel.vue';
+import NavalPanel from './NavalPanel.vue';
 
 const mapContainer = ref(null);
 const loading = ref(false);
 const error = ref(null);
 const hexagonCount = ref(0);
-const hexagonOpacity = ref(parseInt(localStorage.getItem('feudos_transparency') ?? '100', 10));
+const hexagonOpacity = ref(parseInt(localStorage.getItem('feudos_transparency') ?? '40', 10));
 const currentZoom = ref(13);
-const currentResolution = ref(8); // H3 resolution (8 or 10)
+const currentResolution = ref(7); // H3 resolution
 const terrainTypes = ref([]);
 const showH3Layer = ref(true);
 const showTerrainLayer = ref(true); // Terrain layer visibility
@@ -807,7 +1175,8 @@ const isPoliticalView = ref(true); // Vista política para resaltar territorios 
 const mouseH3Index = ref(''); // H3 index under cursor
 
 // Player state (from session)
-const currentUser = ref(null); // Current logged-in user { player_id, username, role }
+const currentUser = ref(null);       // Current logged-in user { player_id, username, role }
+const showWelcomePanel = ref(false); // Epic Initialization overlay for new players
 const playerId = computed(() => currentUser.value?.player_id || 1); // Player ID from session
 const playerGold = ref(0); // Oro inicial (se carga del servidor)
 const playerHexes = ref(new Set()); // Track player's owned hexagons for adjacency checks
@@ -815,7 +1184,7 @@ const explorationConfig = ref({ turns_required: 5, gold_cost: 100 }); // Configu
 
 // World state (turn and date)
 const currentTurn = ref(1);
-const gameDate = ref(new Date('1039-03-01'));
+const gameDate = ref({ day: 1, month: 1, year: 210, era: 'BC' });
 const formattedDate = ref('1 de marzo de 1039');
 
 // Day of year based on current turn (1-365)
@@ -854,6 +1223,7 @@ const selectedMessage = ref(null); // Currently selected message for detail view
 const threadMessages = ref([]); // Messages in the current thread
 const unreadCount = computed(() => myMessages.value.filter(m => !m.is_read && m.receiver_id === playerId.value).length);
 const unreadNotifCount = computed(() => notifications.value.filter(n => !n.is_read).length);
+const pendingRelationsCount = ref(0);
 const messageFilter = ref('received'); // 'received', 'sent', 'all'
 
 // Filtered messages based on current tab
@@ -880,10 +1250,13 @@ let lastSyncTime = null;
 
 // Army popup pagination state
 let _pp_armies = [];
+let _pp_items  = [];   // combined: [{ type:'army'|'character', data }]
 let _pp_index = 0;
 let _pp_ref = null;
 let _pp_h3 = '';
 let _pp_coords = { x: null, y: null, ownerId: null };
+let _char_cache  = []; // personajes del jugador, actualizados en fetchAndRenderCharacters
+let _all_fleets  = []; // flotas propias, actualizadas en fetchHexagonData
 
 // Action panel state
 const showActionPanel = ref(false);
@@ -898,24 +1271,61 @@ const isExiled = ref(false);      // True when the player has no territories (ex
 // Kingdom management state
 const kingdomFilters = ref({
   name: '',
-  maxPopulation: null
+  maxPopulation: null,
+  division: '',
 });
-const kingdomSort = ref({
-  field: 'distance', // Default: sort by distance
-  asc: true
-});
+const myDivisions = ref([]); // Player's señoríos for the filter dropdown
+
+// Fiefs pagination state (server-side)
+const fiefsPage       = ref(1);
+const fiefsLimit      = ref(10);
+const fiefsTotalCount = ref(0);
+
+// Re-fetch from page 1 whenever filters change
+watch(kingdomFilters, () => {
+  fiefsPage.value = 1;
+  updateFiefsUI({ page: 1 });
+}, { deep: true });
 
 // Military recruitment state
 const activeKingdomTab = ref('fiefs'); // 'fiefs' or 'military'
 const unitTypes = ref([]);
 const loadingUnitTypes = ref(false);
 const selectedRecruitmentFief = ref(null);
+const recruitablePool = ref(null);
 const selectedUnitType = ref(null);
 const recruitmentQuantity = ref(1);
 const recruitmentArmyName = ref('');
 const recruitmentMessage = ref({ type: '', text: '' });
 const isRecruiting = ref(false);
 const isColonizing = ref(false); // Track colonization state to prevent multiple simultaneous colonizations
+const workerTypes = ref([]);    // Loaded once on mount from /api/workers/types
+const myWorkers = ref([]);       // Player's hired workers (shown in market panel)
+const loadingWorkers = ref(false);
+
+// Market panel state
+const marketHireTypeId = ref(null);
+const marketHireH3 = ref(null);
+const marketFoodAmount = ref(100);
+const marketFiefs = computed(() => myFiefs.value.filter(f =>
+    f.is_capital ||
+    (f.fief_building?.name === 'Mercado' && !f.fief_building?.is_under_construction)
+));
+
+// Building construction modal state
+const showBuildModal = ref(false);
+const buildModalH3 = ref(null);
+const buildModalBuildings = ref([]);
+const isConstructing = ref(false);
+const buildModalOpenedFromWorker = ref(false); // true when modal opened directly from worker card
+const buildModalHasWorker = computed(() => buildModalOpenedFromWorker.value || myWorkers.value.some(w => w.h3_index === buildModalH3.value));
+
+// Building upgrade modal state
+const showUpgradeModal = ref(false);
+const upgradeModalH3 = ref(null);
+const upgradeModalBuilding = ref(null);
+const isUpgrading = ref(false);
+const upgradeModalHasWorker = computed(() => myWorkers.value.some(w => w.h3_index === upgradeModalH3.value));
 
 // Troops panel state
 const armies = ref([]);
@@ -939,18 +1349,30 @@ const savingProfile = ref(false);
 const battleSummaryVisible = ref(false);
 const battleSummaryData = ref({});
 
+// Transfer panel state (opened from map popup)
+const showTransferPanel      = ref(false);
+const transferPanelArmyAId   = ref(null);
+const transferPanelArmyBId   = ref(null);
+const transferPanelHex       = ref('');
+const transferPanelFiefName  = ref('');
+
+// Edictos panel state
+const showFueroPanel    = ref(false);
+const fueroPanelH3      = ref('');
+const fueroPanelFiefName = ref('');
+
 // Legend toggle state
 const legendCollapsed = ref(true); // Collapsed by default
 
 // Panel system state
-const activePanel = ref(null); // Currently open panel: 'economy', 'layers', 'troops', 'market', 'kingdom', 'messages', 'notifications'
+const activePanel = ref(null); // Currently open panel: 'layers', 'market', 'notifications', 'profile'
 const panelTitle = computed(() => {
   const titles = {
     economy: '💰 Economía',
     layers: '🗺️ Capas del Mapa',
     troops: '⚔️ Tropas',
-    market: '🏪 Mercado',
-    kingdom: '🏰 Reino',
+    market: '⚖️ Mercado',
+    kingdom: '🏰 Imperium',
     messages: '📜 Mensajes',
     notifications: '🔔 Notificaciones',
     profile: '👤 Perfil'
@@ -976,7 +1398,8 @@ const filteredAndSortedFiefs = computed(() => {
   // Calculate enriched fief data with distance and autonomy
   let enrichedFiefs = myFiefs.value.map(fief => {
     const population = Number(fief.population || 0);
-    const happiness = Number(fief.happiness || 0);
+    const happiness      = Number(fief.happiness       || 0);
+    const happinessDelta = Number(fief.happiness_delta ?? 0);
     const food = Number(fief.food_stored || 0);
     const wood = Number(fief.wood_stored || 0);
     const stone = Number(fief.stone_stored || 0);
@@ -993,17 +1416,6 @@ const filteredAndSortedFiefs = computed(() => {
     const estimatedDailyYield = consumption * 1.185;
     const foodBalance = estimatedDailyYield - consumption;
 
-    // Calculate distance to capital using H3
-    let distance = 0;
-    if (capitalH3Index.value && fief.h3_index) {
-      try {
-        distance = gridDistance(fief.h3_index, capitalH3Index.value);
-      } catch (error) {
-        // Fallback: if H3 fails, use 0
-        distance = 0;
-      }
-    }
-
     // Determine exploration status
     const isExplored = fief.discovered_resource !== null && fief.discovered_resource !== undefined;
     const isExploring = fief.exploration_end_turn !== null && !isExplored;
@@ -1015,7 +1427,7 @@ const filteredAndSortedFiefs = computed(() => {
       const resourceNames = {
         'stone': '⛰️ Piedra',
         'iron': '⛏️ Hierro',
-        'gold': '🪙 Oro',
+        'gold': '💛 Oro',
         'none': '❌'
       };
       explorationStatusShort = resourceNames[fief.discovered_resource] || '✅';
@@ -1078,6 +1490,7 @@ const filteredAndSortedFiefs = computed(() => {
       terrain: fief.terrain_name || 'Desconocido',
       population,
       happiness,
+      happiness_delta: happinessDelta,
       food,
       wood,
       stone,
@@ -1087,7 +1500,6 @@ const filteredAndSortedFiefs = computed(() => {
       fertility,
       consumption,
       autonomy,
-      distance,
       explorationStatus,
       explorationStatusIcon,
       explorationStatusShort,
@@ -1099,50 +1511,13 @@ const filteredAndSortedFiefs = computed(() => {
       miningStatusIcon,
       miningStatusText,
       grace_turns: Number(fief.grace_turns || 0),
-      is_capital: fief.is_capital || false
+      is_capital: fief.is_capital || false,
+      fief_building: fief.fief_building || null,
+      can_recruit: fief.can_recruit || false,
+      farm_level: Number(fief.farm_level || 0),
+      food_output: Number(fief.food_output || 0),
+      division_name: fief.division_name || null,
     };
-  });
-
-  // Apply filters
-  if (kingdomFilters.value.name) {
-    const nameFilter = kingdomFilters.value.name.toLowerCase();
-    enrichedFiefs = enrichedFiefs.filter(f =>
-      f.name.toLowerCase().includes(nameFilter)
-    );
-  }
-
-  if (kingdomFilters.value.maxPopulation !== null && kingdomFilters.value.maxPopulation !== '') {
-    enrichedFiefs = enrichedFiefs.filter(f =>
-      f.population <= kingdomFilters.value.maxPopulation
-    );
-  }
-
-  // Apply sorting
-  const field = kingdomSort.value.field;
-  const asc = kingdomSort.value.asc;
-
-  enrichedFiefs.sort((a, b) => {
-    let valA = a[field];
-    let valB = b[field];
-
-    // Handle Infinity for autonomy
-    if (valA === Infinity) valA = 999999;
-    if (valB === Infinity) valB = 999999;
-
-    // Handle exploration status sorting (pending < exploring < completed)
-    if (field === 'explorationStatus') {
-      const statusOrder = { 'pending': 0, 'exploring': 1, 'completed': 2 };
-      valA = statusOrder[valA] || 0;
-      valB = statusOrder[valB] || 0;
-    }
-
-    // Handle string comparison for name and terrain
-    if (typeof valA === 'string') {
-      return asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
-    }
-
-    // Numeric comparison
-    return asc ? valA - valB : valB - valA;
   });
 
   return enrichedFiefs;
@@ -1156,10 +1531,19 @@ let map = null;
 let hexagonLayer = null;
 let settlementMarkersLayer = null;
 let settlementMarkersMap = {}; // Map: settlement name -> marker
-let buildingMarkersLayer = null; // Layer for building icons (farms, castles, etc.)
-let armyMarkersLayer = null; // Layer for army/troop icons
+let buildingMarkersLayer = null; // Layer for capital crown markers
+let fiefIconsLayer = null;       // Layer for fief building icons (API-driven)
+let armyMarkersLayer = null;    // Layer for army/troop icons
+let workersMarkersLayer = null;       // Layer for worker icons
+let fleetMarkersLayer   = null;       // Layer for own naval fleet icons
+let constructionMarkersLayer = null;  // Layer for in-progress bridge constructions
+let hexStackerLayer = null;           // Layer for combined HexStacker markers (owner+building+troops)
 let highlightLayer = null; // Temporary highlight polygon for navigation
+let divisionHighlightLayer = null; // Gold overlay for division fief selection
+let divisionBoundaryLayer = null;  // Political division borders (GeoJSON)
+let characterMarkersLayer = null;  // Character icons on the map
 let debounceTimer = null;
+let lastLoadedBounds = null; // bounds at the time of last data fetch
 
 // Configuration
 const MIN_ZOOM = 9; // Zoom mínimo del mapa
@@ -1169,6 +1553,9 @@ const MIN_ZOOM_SETTLEMENTS = 12; // Mostrar asentamientos solo a partir de zoom 
 const LEON_CENTER = [42.599, -5.573];
 const INITIAL_ZOOM = 13;
 const DEBOUNCE_DELAY = 500; // ms
+// Minimum fraction of the current viewport that must be "new" to trigger a reload.
+// 0.20 = reload only when at least 20% of the current view was not previously loaded.
+const EXTENT_CHANGE_THRESHOLD = 0.20;
 // REMOVED: ZOOM_THRESHOLD_RES_10 - Now resolution is always 8 (database only has res 8 indices)
 
 // Game mechanics constants
@@ -1254,9 +1641,7 @@ const initMap = () => {
     zoom = urlParams.zoom;
   }
 
-  // Inicializar resolución desde URL o determinar automáticamente según zoom
-  // Force resolution to always be 8 (database only contains res 8 indices)
-  currentResolution.value = 8;
+  currentResolution.value = 7;
 
   console.log(`Initializing map at [${center[0]}, ${center[1]}], zoom ${zoom}, resolution ${currentResolution.value}`);
 
@@ -1310,9 +1695,33 @@ const initMap = () => {
   map.createPane('starPane');
   map.getPane('starPane').style.zIndex = 650;
 
+  // Building Pane (Building Icons) - Below army icons
+  map.createPane('buildingPane');
+  map.getPane('buildingPane').style.zIndex = 660;
+
+  // Worker Pane (Worker Icons) - Below army pane
+  map.createPane('workerPane');
+  map.getPane('workerPane').style.zIndex = 665;
+
+  map.createPane('fleetPane');
+  map.getPane('fleetPane').style.zIndex = 678;
+
+  // Construction Pane (in-progress bridges) - above workers
+  map.createPane('constructionPane');
+  map.getPane('constructionPane').style.zIndex = 668;
+
   // Army Pane (Troop Icons) - Below popupPane (700) so popups always render on top
   map.createPane('armyPane');
   map.getPane('armyPane').style.zIndex = 680;
+
+  // Stacker Pane (HexStacker combined icons) - same tier as army, above building pane
+  map.createPane('stackerPane');
+  map.getPane('stackerPane').style.zIndex = 675;
+
+  // Division Border Pane — above hex borders (450), below all icons (650)
+  map.createPane('divisionBorderPane');
+  map.getPane('divisionBorderPane').style.zIndex = 460;
+  map.getPane('divisionBorderPane').style.pointerEvents = 'auto';
 
   // Inicializar visualizador de rutas (crea su propio pane routePane z-600)
   RouteVisualizer.init(map);
@@ -1366,7 +1775,19 @@ const initMap = () => {
   // Create separate layers for markers
   settlementMarkersLayer = L.layerGroup().addTo(map);
   buildingMarkersLayer = L.layerGroup().addTo(map);
+  fiefIconsLayer = L.layerGroup().addTo(map);
   armyMarkersLayer = L.layerGroup().addTo(map);
+  workersMarkersLayer = L.layerGroup().addTo(map);
+  fleetMarkersLayer   = L.layerGroup().addTo(map);
+  constructionMarkersLayer = L.layerGroup().addTo(map);
+  hexStackerLayer = L.layerGroup().addTo(map);
+  divisionHighlightLayer = L.layerGroup().addTo(map);
+  divisionBoundaryLayer = L.layerGroup().addTo(map);
+
+  // Character pane — above armies (680) so the icon is always visible
+  map.createPane('characterPane');
+  map.getPane('characterPane').style.zIndex = 685;
+  characterMarkersLayer = L.layerGroup().addTo(map);
 
   // Track zoom level
   currentZoom.value = map.getZoom();
@@ -1401,12 +1822,34 @@ const initMap = () => {
   // Initial load
   loadHexagonsIfZoomValid();
   fetchPlayerData();
+  fetchAndRenderCharacters();
 };
 
 /**
  * Handle map movement (with debouncing)
  * Actualiza hexágonos y URL del navegador
  */
+/**
+ * Returns the fraction of `newBounds` area that is NOT covered by `oldBounds`.
+ * 0 = identical view, 1 = completely new area.
+ */
+const extentChangeFraction = (oldBounds, newBounds) => {
+  if (!oldBounds) return 1; // no previous load → always reload
+
+  const iW = Math.max(0, Math.min(oldBounds.getEast(),  newBounds.getEast())
+                       - Math.max(oldBounds.getWest(),  newBounds.getWest()));
+  const iH = Math.max(0, Math.min(oldBounds.getNorth(), newBounds.getNorth())
+                       - Math.max(oldBounds.getSouth(), newBounds.getSouth()));
+  const intersection = iW * iH;
+
+  const nW = newBounds.getEast()  - newBounds.getWest();
+  const nH = newBounds.getNorth() - newBounds.getSouth();
+  const newArea = nW * nH;
+
+  if (newArea <= 0) return 1;
+  return 1 - (intersection / newArea); // fraction of new view that is "new"
+};
+
 const handleMapMove = () => {
   // Clear previous timer
   if (debounceTimer) {
@@ -1415,17 +1858,22 @@ const handleMapMove = () => {
 
   // Set new timer
   debounceTimer = setTimeout(() => {
-    // Solo cargar hexágonos si la capa H3 está visible
-    if (showH3Layer.value) {
-      loadHexagonsIfZoomValid();
-    }
     updateURLParams(); // Actualizar URL con nueva posición
+
+    if (!showH3Layer.value) return;
+
+    const currentBounds = map.getBounds();
+    const changeFraction = extentChangeFraction(lastLoadedBounds, currentBounds);
+
+    if (changeFraction < EXTENT_CHANGE_THRESHOLD) return; // < 20% new area, skip reload
+
+    loadHexagonsIfZoomValid();
   }, DEBOUNCE_DELAY);
 };
 
 /**
  * Handle zoom change
- * - Resolution is always 8 (database only contains res 8 indices)
+ * - Resolution is always 6 (database only contains res 6 indices)
  * - Hexagons visible between zoom 11-17
  * - Zoom < 12: Oculta asentamientos
  * - Zoom >= 12: Muestra asentamientos
@@ -1433,9 +1881,6 @@ const handleMapMove = () => {
 const handleZoomChange = () => {
   const previousZoom = currentZoom.value;
   currentZoom.value = map.getZoom();
-
-  // Resolution is always 8 (no dynamic switching)
-  // Database only has res 8 indices, so we don't change resolution
 
   // Verificar si cruzamos el umbral de visualización de asentamientos
   const wasShowingSettlements = previousZoom >= MIN_ZOOM_SETTLEMENTS;
@@ -1463,11 +1908,16 @@ const handleZoomChange = () => {
 const loadHexagonsIfZoomValid = () => {
   const currentZoom = map.getZoom();
   if (currentZoom >= MIN_ZOOM_H3 && currentZoom <= MAX_ZOOM_H3) {
+    lastLoadedBounds = map.getBounds(); // record extent before fetching
     fetchHexagonData();
   } else {
-    // Clear hexagons and army markers if zoom is outside valid range
+    // Clear hexagons and all map-bound markers if zoom is outside valid range
     clearHexagons();
     clearArmyMarkers();
+    clearWorkerMarkers();
+    clearConstructionMarkers();
+    clearFiefIcons();
+    clearHexStackers();
     if (currentZoom < MIN_ZOOM_H3) {
       console.log(`Hexágonos ocultos: zoom ${currentZoom} < ${MIN_ZOOM_H3}`);
     } else if (currentZoom > MAX_ZOOM_H3) {
@@ -1510,8 +1960,65 @@ const fetchHexagonData = async () => {
     hexagonCount.value = hexagons.length;
     renderHexagons(hexagons);
 
-    // Fetch and render army markers after hexagons are loaded
-    await fetchArmyData();
+    // Build owner map from hexagon data: h3_index → { color, player_id }
+    const ownerMap = new Map();
+    for (const h of hexagons) {
+      if (h.player_id) {
+        ownerMap.set(h.h3_index, { color: h.player_color, player_id: h.player_id });
+      }
+    }
+
+    // Draw movement routes (always, regardless of zoom)
+    await fetchAndDrawRoutes();
+
+    // Fetch buildings, armies, workers, constructions and own fleets in parallel
+    const [buildingData, armyData, workerData, constructionData, fleetData] = await Promise.allSettled([
+      mapApi.getMapBuildings(params),
+      mapApi.getMapArmies(params),
+      mapApi.getMapWorkers(params),
+      mapApi.getMapConstructions(params),
+      mapApi.getFleets(),
+    ]);
+
+    const buildings = buildingData.status === 'fulfilled' && buildingData.value.success
+      ? buildingData.value.buildings
+      : [];
+    const armies = armyData.status === 'fulfilled' && armyData.value.success
+      ? armyData.value.armies
+      : [];
+    const currentPlayerId = armyData.status === 'fulfilled'
+      ? armyData.value.current_player_id
+      : playerId.value;
+    const workers = workerData.status === 'fulfilled' && workerData.value.success
+      ? workerData.value.workers
+      : [];
+    const constructions = constructionData.status === 'fulfilled' && constructionData.value.success
+      ? constructionData.value.constructions
+      : [];
+    const fleets = fleetData.status === 'fulfilled' && fleetData.value.success
+      ? fleetData.value.fleets
+      : [];
+
+    // Render combined HexStacker icons (replaces separate army + building markers)
+    renderHexStackers(buildings, armies, currentPlayerId, ownerMap);
+
+    // Render worker markers on separate layer
+    renderWorkerMarkers(workers, currentPlayerId);
+
+    // Hexes where the own player already has land troops (fleet marker hidden there — accessible via nav popup)
+    const hexesWithOwnTroops = new Set(
+      armies
+        .filter(e => e.player_id === currentPlayerId && Number(e.total_troops) > 0)
+        .map(e => e.h3_index)
+    );
+
+    // Render own fleet markers (interactive: move, stop, embark, disembark)
+    // Skip hexes that already show a land-army HexStacker (fleet accessible via ◀/▶ navigation)
+    renderFleetMarkers(fleets, hexesWithOwnTroops);
+    _all_fleets = fleets || [];
+
+    // Render in-progress construction markers
+    renderConstructionMarkers(constructions, currentPlayerId);
 
     loading.value = false;
   } catch (err) {
@@ -1531,22 +2038,478 @@ const clearArmyMarkers = () => {
 };
 
 /**
+ * Clear all worker markers from the map
+ */
+const clearWorkerMarkers = () => {
+  if (workersMarkersLayer) {
+    workersMarkersLayer.clearLayers();
+  }
+};
+
+/**
+ * Clear all construction markers from the map
+ */
+const clearConstructionMarkers = () => {
+  if (constructionMarkersLayer) {
+    constructionMarkersLayer.clearLayers();
+  }
+};
+
+/**
+ * Render in-progress bridge construction markers.
+ * Shows a 🏗️ icon with the remaining turns counter.
+ * Own constructions: orange-amber. Foreign: muted teal.
+ * @param {Array} constructions - [{ h3_index, type, progress_turns, total_turns, remaining_turns, player_id, player_name }]
+ * @param {number} currentPlayerId
+ */
+const renderConstructionMarkers = (constructions, currentPlayerId) => {
+  clearConstructionMarkers();
+  if (!constructions || constructions.length === 0) return;
+
+  for (const c of constructions) {
+    try {
+      const [lat, lng] = cellToLatLng(c.h3_index);
+      const isOwn = c.player_id === currentPlayerId;
+      const bg = isOwn ? '#f97316' : '#4b5563';
+      const border = isOwn ? '#c2410c' : '#374151';
+      const pct = Math.round((c.progress_turns / c.total_turns) * 100);
+
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="
+            position:relative;
+            width:36px;height:36px;
+            display:flex;flex-direction:column;align-items:center;justify-content:center;
+            background:${bg};border:2px solid ${border};border-radius:6px;
+            box-shadow:0 2px 6px rgba(0,0,0,0.5);cursor:default;"
+            title="${c.player_name} · Puente ${pct}% · ${c.remaining_turns} turnos restantes">
+          <span style="font-size:14px;line-height:1;">🏗️</span>
+          <span style="font-size:9px;font-weight:700;color:#fff;line-height:1.1;margin-top:1px;">${c.remaining_turns}t</span>
+        </div>`,
+        iconSize: [36, 36],
+        iconAnchor: [18, 18],
+        pane: 'constructionPane',
+      });
+
+      const progressBar = `<div style="background:#374151;border-radius:3px;height:6px;margin-top:6px;overflow:hidden;">
+        <div style="background:${isOwn ? '#f97316' : '#6b7280'};width:${pct}%;height:100%;border-radius:3px;"></div>
+      </div>`;
+
+      const marker = L.marker([lat, lng], { icon, pane: 'constructionPane', interactive: true });
+      marker.bindPopup(
+        `<div style="font-family:sans-serif;font-size:13px;min-width:160px;">
+          <strong>🏗️ Puente en construcción</strong><br>
+          <span style="color:#6b7280;">👤 ${c.player_name}</span><br>
+          <span style="color:#6b7280;font-size:11px;">📍 ${c.h3_index}</span><br>
+          <div style="margin-top:6px;">
+            <span style="color:#d1d5db;">Progreso: ${c.progress_turns} / ${c.total_turns} turnos</span>
+            ${progressBar}
+            <span style="color:#f97316;font-weight:600;">${c.remaining_turns} turnos restantes</span>
+          </div>
+        </div>`,
+        { maxWidth: 220 }
+      );
+
+      constructionMarkersLayer.addLayer(marker);
+    } catch { /* continue silently */ }
+  }
+};
+
+/**
+ * Render worker icons on the map.
+ * Own workers: amber (#f59e0b). Foreign workers: teal (#0d9488).
+ * Distinct from armies (blue/red circles) via different color and emoji.
+ * @param {Array} workers - [{ h3_index, player_id, player_name, worker_type, worker_count }]
+ * @param {number} currentPlayerId
+ */
+const renderWorkerMarkers = (workers, currentPlayerId) => {
+  clearWorkerMarkers();
+  if (!workers || workers.length === 0) return;
+
+  // Group by hex: one icon per hex, sum counts across types if mixed
+  // Keep first_worker_id from the lowest-id row so the popup can move a single worker
+  const byHex = new Map();
+  for (const w of workers) {
+    const key = w.h3_index;
+    if (!byHex.has(key)) {
+      byHex.set(key, { ...w });
+    } else {
+      const existing = byHex.get(key);
+      existing.worker_count += w.worker_count;
+      if (w.first_worker_id < existing.first_worker_id) {
+        existing.first_worker_id = w.first_worker_id;
+      }
+    }
+  }
+
+  for (const [h3_index, data] of byHex) {
+    try {
+      const [lat, lng] = cellToLatLng(h3_index);
+
+      const isOwn = data.player_id === currentPlayerId;
+      const color = isOwn ? '#f59e0b' : '#0d9488';
+      const borderColor = isOwn ? '#b45309' : '#0f766e';
+
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="
+          width:26px;height:26px;border-radius:50%;
+          background:${color};border:2px solid ${borderColor};
+          display:flex;align-items:center;justify-content:center;
+          font-size:13px;line-height:1;box-shadow:0 1px 4px rgba(0,0,0,0.45);
+          cursor:pointer;"
+          title="${data.worker_count} ${data.worker_type}(s) · ${data.player_name}">⛏️</div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
+        pane: 'workerPane',
+      });
+
+      const BRIDGE_TERRAINS = ['Río', 'Agua'];
+      const canBuildBridge  = isOwn && BRIDGE_TERRAINS.includes(data.terrain_type);
+      const canBuildEdificio = isOwn && !BRIDGE_TERRAINS.includes(data.terrain_type);
+
+      const terrainLabel = data.terrain_type
+        ? `<span style="color:#6b7280;font-size:11px;">🌍 ${data.terrain_type}</span><br>`
+        : '';
+
+      const buildBtn = isOwn
+        ? canBuildBridge
+          ? `<button id="worker-build-btn-${h3_index}"
+               style="flex:1;padding:4px 6px;border:none;border-radius:4px;
+                      background:#22c55e;color:#14532d;font-size:12px;font-weight:600;cursor:pointer;"
+               title="Construir puente (consume trabajadores)">🌉 Puente</button>`
+          : `<button id="worker-build-btn-${h3_index}"
+               style="flex:1;padding:4px 6px;border:none;border-radius:4px;
+                      background:#22c55e;color:#14532d;font-size:12px;font-weight:600;cursor:pointer;"
+               title="Construir edificio en este feudo">🏛️ Edificio</button>`
+        : '';
+
+      const ownActions = isOwn ? `
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          ${buildBtn}
+          <button
+            id="worker-move-btn-${h3_index}"
+            data-worker-id="${data.first_worker_id}"
+            style="flex:1;padding:4px 6px;border:none;border-radius:4px;
+                   background:#f59e0b;color:#1c1917;font-size:12px;font-weight:600;cursor:pointer;"
+            >➡️ Mover</button>
+        </div>` : '';
+
+      const marker = L.marker([lat, lng], { icon, pane: 'workerPane' });
+      marker.bindPopup(
+        `<div style="font-family:sans-serif;font-size:13px;min-width:160px;">
+          <strong>⛏️ Trabajadores</strong><br>
+          <span style="color:#d1d5db;">${data.worker_count} ${data.worker_type}(s)</span><br>
+          <span style="color:#6b7280;">👤 ${data.player_name}</span><br>
+          <span style="color:#6b7280;font-size:11px;">📍 ${h3_index}</span><br>
+          ${terrainLabel}
+          ${ownActions}
+        </div>`,
+        { maxWidth: 220 }
+      );
+
+      // Wire up popup buttons after it opens
+      if (isOwn) {
+        marker.on('popupopen', () => {
+          setTimeout(() => {
+            const moveBtn = document.getElementById(`worker-move-btn-${h3_index}`);
+            if (moveBtn) {
+              moveBtn.addEventListener('click', () => {
+                const workerId = parseInt(moveBtn.dataset.workerId, 10);
+                marker.closePopup();
+                window.startWorkerMovement(h3_index, workerId);
+              });
+            }
+            const buildBtnEl = document.getElementById(`worker-build-btn-${h3_index}`);
+            if (buildBtnEl) {
+              buildBtnEl.addEventListener('click', () => {
+                marker.closePopup();
+                if (canBuildBridge) {
+                  buildBridgeFromPopup(h3_index);
+                } else {
+                  buildModalOpenedFromWorker.value = true;
+                  openBuildModal(h3_index);
+                }
+              });
+            }
+          }, 50);
+        });
+      }
+
+      workersMarkersLayer.addLayer(marker);
+    } catch { /* continue silently */ }
+  }
+};
+
+const clearFleetMarkers = () => { if (fleetMarkersLayer) fleetMarkersLayer.clearLayers(); };
+
+/**
+ * Render own naval fleet markers on the map.
+ * Each fleet gets a clickable ⛵ marker with a popup:
+ * Moverse / Detenerse / Embarcar Tropas / Desembarcar Tropas
+ */
+const renderFleetMarkers = (fleets, hexesWithOwnTroops = new Set()) => {
+  clearFleetMarkers();
+  if (!fleets || fleets.length === 0) return;
+
+  for (const fleet of fleets) {
+    try {
+      // Fleet hidden when own troops are already visible at this hex (accessible via ◀/▶ popup)
+      if (hexesWithOwnTroops.has(fleet.h3_index)) continue;
+
+      const [lat, lng] = cellToLatLng(fleet.h3_index);
+
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="
+          width:26px;height:26px;border-radius:50%;
+          background:#1a4a8a;border:2px solid #4a9eff;
+          display:flex;align-items:center;justify-content:center;
+          font-size:14px;line-height:1;
+          box-shadow:0 1px 5px rgba(0,0,0,0.55);
+          cursor:pointer;"
+          title="${fleet.name} · ${fleet.total_ships} barcos">⛵</div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
+        pane: 'fleetPane',
+      });
+
+      const marker = L.marker([lat, lng], { icon, pane: 'fleetPane' });
+
+      marker.on('click', () => {
+        MapInteractionController.handleMapClick(fleet.h3_index, {
+          onNormal: async () => showArmyDetailsPopup(fleet.h3_index, [lat, lng]),
+          onSelectDestination: dispatchMovement,
+          onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
+            await processWorkerMovement(workerId, fromH3, targetH3);
+          },
+        });
+      });
+
+      fleetMarkersLayer.addLayer(marker);
+    } catch { /* continue silently */ }
+  }
+};
+
+/**
+ * Clear all fief building icons from the map
+ */
+const clearFiefIcons = () => {
+  if (fiefIconsLayer) {
+    fiefIconsLayer.clearLayers();
+  }
+};
+
+/**
+ * Clear all HexStacker combined markers from the map
+ */
+const clearHexStackers = () => {
+  if (hexStackerLayer) {
+    hexStackerLayer.clearLayers();
+  }
+};
+
+/**
+ * Fetch completed buildings in the visible map bounds and render icons
+ */
+const fetchBuildingData = async () => {
+  try {
+    if (!map) return;
+    const bounds = map.getBounds();
+    const params = {
+      minLat: bounds.getSouth(),
+      maxLat: bounds.getNorth(),
+      minLng: bounds.getWest(),
+      maxLng: bounds.getEast()
+    };
+    const data = await mapApi.getMapBuildings(params);
+    if (data.success) {
+      renderFiefIcons(data.buildings);
+    }
+  } catch (err) {
+    // Silent — building icons are supplementary
+  }
+};
+
+/**
+ * Render fief building icons on the map (from /api/map/buildings).
+ * Each completed building gets a small icon centered on its hex.
+ * @param {Array} buildings - [{ h3_index, building_name, type_name }]
+ */
+const renderFiefIcons = (buildings) => {
+  clearFiefIcons();
+  if (!buildings || buildings.length === 0) return;
+
+  for (const bld of buildings) {
+    try {
+      const [lat, lng] = cellToLatLng(bld.h3_index);
+      const isWip = bld.is_under_construction;
+      const icon = isWip ? '🏗️' : getBuildingIcon(bld.building_name, bld.type_name);
+      const border = isWip ? '#c5a059' : '#9e9e9e';
+      const bg = isWip ? 'rgba(30,20,10,0.82)' : 'rgba(20,30,20,0.82)';
+
+      const iconHtml = `<div style="
+        background: ${bg};
+        border: 1.5px solid ${border};
+        border-radius: 5px;
+        width: 22px; height: 22px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 13px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+        cursor: default;
+        user-select: none;">${icon}</div>`;
+
+      const customIcon = L.divIcon({
+        html: iconHtml,
+        className: 'building-marker-icon',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+      });
+
+      const marker = L.marker([lat, lng], { icon: customIcon, pane: 'buildingPane', interactive: false });
+      marker.addTo(fiefIconsLayer);
+    } catch (err) {
+      // Skip bad hex
+    }
+  }
+};
+
+/**
+ * Renders combined HexStacker markers (Owner + Building + Troops) on the map.
+ * One marker per hex that has at least one piece of information to show.
+ * Replaces the separate renderArmyMarkers + renderFiefIcons calls.
+ *
+ * @param {Array}  buildings       - [{ h3_index, building_name, type_name, is_under_construction }]
+ * @param {Array}  armyEntries     - [{ h3_index, player_id, army_count, total_troops }]
+ * @param {number} currentPlayerId - the viewing player's ID
+ * @param {Map}    ownerMap        - h3_index → { color, player_id }
+ */
+const renderHexStackers = (buildings, armyEntries, currentPlayerId, ownerMap) => {
+  clearHexStackers();
+  clearArmyMarkers();   // also clear legacy army layer to avoid duplicates
+  clearFiefIcons();     // also clear legacy building layer to avoid duplicates
+
+  // ── Build per-hex building index ─────────────────────────────────────────
+  const buildingByHex = new Map();
+  for (const b of (buildings || [])) {
+    buildingByHex.set(b.h3_index, b);
+  }
+
+  // ── Build per-hex army index (group by h3_index) ─────────────────────────
+  const armyByHex = new Map();
+  for (const a of (armyEntries || [])) {
+    if (!armyByHex.has(a.h3_index)) armyByHex.set(a.h3_index, []);
+    armyByHex.get(a.h3_index).push(a);
+  }
+
+  // ── Collect hex indices that have buildings or troops (owner-only hexes
+  //    are already rendered by territory fill polygons, so skip them here) ─────
+  const candidateHexes = new Set([
+    ...buildingByHex.keys(),
+    ...armyByHex.keys(),
+  ]);
+
+  for (const h3_index of candidateHexes) {
+    try {
+      const [lat, lng] = cellToLatLng(h3_index);
+
+      // ── Owner data ──────────────────────────────────────────────────────
+      const ownerInfo = ownerMap ? ownerMap.get(h3_index) : null;
+      const owner = ownerInfo ? { color: ownerInfo.color } : null;
+
+      // ── Building data ───────────────────────────────────────────────────
+      const bld = buildingByHex.get(h3_index) || null;
+
+      // ── Army data (own vs enemy separated) ─────────────────────────────
+      let units = null;
+      const group = armyByHex.get(h3_index);
+      if (group && group.length > 0) {
+        let ownTroops          = 0;
+        let enemyTroops        = 0;
+        let ownHasFieldArmy    = false;   // true if own player has at least one non-garrison army here
+        let hasEmbarckedTroops = false;
+        for (const e of group) {
+          if (e.player_id === currentPlayerId) {
+            const count = Number(e.total_troops) || 0;
+            ownTroops += count;
+            if (!e.has_garrison || Number(e.army_count) > 1) ownHasFieldArmy = true;
+            if (e.has_embarked_armies) hasEmbarckedTroops = true;
+          } else {
+            // Enemy entries only expose {h3_index, player_id} — no troop count.
+            // Use 1 as sentinel so the stacker icon shows enemy presence.
+            enemyTroops += 1;
+            if (e.has_embarked_armies) hasEmbarckedTroops = true;
+          }
+        }
+        const isConflict      = ownTroops > 0 && enemyTroops > 0;
+        const ownGarrisonOnly = ownTroops > 0 && !ownHasFieldArmy;
+        units = { own_troops: ownTroops, enemy_troops: enemyTroops, is_conflict: isConflict, own_garrison_only: ownGarrisonOnly, has_embarked_troops: hasEmbarckedTroops };
+      }
+
+      const divIcon = createStackerDivIcon(L, { building: bld, units });
+
+      const marker = L.marker([lat, lng], {
+        icon:        divIcon,
+        pane:        'stackerPane',
+        interactive: true, // always interactive so both troop and fief clicks work
+      });
+
+      // Route click: troops circle → army popup / anywhere else → fief popup
+      marker.on('click', (e) => {
+        const clickedTroops = e.originalEvent?.target?.closest?.('.hs-troops');
+        if (units && clickedTroops) {
+          MapInteractionController.handleMapClick(h3_index, {
+            onNormal: async () => showArmyDetailsPopup(h3_index, [lat, lng]),
+            onSelectDestination: dispatchMovement,
+            onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
+              await processWorkerMovement(workerId, fromH3, targetH3);
+            },
+          });
+        } else {
+          // Clicked on building icon, owner dot, or empty area → show fief details
+          MapInteractionController.handleMapClick(h3_index, {
+            onNormal: async () => showCellDetailsPopup(h3_index, [lat, lng]),
+            onSelectDestination: dispatchMovement,
+            onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
+              await processWorkerMovement(workerId, fromH3, targetH3);
+            },
+          });
+        }
+      });
+
+      marker.addTo(hexStackerLayer);
+    } catch (err) {
+      // Skip bad hex silently
+    }
+  }
+};
+
+/**
  * Obtiene las rutas activas propias del servidor y las dibuja en el mapa.
  * Se llama desde fetchArmyData para mantener las rutas sincronizadas.
  */
 const fetchAndDrawRoutes = async () => {
   try {
-    const data = await mapApi.getMyRoutes();
-    if (!data.success) return;
+    const [routeData] = await Promise.all([mapApi.getMyRoutes()]);
+    if (!routeData.success) return;
 
     RouteVisualizer.clear();
-    for (const route of data.routes) {
+
+    // Rutas de ejércitos
+    for (const route of routeData.routes) {
       if (route.path && route.path.length > 0) {
         RouteVisualizer.drawPath(route.army_id, route.path, route.h3_index);
       }
     }
+
+    // Rutas de constructores (azul) — redibujar tras el clear
+    for (const w of myWorkers.value) {
+      if (w.destination_h3) {
+        RouteVisualizer.drawWorkerPath(w.id, w.h3_index, w.destination_h3);
+      }
+    }
   } catch (err) {
-    // Las rutas son supplementarias — silenciar errores de red
+    // Las rutas son suplementarias — silenciar errores de red
     console.warn('[MapViewer] fetchAndDrawRoutes:', err.message);
   }
 };
@@ -1557,36 +2520,45 @@ const fetchAndDrawRoutes = async () => {
  */
 const fetchArmyData = async () => {
   try {
-    // Rutas siempre visibles, independientemente del nivel de zoom
+    // Routes always visible regardless of zoom
     await fetchAndDrawRoutes();
 
     const currentZoom = map.getZoom();
 
-    // Army icon markers only visible between zoom 11-17
     if (currentZoom < MIN_ZOOM_H3 || currentZoom > MAX_ZOOM_H3) {
+      clearHexStackers();
       clearArmyMarkers();
       return;
     }
 
-    // Get current map bounds (same as hexagons)
     const bounds = map.getBounds();
     const params = {
       minLat: bounds.getSouth(),
       maxLat: bounds.getNorth(),
       minLng: bounds.getWest(),
-      maxLng: bounds.getEast()
+      maxLng: bounds.getEast(),
     };
 
-    console.log(`Fetching armies for visible area...`);
+    // Fetch armies, buildings and own fleets together so HexStacker stays accurate
+    const [armyRes, buildRes, fleetRes] = await Promise.allSettled([
+      mapApi.getMapArmies(params),
+      mapApi.getMapBuildings(params),
+      mapApi.getFleets(),
+    ]);
 
-    const data = await mapApi.getMapArmies(params);
+    const armies    = armyRes.status  === 'fulfilled' && armyRes.value.success
+      ? armyRes.value.armies  : [];
+    const buildings = buildRes.status === 'fulfilled' && buildRes.value.success
+      ? buildRes.value.buildings : [];
+    const cPlayerId = armyRes.status === 'fulfilled'
+      ? armyRes.value.current_player_id : playerId.value;
+    const fleets    = fleetRes.status === 'fulfilled' && fleetRes.value.success
+      ? fleetRes.value.fleets : [];
 
-    if (data.success) {
-      renderArmyMarkers(data.armies, data.current_player_id);
-    }
+    renderHexStackers(buildings, armies, cPlayerId, null);
+    renderFleetMarkers(fleets);
   } catch (err) {
     console.error('Failed to fetch army data:', err);
-    // Don't show error to user - army icons are supplementary
   }
 };
 
@@ -1662,15 +2634,168 @@ const renderArmyMarkers = (armies, currentPlayerId) => {
       marker.on('click', () => {
         MapInteractionController.handleMapClick(h3_index, {
           onNormal: async () => showArmyDetailsPopup(h3_index, [lat, lng]),
-          onSelectDestination: async (armyId, targetH3, armyName) => {
-            await processArmyMovement(armyId, targetH3, armyName);
-          }
+          onSelectDestination: dispatchMovement,
+          onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
+            await processWorkerMovement(workerId, fromH3, targetH3);
+          },
         });
       });
       marker.addTo(armyMarkersLayer);
     } catch (err) {
       console.error(`Error rendering army marker for ${h3_index}:`, err);
     }
+  }
+};
+
+/**
+ * Fetch characters and render their icons on the map.
+ * Only characters with army_id (deployed) get a map marker.
+ */
+const fetchAndRenderCharacters = async () => {
+  if (!characterMarkersLayer) return;
+  characterMarkersLayer.clearLayers();
+  try {
+    const data = await mapApi.getMyCharacters();
+    const characters = data.characters ?? [];
+    _char_cache = characters;
+    for (const char of characters) {
+      if (!char.h3_index) continue;        // sin posición → sin marcador
+      if (char.age < 16) continue;         // menores no visibles en el mapa
+      if (char.army_id)  continue;         // viaja con el ejército → sin marcador propio
+      if (char.transported_by) continue;   // embarcado en flota → sin marcador en tierra
+      try {
+        const [lat, lng] = cellToLatLng(char.h3_index);
+        const isMain = char.is_main_character;
+        const label  = char.full_title || char.name;
+
+        const iconHtml = `
+          <div class="char-map-marker ${isMain ? 'char-map-marker--main' : ''}" title="${label}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <circle cx="12" cy="7" r="4"/>
+              <path d="M12 13c-5 0-8 2.5-8 4v1h16v-1c0-1.5-3-4-8-4z"/>
+            </svg>
+            <span class="char-map-name">${char.name.split(' ')[0]}</span>
+          </div>`;
+
+        const icon = L.divIcon({
+          html:       iconHtml,
+          className:  '',
+          iconSize:   [52, 36],
+          iconAnchor: [26, 36],
+        });
+
+        const marker = L.marker([lat, lng], { icon, pane: 'characterPane', interactive: true });
+
+        const isMoving    = !!char.destination;
+        const stopTitle   = isMoving ? 'Detener movimiento' : 'Retirar del mapa';
+        const movingBadge = isMoving
+          ? `<span class="char-popup-moving">&#8594; en marcha</span>`
+          : '';
+        const hasArmy = !!char.army_id;
+        const joinLeaveBtn = hasArmy
+          ? `<button id="char-leave-${char.id}" class="army-action-icon" title="Abandonar ejército">🚪</button>`
+          : `<button id="char-join-${char.id}" class="army-action-icon" title="Unirse al ejército del feudo">🔗</button>`;
+
+        const popupIcon = isMain ? '👑' : char.is_heir ? '🤴' : char.age < 16 ? '🧒' : '⭐';
+        const popupHtml = `
+          <div class="char-popup">
+            <div class="char-popup-header">
+              <span class="char-popup-icon">${popupIcon}</span>
+              <div>
+                <div class="char-popup-name">${label} ${movingBadge}</div>
+                <div class="char-popup-meta">Nv.${Math.floor((char.level??1)/10)} · +${char.combat_buff_pct}% combate · Guardia ${char.personal_guard}/25</div>
+              </div>
+            </div>
+            <div class="char-popup-actions">
+              <button id="char-move-${char.id}" class="army-action-icon" title="Establecer destino">📍</button>
+              <button id="char-stop-${char.id}" class="army-action-icon" title="${stopTitle}">🛑</button>
+              ${joinLeaveBtn}
+            </div>
+          </div>`;
+
+        marker.bindPopup(popupHtml, { className: 'char-leaflet-popup', maxWidth: 220 });
+        marker.on('popupopen', () => {
+          setTimeout(() => {
+            const moveBtn = document.getElementById(`char-move-${char.id}`);
+            if (moveBtn) moveBtn.addEventListener('click', () => handleCharacterMove(char));
+            const stopBtn = document.getElementById(`char-stop-${char.id}`);
+            if (stopBtn) stopBtn.addEventListener('click', () => handleCharacterStop(char));
+            const joinBtn = document.getElementById(`char-join-${char.id}`);
+            if (joinBtn) joinBtn.addEventListener('click', () => handleCharacterJoin(char));
+            const leaveBtn = document.getElementById(`char-leave-${char.id}`);
+            if (leaveBtn) leaveBtn.addEventListener('click', () => handleCharacterLeave(char));
+          }, 50);
+        });
+
+        characterMarkersLayer.addLayer(marker);
+
+        // Dibujar ruta si el personaje ya tiene destino pendiente
+        if (char.destination && char.h3_index) {
+          try {
+            const path = gridPathCells(char.h3_index, char.destination).slice(1);
+            RouteVisualizer.drawPath(`char_${char.id}`, path, char.h3_index);
+          } catch (_) { /* ignorar si la ruta no es calculable */ }
+        }
+      } catch (e) {
+        console.error('Error rendering character marker:', e);
+      }
+    }
+
+    // ── Personajes enemigos visibles ─────────────────────────────────────────
+    const enemyData = await mapApi.getVisibleEnemyCharacters();
+    for (const char of (enemyData.characters ?? [])) {
+      if (!char.h3_index) continue;
+      try {
+        const [lat, lng] = cellToLatLng(char.h3_index);
+        const color = char.player_color || '#e53e3e';
+        const iconHtml = `
+          <div class="char-map-marker char-map-marker--enemy" title="${char.name} (${char.player_name})"
+               style="--enemy-color:${color}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <circle cx="12" cy="7" r="4"/>
+              <path d="M12 13c-5 0-8 2.5-8 4v1h16v-1c0-1.5-3-4-8-4z"/>
+            </svg>
+            <span class="char-map-name">${char.name.split(' ')[0]}</span>
+          </div>`;
+        const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [52, 36], iconAnchor: [26, 36] });
+        const marker = L.marker([lat, lng], { icon, pane: 'characterPane', interactive: true });
+
+        marker.bindPopup(`
+          <div class="char-popup">
+            <div class="char-popup-header">
+              <span class="char-popup-icon">${char.is_main_character ? '👑' : '🧑'}</span>
+              <div>
+                <div class="char-popup-name">${char.name}</div>
+                <div class="char-popup-meta" style="color:#9ca3af">${char.player_name}</div>
+              </div>
+            </div>
+            <div class="char-popup-actions">
+              <button id="char-capture-${char.id}" class="army-action-icon army-action-disabled" title="Necesitas un ejército en este feudo para capturar">⛓️</button>
+            </div>
+          </div>`, { className: 'char-leaflet-popup', maxWidth: 220 });
+
+        marker.on('popupopen', () => {
+          setTimeout(() => {
+            const btn = document.getElementById(`char-capture-${char.id}`);
+            if (!btn) return;
+            // Habilitado solo si el jugador tiene un ejército parado en la misma celda
+            // y el personaje no tiene ejército (garantizado por getEnemyCharactersAtHexes)
+            const hasArmyHere = armies.value.some(a => a.h3_index === char.h3_index && !a.destination);
+            if (hasArmyHere) {
+              btn.classList.remove('army-action-disabled');
+              btn.title = 'Capturar';
+              btn.addEventListener('click', () => handleEnemyCharacterCapture(char, marker));
+            }
+          }, 50);
+        });
+
+        characterMarkersLayer.addLayer(marker);
+      } catch (e) {
+        console.error('Error rendering enemy character marker:', e);
+      }
+    }
+  } catch (e) {
+    console.error('Error fetching characters for map:', e);
   }
 };
 
@@ -1696,8 +2821,8 @@ const fetchTerrainTypes = async () => {
   try {
     const data = await mapApi.getTerrainTypes();
     // Sort alphabetically by name
-    terrainTypes.value = data.sort((a, b) => a.name.localeCompare(b.name, 'es'));
-    console.log(`✓ Loaded ${terrainTypes.value.length} terrain types (sorted alphabetically)`);
+    terrainTypes.value = data.filter(t => t.sort_order != null).sort((a, b) => a.sort_order - b.sort_order);
+    console.log(`✓ Loaded ${terrainTypes.value.length} terrain types (sorted by sort_order)`);
   } catch (err) {
     console.error('Failed to fetch terrain types:', err);
   }
@@ -1711,7 +2836,7 @@ const fetchWorldState = async () => {
     const data = await mapApi.getWorldState();
     if (data.success) {
       currentTurn.value = data.turn;
-      gameDate.value = new Date(data.date);
+      gameDate.value = data.date;
       formattedDate.value = formatDate(gameDate.value);
       dayOfYear.value = currentTurn.value % 365;
       console.log(`✓ World state loaded: Turn ${currentTurn.value}, Day ${dayOfYear.value}/365, Date ${formattedDate.value}`);
@@ -1740,8 +2865,7 @@ const loadExplorationConfig = async () => {
       console.error('❌ No autenticado - Se requiere login para acceder a configuración de admin');
       showToast('Sesión expirada o inválida', 'error');
     } else if (err.response?.status === 403) {
-      console.error('❌ Acceso denegado - Se requieren permisos de administrador');
-      showToast('⛔ Acceso Denegado: Se requieren permisos de administrador', 'error');
+      console.warn('No admin — config de exploración no disponible');
     } else {
       console.warn('Failed to load exploration config, using defaults:', err.message);
     }
@@ -1750,17 +2874,27 @@ const loadExplorationConfig = async () => {
 };
 
 /**
- * Format date to Spanish format: "1 de marzo de 1039"
+ * Format date to Spanish format: "1 de Enero, 210 a.C."
+ * All dates are in the BC era (game starts in 210 BC).
  */
 const formatDate = (date) => {
   const months = [
-    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    'Ianuarius', 'Februarius', 'Martius', 'Aprilis', 'Maius', 'Iunius',
+    'Quintilis', 'Sextilis', 'September', 'October', 'November', 'December'
   ];
-  const day = date.getDate();
-  const month = months[date.getMonth()];
-  const year = date.getFullYear();
-  return `${day} de ${month}, ${year}`;
+  const month = months[date.month - 1];
+  const suffix = date.era === 'BC' ? 'a.C.' : 'd.C.';
+  const auc = date.era === 'BC' ? 753 - date.year : 753 + date.year;
+  const toRoman = (n) => {
+    const vals = [1000,900,500,400,100,90,50,40,10,9,5,4,1];
+    const syms = ['M','CM','D','CD','C','XC','L','XL','X','IX','V','IV','I'];
+    let r = '';
+    for (let i = 0; i < vals.length; i++) {
+      while (n >= vals[i]) { r += syms[i]; n -= vals[i]; }
+    }
+    return r;
+  };
+  return `${date.day} de ${month}, anno ${toRoman(auc)} AUC (${date.year} ${suffix})`;
 };
 
 /**
@@ -1778,7 +2912,7 @@ const syncWithServer = async () => {
 
     if (response.success) {
       const serverTurn = response.turn;
-      const serverDate = new Date(response.date);
+      const serverDate = response.date;
 
       // Check if turn has changed
       if (serverTurn !== currentTurn.value) {
@@ -1792,6 +2926,9 @@ const syncWithServer = async () => {
         dayOfYear.value = serverTurn % 365;
 
         console.log(`[Sync] ✓ Updated to Turn ${serverTurn}, Day ${dayOfYear.value}/365`);
+
+        // Notify turn change
+        showToast(`⏳ Comienza un nuevo día\n${formattedDate.value}`, 'info');
 
         // Check if it's a harvest day
         if (dayOfYear.value === 75 || dayOfYear.value === 180) {
@@ -1810,6 +2947,12 @@ const syncWithServer = async () => {
 
         // Reload messages (new harvest messages may have been generated)
         await loadMessages();
+
+        // Refresh character markers (positions updated by turn engine)
+        fetchAndRenderCharacters();
+
+        // Refresh worker routes (workers advance each turn)
+        fetchMyWorkers();
 
         lastSyncTime = Date.now();
       } else {
@@ -1851,82 +2994,57 @@ const stopSync = () => {
 };
 
 /**
- * Update fiefs list from server
- * Fetches all territories owned by the current player
+ * Update fiefs list from server (paginated)
+ * @param {Object} opts - Override page/limit for the request
  */
-const updateFiefsUI = async () => {
+const updateFiefsUI = async ({ page, limit } = {}) => {
   try {
     loadingFiefs.value = true;
-    console.log(`[Fiefs] Updating fiefs list for player ${playerId.value}...`);
 
-    const data = await mapApi.getMyFiefs();
+    const requestPage  = page  ?? fiefsPage.value;
+    const requestLimit = limit ?? fiefsLimit.value;
 
-    console.log('[Fiefs] ===== RAW SERVER RESPONSE =====');
-    console.log('[Fiefs] Full response:', data);
-    console.log('[Fiefs] Success:', data.success);
-    console.log('[Fiefs] Fiefs array:', data.fiefs);
-    console.log('[Fiefs] Fiefs count:', data.fiefs?.length);
+    const data = await mapApi.getMyFiefs({
+      page:             requestPage,
+      limit:            requestLimit,
+      filter_name:      kingdomFilters.value.name     || '',
+      filter_maxpop:    kingdomFilters.value.maxPopulation ?? null,
+      filter_division:  kingdomFilters.value.division || '',
+    });
 
     if (data.success) {
-      const receivedFiefs = data.fiefs;
-
-      // Debug: Log first fief structure if exists
-      if (receivedFiefs && receivedFiefs.length > 0) {
-        console.log('[Fiefs] First fief structure:', receivedFiefs[0]);
-        console.log('[Fiefs] Fields:', Object.keys(receivedFiefs[0]));
-      } else {
-        console.warn('[Fiefs] ⚠️ No fiefs returned from server (array is empty)');
-      }
-
-      // Store previous food values for animation
-      previousFoodValues = {};
-      myFiefs.value.forEach(fief => {
-        previousFoodValues[fief.h3_index] = fief.food_stored;
-      });
-
-      // CRITICAL: Clear and update fiefs array
-      myFiefs.value = [];
-      console.log('[Fiefs] Cleared myFiefs array');
-
-      // Use nextTick to ensure Vue processes the clear
-      await new Promise(resolve => setTimeout(resolve, 0));
-
-      myFiefs.value = receivedFiefs || [];
-      console.log(`[Fiefs] ✓ Updated myFiefs.value with ${myFiefs.value.length} fiefs`);
-      console.log('[Fiefs] myFiefs.value contents:', JSON.stringify(myFiefs.value, null, 2));
-
-      // Verify the assignment worked
-      if (myFiefs.value.length > 0) {
-        console.log('[Fiefs] ✓ Fiefs successfully loaded and assigned');
-      } else {
-        console.warn('[Fiefs] ⚠️ myFiefs.value is still empty after assignment');
-      }
-
-      // Highlight food changes (green if increased)
-      setTimeout(() => {
-        myFiefs.value.forEach(fief => {
-          const prevValue = previousFoodValues[fief.h3_index];
-          if (prevValue !== undefined && fief.food_stored > prevValue) {
-            const foodElement = document.querySelector(`.fief-food[data-h3="${fief.h3_index}"]`);
-            if (foodElement) {
-              foodElement.classList.add('food-increased');
-              setTimeout(() => {
-                foodElement.classList.remove('food-increased');
-              }, 2000);
-            }
-          }
-        });
-      }, 100);
+      fiefsTotalCount.value = data.total ?? 0;
+      fiefsPage.value       = data.page  ?? requestPage;
+      fiefsLimit.value      = data.limit ?? requestLimit;
+      myFiefs.value         = data.fiefs || [];
     } else {
-      console.error('[Fiefs] Server returned success=false:', response.data);
       myFiefs.value = [];
     }
   } catch (err) {
     console.error('[Fiefs] ❌ Error fetching fiefs:', err);
-    console.error('[Fiefs] Error details:', err.response?.data || err.message);
     myFiefs.value = [];
   } finally {
     loadingFiefs.value = false;
+  }
+};
+
+const handleFiefsPageChange = (p) => {
+  fiefsPage.value = p;
+  updateFiefsUI({ page: p });
+};
+
+const handleFiefsLimitChange = (l) => {
+  fiefsPage.value  = 1;
+  fiefsLimit.value = l;
+  updateFiefsUI({ page: 1, limit: l });
+};
+
+const loadMyDivisions = async () => {
+  try {
+    const data = await mapApi.getPlayerDivisions();
+    myDivisions.value = data.divisions ?? [];
+  } catch (_) {
+    myDivisions.value = [];
   }
 };
 
@@ -1934,6 +3052,16 @@ const updateFiefsUI = async () => {
  * Focus map on a specific fief
  * @param {string} h3_index - The H3 index to focus on
  */
+const focusOnCharacterHex = (h3_index) => {
+  try {
+    const [lat, lng] = cellToLatLng(h3_index);
+    closeOverlay();
+    map.flyTo([lat, lng], 11, { duration: 1.0 });
+  } catch (err) {
+    console.error('[Characters] Error focusing on character:', err);
+  }
+};
+
 const focusOnFief = (h3_index) => {
   try {
     const [lat, lng] = cellToLatLng(h3_index);
@@ -2196,18 +3324,24 @@ const renderHexagons = (hexagons) => {
           onNormal: async (h3Index) => {
             await showCellDetailsPopup(h3Index, [lat, lng]);
           },
-          // Modo selección: procesar movimiento del ejército
-          onSelectDestination: async (armyId, targetH3, armyName) => {
-            await processArmyMovement(armyId, targetH3, armyName);
-          }
+          // Modo selección: procesar movimiento del ejército, flota o personaje
+          onSelectDestination: dispatchMovement,
+          // Modo selección: procesar movimiento de trabajadores
+          onSelectWorkerDestination: async (workerId, fromH3, targetH3) => {
+            await processWorkerMovement(workerId, fromH3, targetH3);
+          },
         });
       });
 
-      // Right-click to cancel selection
+      // Right-click to cancel selection (army or worker movement)
       fillPolygon.on('contextmenu', function (e) {
         L.DomEvent.preventDefault(e);
         if (MapInteractionController.isSelectingDestination()) {
           window.cancelArmyMovement();
+        } else if (MapInteractionController.isSelectingWorkerDestination()) {
+          MapInteractionController.cancelSelection();
+          if (map) map.getContainer().style.cursor = '';
+          showToast('Movimiento cancelado', 'info');
         }
       });
 
@@ -2255,6 +3389,35 @@ const renderHexagons = (hexagons) => {
           pane: 'starPane',
           interactive: false,
           zIndexOffset: 1000,
+        }).addTo(hexagonLayer);
+      }
+
+      // --- LAYER 3b: BRIDGE MARKER (starPane) ---
+      if (hex.is_bridge) {
+        const [bLat, bLng] = cellToLatLng(hex.h3_index);
+
+        const bridgeHtml = `<div style="
+          background:#1a3a5c;
+          border:2px solid #64b5f6;
+          border-radius:6px;
+          width:30px;height:30px;
+          display:flex;align-items:center;justify-content:center;
+          font-size:16px;
+          box-shadow:0 0 8px 2px rgba(100,181,246,0.45),0 2px 6px rgba(0,0,0,0.7);
+          user-select:none;">🌉</div>`;
+
+        const bridgeIcon = L.divIcon({
+          html:       bridgeHtml,
+          className:  '',
+          iconSize:   [30, 30],
+          iconAnchor: [15, 15],
+        });
+
+        L.marker([bLat, bLng], {
+          icon:        bridgeIcon,
+          pane:        'starPane',
+          interactive: false,
+          zIndexOffset: 999,
         }).addTo(hexagonLayer);
       }
 
@@ -2433,73 +3596,14 @@ const renderBuildingMarkers = (hexagons) => {
     buildingMarkersLayer.clearLayers();
   }
 
-  // Filter hexagons that have buildings but NO settlement name (avoid overlap)
-  const buildingsToRender = hexagons.filter(hex =>
-    hex.icon_slug &&
-    hex.building_type_id > 0 &&
-    !hex.location_name  // Only show if no settlement/custom name
-  );
-
   // Filter capital hexagons (for crown markers)
   const capitalsToRender = hexagons.filter(hex => hex.is_capital === true);
 
-  if (buildingsToRender.length === 0 && capitalsToRender.length === 0) {
+  if (capitalsToRender.length === 0) {
     return;
   }
 
-  console.log(`Rendering ${buildingsToRender.length} building markers and ${capitalsToRender.length} capital markers...`);
-
-  // Render regular building markers
-  buildingsToRender.forEach((hex) => {
-    try {
-      // Get center coordinates
-      const [lat, lng] = cellToLatLng(hex.h3_index);
-
-      // Map icon_slug to emoji icons
-      const buildingIcons = {
-        village: '🏘️',
-        town: '🏛️',
-        city: '🏰',
-        castle: '🏰',
-        farm: '🌾',
-        mine: '⛏️',
-        port: '⚓'
-      };
-      const icon = buildingIcons[hex.icon_slug] || '🏗️';
-
-      // Create simple divIcon with emoji
-      const buildingIcon = L.divIcon({
-        className: 'building-marker',
-        html: `<div class="building-icon-emoji">${icon}</div>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-      });
-
-      // Create marker
-      const marker = L.marker([lat, lng], {
-        icon: buildingIcon,
-        zIndexOffset: 500, // Below settlements (1000) but above hexagons
-      });
-
-      // Add simple tooltip
-      marker.bindTooltip(hex.icon_slug, {
-        permanent: false,
-        direction: 'top',
-        className: 'building-tooltip',
-        offset: [0, -10],
-      });
-
-      // Add to layer
-      marker.addTo(buildingMarkersLayer);
-    } catch (err) {
-      console.error(`Error rendering building marker for ${hex.h3_index}:`, err);
-    }
-  });
-
-      // --- LAYER 3: STAR MARKER (starPane) ---
-      // Capital markers handled in renderHexagons now
-
-  console.log(`✓ Rendered ${buildingsToRender.length} building markers and ${capitalsToRender.length} capital markers`);
+  console.log(`Rendering ${capitalsToRender.length} capital markers...`);
 };
 
 /**
@@ -2536,6 +3640,115 @@ const closeActionPanel = () => {
 
   // Reset colonizing state to ensure clean state for next interaction
   isColonizing.value = false;
+};
+
+/**
+ * Open the Edictos panel for a given fief
+ */
+const openFueroPanel = (h3_index, fiefName = '') => {
+  fueroPanelH3.value = h3_index;
+  fueroPanelFiefName.value = fiefName;
+  showFueroPanel.value = true;
+};
+
+/**
+ * Highlight selected fiefs on the map with a gold overlay (for division selection)
+ * @param {string[]} h3Indices
+ */
+const highlightDivisionFiefs = (h3Indices) => {
+  if (!divisionHighlightLayer) return;
+  divisionHighlightLayer.clearLayers();
+  for (const h3_index of h3Indices) {
+    try {
+      const boundary = cellToBoundary(h3_index, true);
+      L.polygon(boundary, {
+        fillColor:   '#c5a059',
+        fillOpacity: 0.35,
+        color:       '#e8d5b5',
+        weight:      2,
+        opacity:     0.8,
+        interactive: false,
+      }).addTo(divisionHighlightLayer);
+    } catch (_) { /* ignore invalid h3 */ }
+  }
+};
+
+/**
+ * Clear the division highlight layer
+ */
+const clearDivisionHighlights = () => {
+  if (divisionHighlightLayer) divisionHighlightLayer.clearLayers();
+};
+
+/**
+ * Fetch all active division boundary GeoJSON from the server and render them
+ * as a political border layer. Called on map init and after each proclamation.
+ */
+const fetchDivisionBoundaries = async () => {
+  if (!divisionBoundaryLayer) return;
+  try {
+    const fc = await mapApi.getDivisionBoundaries();
+    divisionBoundaryLayer.clearLayers();
+    if (!fc || !fc.features || fc.features.length === 0) return;
+
+    // Fill layer — non-interactive so clicks pass through to the hexagons below
+    L.geoJSON(fc, {
+      pane: 'divisionBorderPane',
+      interactive: false,
+      style: () => ({
+        stroke: false,
+        fillColor: '#8B1A1A',
+        fillOpacity: 0.06,
+      }),
+    }).addTo(divisionBoundaryLayer);
+
+    // Border layer — interactive only on the stroke line, no fill area to block clicks
+    L.geoJSON(fc, {
+      pane: 'divisionBorderPane',
+      style: () => ({
+        color: '#8B1A1A',
+        weight: 3,
+        opacity: 0.88,
+        fill: false,
+        lineJoin: 'round',
+        lineCap: 'round',
+      }),
+      onEachFeature: (feature, layer) => {
+        const props = feature.properties;
+
+        layer.bindTooltip(
+          `<div class="division-boundary-tooltip"><strong>⚜️ ${props.name}</strong><br><small>${props.territory_name}</small></div>`,
+          { sticky: true, className: 'leaflet-division-tooltip' }
+        );
+
+        layer.on('click', () => {
+          if (props.player_id == playerId.value) {
+            openFueroPanel(props.capital_h3, props.name);
+          } else {
+            layer.openPopup();
+          }
+        });
+
+        layer.bindPopup(
+          `<div style="font-family: serif; padding: 4px 2px;">
+            <strong style="color: #8B1A1A; font-size: 1rem;">⚜️ ${props.name}</strong><br>
+            <small style="color: #666;">${props.territory_name} de otro senor</small>
+          </div>`
+        );
+      },
+    }).addTo(divisionBoundaryLayer);
+  } catch (err) {
+    console.error('[Fronteras] Error al cargar fronteras de divisiones:', err);
+  }
+};
+
+/**
+ * Called after a division is successfully proclaimed
+ */
+const onDivisionProclaimed = () => {
+  clearDivisionHighlights();
+  fetchHexagonData();
+  fetchDivisionBoundaries();
 };
 
 /**
@@ -2648,8 +3861,10 @@ const togglePoliticalView = () => {
 
   if (isPoliticalView.value) {
     console.log('✓ Vista Política activada: resaltando territorios de jugadores');
+    if (divisionBoundaryLayer) map.addLayer(divisionBoundaryLayer);
   } else {
     console.log('✓ Vista Política desactivada: mostrando vista normal');
+    if (divisionBoundaryLayer) map.removeLayer(divisionBoundaryLayer);
   }
 
   // Redibujar el mapa con los nuevos estilos
@@ -2705,9 +3920,13 @@ const toggleLegend = () => {
 const togglePanel = (panelName) => {
   if (activePanel.value === panelName) {
     // Close if already open
+    if (panelName === 'notifications') onNotificationsPanelClose();
     activePanel.value = null;
     console.log(`✓ Panel cerrado: ${panelName}`);
   } else {
+    // If switching away from notifications, mark all as unread
+    if (activePanel.value === 'notifications') onNotificationsPanelClose();
+
     // Open the new panel (closes any other panel and any open overlay)
     activePanel.value = panelName;
     activeOverlay.value = null;
@@ -2716,9 +3935,13 @@ const togglePanel = (panelName) => {
     // Reset infinite scroll when opening kingdom panel
     if (panelName === 'kingdom') {
       displayedFiefsCount.value = FIEFS_PER_PAGE;
+      loadMyDivisions();
     }
     if (panelName === 'notifications') {
       fetchNotifications(); // refresh con spinner al abrir el panel
+    }
+    if (panelName === 'market') {
+      fetchMyWorkers();
     }
   }
 };
@@ -2727,8 +3950,13 @@ const togglePanel = (panelName) => {
  * Close the active panel
  */
 const closePanel = () => {
+  if (activePanel.value === 'notifications') onNotificationsPanelClose();
   activePanel.value = null;
   console.log('✓ Panel cerrado');
+};
+
+const onNotificationsPanelClose = () => {
+  // No action needed — notifications are marked read per-tab when viewed
 };
 
 /**
@@ -2739,9 +3967,14 @@ const openOverlay = (overlayName) => {
   activePanel.value = null; // Close any open panel
   console.log(`✓ Overlay abierto: ${overlayName}`);
 
-  // Fetch troops data when opening troops overlay
   if (overlayName === 'troops') {
     fetchTroops();
+  }
+  if (overlayName === 'reino') {
+    loadMyDivisions();
+  }
+  if (overlayName === 'characters') {
+    fetchAndRenderCharacters();
   }
 };
 
@@ -2749,9 +3982,25 @@ const openOverlay = (overlayName) => {
  * Close the active overlay
  */
 const closeOverlay = () => {
+  const wasOverlay = activeOverlay.value;
   activeOverlay.value = null;
   selectedMessage.value = null;
   console.log('✓ Overlay cerrado');
+  if (wasOverlay === 'troops' || wasOverlay === 'reino') {
+    fetchArmyData();
+  }
+};
+
+/**
+ * Fly to an H3 cell from the Admin Panel (e.g. bot capital)
+ */
+const handleAdminGoToHex = (h3_index) => {
+  closeOverlay();
+  if (!map || !h3_index) return;
+  try {
+    const [lat, lng] = cellToLatLng(h3_index);
+    map.flyTo([lat, lng], 11, { duration: 1.2 });
+  } catch { /* índice H3 inválido */ }
 };
 
 /**
@@ -3021,20 +4270,6 @@ const formatGold = (value) => {
   return Number(value).toFixed(2);
 };
 
-/**
- * Sort kingdom fiefs by field
- * @param {string} field - Field to sort by
- */
-const sortKingdomBy = (field) => {
-  if (kingdomSort.value.field === field) {
-    // Toggle sort direction
-    kingdomSort.value.asc = !kingdomSort.value.asc;
-  } else {
-    // New field, default to ascending
-    kingdomSort.value.field = field;
-    kingdomSort.value.asc = true;
-  }
-};
 
 /**
  * Focus on fief and close kingdom panel
@@ -3118,7 +4353,8 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
       isColonizing: isColonizing.value,
       isExiled: isExiled.value,
       explorationConfig: explorationConfig.value,
-      h3_index
+      h3_index,
+      workerTypes: workerTypes.value,
     });
 
     // Create and show popup
@@ -3142,6 +4378,110 @@ const showCellDetailsPopup = async (h3_index, latLng) => {
       }, 100);
     }
 
+    // Add event listener to build button (own fief with no building)
+    if (cell.player_id === playerId.value && !cell.fief_building) {
+      setTimeout(() => {
+        const buildBtn = document.getElementById(`build-btn-${h3_index}`);
+        if (buildBtn) {
+          buildBtn.addEventListener('click', () => {
+            map.closePopup();
+            openBuildModal(h3_index);
+          });
+        }
+      }, 100);
+    }
+
+    // Add event listener to repair button (own fief with building conservation < 100)
+    if (cell.player_id === playerId.value && cell.fief_building &&
+        !cell.fief_building.is_under_construction && (cell.fief_building.conservation ?? 100) < 100) {
+      setTimeout(() => {
+        const repairBtn = document.getElementById(`repair-btn-${h3_index}`);
+        if (repairBtn) {
+          repairBtn.addEventListener('click', () => repairBuildingFromPopup(h3_index));
+        }
+      }, 100);
+    }
+
+    // Add event listener to upgrade button (own fief with completed building that has an upgrade)
+    if (cell.player_id === playerId.value && cell.fief_building && !cell.fief_building.is_under_construction && cell.fief_building.upgrade) {
+      setTimeout(() => {
+        const upgradeBtn = document.getElementById(`upgrade-btn-${h3_index}`);
+        if (upgradeBtn) {
+          upgradeBtn.addEventListener('click', () => {
+            const upgrade = JSON.parse(upgradeBtn.dataset.upgrade);
+            map.closePopup();
+            openUpgradeModal(h3_index, upgrade);
+          });
+        }
+      }, 100);
+    }
+
+    // Add event listener to recruit button (own fief with completed military building)
+    if (cell.player_id === playerId.value && cell.fief_building &&
+        !cell.fief_building.is_under_construction && cell.fief_building.type_name === 'military') {
+      setTimeout(() => {
+        const recruitBtn = document.getElementById(`recruit-btn-${h3_index}`);
+        if (recruitBtn) {
+          recruitBtn.addEventListener('click', () => {
+            map.closePopup();
+            const fief = {
+              h3_index,
+              name: cell.settlement_name || h3_index,
+              wood:  cell.territory?.wood  || 0,
+              stone: cell.territory?.stone || 0,
+              iron:  cell.territory?.iron  || 0,
+            };
+            openOverlay('reino');
+            openRecruitmentForFief(fief);
+          });
+        }
+      }, 100);
+    }
+
+    // Add event listener to Nueva Flota button (own fief with completed maritime building)
+    if (cell.player_id === playerId.value && cell.fief_building &&
+        !cell.fief_building.is_under_construction && cell.fief_building.type_name === 'maritime') {
+      setTimeout(() => {
+        const newFleetBtn = document.getElementById(`new-fleet-btn-${h3_index}`);
+        if (newFleetBtn) {
+          newFleetBtn.addEventListener('click', () => {
+            map.closePopup();
+            createFleetAtHex(h3_index);
+          });
+        }
+      }, 100);
+    }
+
+    // Add event listener to Edictos button (own fief with completed Fortaleza)
+    if (cell.player_id === playerId.value && cell.fief_building &&
+        !cell.fief_building.is_under_construction && cell.fief_building.name === 'Fortaleza') {
+      setTimeout(() => {
+        const fueroBtn = document.getElementById(`fueros-btn-${h3_index}`);
+        if (fueroBtn) {
+          fueroBtn.addEventListener('click', () => {
+            map.closePopup();
+            openFueroPanel(h3_index, cell.settlement_name || cell.custom_name || h3_index);
+          });
+        }
+      }, 100);
+    }
+
+    // Add event listener to hire-worker button (own Capital or fief with Mercado)
+    const isOwnFief = cell.player_id === playerId.value;
+    const hasMarket = isOwnFief && cell.fief_building &&
+      cell.fief_building.name === 'Mercado' && !cell.fief_building.is_under_construction;
+    if (isOwnFief && (cell.is_capital || hasMarket) && workerTypes.value.length > 0) {
+      setTimeout(() => {
+        const buyBtn = document.getElementById(`buy-worker-btn-${h3_index}`);
+        if (buyBtn) {
+          buyBtn.addEventListener('click', () => {
+            const select = document.getElementById(`worker-type-select-${h3_index}`);
+            const worker_type_id = parseInt(select?.value);
+            if (worker_type_id) buyWorkerFromPopup(h3_index, worker_type_id);
+          });
+        }
+      }, 100);
+    }
 
   } catch (error) {
     console.error('Error fetching cell details:', error);
@@ -3160,8 +4500,79 @@ const handleArmyMove = (army) => {
   window.startArmyMovement(army.army_id, army.name, army.h3_index);
 };
 
-// Stubs para acciones de ejército aún no implementadas
-const handleArmySplit  = (_army) => showToast('⚙️ Función "Separar" próximamente', 'info');
+const handleCharacterMove = (char) => {
+  map.closePopup();
+  window.startCharacterMovement(char.id, char.name, char.h3_index);
+};
+
+const handleCharacterStop = async (char) => {
+  try {
+    await mapApi.stopCharacter(char.id);
+    RouteVisualizer.clearArmy(`char_${char.id}`);
+    map.closePopup();
+    await fetchAndRenderCharacters();
+    showToast(`🛑 ${char.name} detenido. Ruta cancelada.`, 'info');
+  } catch (err) {
+    showToast(`❌ ${err?.response?.data?.message || 'Error al retirar personaje'}`, 'error');
+  }
+};
+
+const handleCharacterJoin = async (char) => {
+  try {
+    const data = await mapApi.getArmiesAtHex(char.h3_index);
+    // El endpoint ya filtra por player_id del jugador autenticado
+    const ownArmy = data.armies?.[0];
+    if (!ownArmy) {
+      showToast('⚠️ No hay ejército propio en este feudo', 'warning');
+      return;
+    }
+    await mapApi.assignArmyCommander(ownArmy.army_id, char.id);
+    map.closePopup();
+    await fetchAndRenderCharacters();
+    showToast(`✅ ${char.name} se ha unido al ejército`, 'success');
+  } catch (err) {
+    showToast(`❌ ${err?.response?.data?.message || 'Error al unirse al ejército'}`, 'error');
+  }
+};
+
+const handleCharacterLeave = async (char) => {
+  try {
+    await mapApi.removeArmyCommander(char.army_id);
+    map.closePopup();
+    await fetchAndRenderCharacters();
+    showToast(`🚪 ${char.name} ha abandonado el ejército`, 'info');
+  } catch (err) {
+    showToast(`❌ ${err?.response?.data?.message || 'Error al abandonar el ejército'}`, 'error');
+  }
+};
+
+const handleEnemyCharacterCapture = async (char, marker) => {
+  try {
+    const result = await mapApi.captureCharacter(char.id);
+    marker.closePopup();
+    showToast(`⛓️ ${result.message}`, 'success');
+    await fetchAndRenderCharacters();
+  } catch (err) {
+    showToast(`❌ ${err?.response?.data?.message || 'Error al capturar el personaje'}`, 'error');
+  }
+};
+
+// Open transfer panel from map popup
+const handleArmySplit = (army) => {
+  const ownArmiesAtHex = _pp_armies.filter(
+    a => a.player_id === playerId.value && a.army_id !== army.army_id && !a.destination
+  );
+  if (ownArmiesAtHex.length === 0) {
+    showToast('No hay otros ejércitos propios en esta casilla', 'info');
+    return;
+  }
+  map.closePopup();
+  transferPanelArmyAId.value  = army.army_id;
+  transferPanelArmyBId.value  = ownArmiesAtHex.length === 1 ? ownArmiesAtHex[0].army_id : null;
+  transferPanelHex.value      = _pp_h3;
+  transferPanelFiefName.value = army.location_name || _pp_h3;
+  showTransferPanel.value     = true;
+};
 const handleArmyMerge = async (army) => {
   try {
     const result = await mapApi.mergeArmies(army.army_id, _pp_h3);
@@ -3174,6 +4585,31 @@ const handleArmyMerge = async (army) => {
   }
 };
 const handleArmySupply = (_army) => showToast('⚙️ Función "Abastecer" próximamente', 'info');
+
+const handleArmyCommander = async (army, h3_index) => {
+  try {
+    if (army.commander) {
+      // Retirar comandante actual
+      await mapApi.removeArmyCommander(army.army_id);
+      map.closePopup();
+      await fetchAndRenderCharacters();
+      showToast(`🚪 Comandante retirado del ejército`, 'info');
+    } else {
+      // Asignar personaje disponible en el hex
+      const char = _char_cache.find(c => c.h3_index === h3_index && !c.army_id);
+      if (!char) {
+        showToast('⚠️ No hay personaje disponible en este feudo', 'warning');
+        return;
+      }
+      await mapApi.assignArmyCommander(army.army_id, char.id);
+      map.closePopup();
+      await fetchAndRenderCharacters();
+      showToast(`✅ ${char.name} lidera ahora el ejército`, 'success');
+    }
+  } catch (err) {
+    showToast(`❌ ${err?.response?.data?.message || 'Error al gestionar comandante'}`, 'error');
+  }
+};
 
 /**
  * Attaches click listeners to action buttons of the currently visible army in the popup.
@@ -3195,10 +4631,13 @@ const attachArmyListeners = (army, h3_index) => {
   if (splitBtn) splitBtn.addEventListener('click', () => handleArmySplit(army));
 
   const mergeBtn = document.getElementById(`army-merge-${army.army_id}`);
-  if (mergeBtn && !mergeBtn.disabled) mergeBtn.addEventListener('click', () => handleArmyMerge(army, _pp_armies));
+  if (mergeBtn && !mergeBtn.disabled) mergeBtn.addEventListener('click', () => handleArmySplit(army));
 
   const supplyBtn = document.getElementById(`army-supply-${army.army_id}`);
   if (supplyBtn) supplyBtn.addEventListener('click', () => handleArmySupply(army));
+
+  const commanderBtn = document.getElementById(`army-commander-${army.army_id}`);
+  if (commanderBtn && !commanderBtn.disabled) commanderBtn.addEventListener('click', () => handleArmyCommander(army, h3_index));
 };
 
 /** Retorna si hay un ejército propio con Exploradores en el hex y su army_id, y el primer ejército propio para atacar. */
@@ -3234,26 +4673,250 @@ const attachEnemyListeners = (army) => {
 // Global bridge: called by ◀/▶ buttons inside the Leaflet popup HTML
 window.armyPopupNavigate = (delta) => {
   const newIndex = _pp_index + delta;
-  if (newIndex < 0 || newIndex >= _pp_armies.length || !_pp_ref) return;
+  if (newIndex < 0 || newIndex >= _pp_items.length || !_pp_ref) return;
   _pp_index = newIndex;
+
+  const item = _pp_items[_pp_index];
+
+  if (item.type === 'character') {
+    const newContent = _generateCharacterItemHTML(item.data, _pp_items.length, _pp_index);
+    _pp_ref.setContent(newContent);
+    return;
+  }
+
+  if (item.type === 'fleet') {
+    const newContent = _generateFleetItemHTML(item.data, _pp_items.length, _pp_index);
+    _pp_ref.setContent(newContent);
+    setTimeout(() => attachFleetListeners(item.data), 50);
+    return;
+  }
+
+  // Army item
   const { hasExplorersAtHex, scoutingArmyId, attackingArmyId } = _getScoutingInfo(_pp_armies);
+  const characterAtHex = _char_cache.find(c => c.h3_index === _pp_h3 && !c.army_id) ?? null;
+  // armyIndex = position within armies sub-array
+  const armyIndex = _pp_items.slice(0, _pp_index).filter(i => i.type === 'army').length;
   const newContent = generateArmyPopup({ armies: _pp_armies }, {
     currentPlayerId: playerId.value,
     h3_index: _pp_h3,
     coord_x: _pp_coords.x,
     coord_y: _pp_coords.y,
     hexOwnerId: _pp_coords.ownerId,
-    currentIndex: _pp_index,
+    currentIndex: armyIndex,
+    totalItems: _pp_items.length,
+    globalIndex: _pp_index,
     hasExplorersAtHex,
     scoutingArmyId,
-    attackingArmyId
+    attackingArmyId,
+    characterAtHex
   });
   _pp_ref.setContent(newContent);
   setTimeout(() => {
-    const army = _pp_armies[_pp_index];
+    const army = _pp_armies[armyIndex];
     if (army.player_id === playerId.value) attachArmyListeners(army, _pp_h3);
     else attachEnemyListeners(army);
   }, 50);
+};
+
+// Builds the character inspector HTML for the popup navigation
+const _generateCharacterItemHTML = (char, totalItems, globalIndex) => {
+  const btnStyle = 'background:#1e1e38;border:1px solid #3a3a5c;color:#e2e8f0;border-radius:4px;padding:3px 11px;font-size:1rem;line-height:1;cursor:pointer;';
+  const btnDisStyle = btnStyle + 'opacity:0.3;cursor:not-allowed;';
+  const prevDis = globalIndex === 0;
+  const nextDis = globalIndex === totalItems - 1;
+  const icon = char.is_main_character ? '👑' : (char.is_heir ? '🤴' : '⭐');
+  const role = char.is_main_character ? 'Líder' : (char.is_heir ? 'Heredero' : 'Personaje');
+  const healthPct = Math.round((char.health ?? 100));
+  const healthColor = healthPct > 66 ? '#4caf50' : healthPct > 33 ? '#ff9800' : '#f44336';
+
+  let html = '<div class="army-inspector">';
+
+  // Nav bar
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 10px;background:rgba(0,0,0,0.45);border-bottom:1px solid #2d2d4a;margin-bottom:4px;">`;
+  html += `<button onclick="event.stopPropagation();window.armyPopupNavigate(-1)" ${prevDis ? 'disabled' : ''} style="${prevDis ? btnDisStyle : btnStyle}">◀</button>`;
+  html += `<span style="font-family:sans-serif;font-size:0.72rem;color:#6b7280;letter-spacing:1.5px;text-transform:uppercase;">${icon} ${role} · ${globalIndex + 1}/${totalItems}</span>`;
+  html += `<button onclick="event.stopPropagation();window.armyPopupNavigate(1)" ${nextDis ? 'disabled' : ''} style="${nextDis ? btnDisStyle : btnStyle}">▶</button>`;
+  html += `</div>`;
+
+  // Character card
+  html += `<div style="padding:12px 14px;">`;
+  html += `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">`;
+  html += `<span style="font-size:2rem;">${icon}</span>`;
+  html += `<div>`;
+  html += `<div style="font-size:1rem;font-weight:700;color:#e8d5a3;">${char.full_title || char.name}</div>`;
+  html += `<div style="font-size:0.75rem;color:#8a7a60;margin-top:2px;">${role} · ${char.age} años</div>`;
+  html += `</div>`;
+  html += `</div>`;
+
+  // Health bar
+  html += `<div style="margin-bottom:8px;">`;
+  html += `<div style="display:flex;justify-content:space-between;font-size:0.7rem;color:#8a7a60;margin-bottom:3px;"><span>❤️ Salud</span><span>${healthPct}%</span></div>`;
+  html += `<div style="background:rgba(0,0,0,0.4);border-radius:3px;height:6px;overflow:hidden;">`;
+  html += `<div style="width:${healthPct}%;height:100%;background:${healthColor};border-radius:3px;transition:width 0.3s;"></div>`;
+  html += `</div></div>`;
+
+  // Combat stats if available
+  if (char.attack_skill || char.defense_skill || char.leadership_skill) {
+    html += `<div style="display:flex;gap:8px;font-size:0.75rem;color:#a89060;margin-bottom:8px;">`;
+    if (char.attack_skill)    html += `<span>⚔️ Atq ${char.attack_skill}</span>`;
+    if (char.defense_skill)   html += `<span>🛡️ Def ${char.defense_skill}</span>`;
+    if (char.leadership_skill) html += `<span>📯 Lid ${char.leadership_skill}</span>`;
+    html += `</div>`;
+  }
+
+  html += `</div></div>`;
+  return html;
+};
+
+// Builds the fleet inspector HTML for the popup navigation
+const _generateFleetItemHTML = (fleet, totalItems, globalIndex) => {
+  const fid = fleet.army_id;
+  const hasDestination = !!fleet.destination;
+  const btnStyle    = 'background:#1e1e38;border:1px solid #3a3a5c;color:#e2e8f0;border-radius:4px;padding:3px 11px;font-size:1rem;line-height:1;cursor:pointer;';
+  const btnDisStyle = btnStyle + 'opacity:0.3;cursor:not-allowed;';
+  const prevDis = globalIndex === 0;
+  const nextDis = globalIndex === totalItems - 1;
+  const actionBtnBase = 'padding:5px;border:none;border-radius:4px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;';
+
+  let html = '<div class="army-inspector">';
+
+  // Nav bar
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 10px;background:rgba(0,0,0,0.45);border-bottom:1px solid #2d2d4a;margin-bottom:4px;">`;
+  html += `<button onclick="event.stopPropagation();window.armyPopupNavigate(-1)" ${prevDis ? 'disabled' : ''} style="${prevDis ? btnDisStyle : btnStyle}">◀</button>`;
+  html += `<span style="font-family:sans-serif;font-size:0.72rem;color:#6b7280;letter-spacing:1.5px;text-transform:uppercase;">⛵ Flota · ${globalIndex + 1}/${totalItems}</span>`;
+  html += `<button onclick="event.stopPropagation();window.armyPopupNavigate(1)" ${nextDis ? 'disabled' : ''} style="${nextDis ? btnDisStyle : btnStyle}">▶</button>`;
+  html += `</div>`;
+
+  // Fleet card
+  html += `<div style="padding:12px 14px;font-family:sans-serif;font-size:13px;">`;
+  html += `<strong style="font-size:14px;">⛵ ${fleet.name}</strong><br>`;
+  html += `<div style="display:flex;gap:10px;font-size:11px;color:#6b7280;margin:4px 0 6px;">`;
+  html += `<span>🚢 ${fleet.total_ships} barcos</span><span>📦 ${fleet.total_capacity} capacidad</span>`;
+  html += `</div>`;
+  if (hasDestination) {
+    html += `<div style="font-size:11px;color:#f59e0b;margin-bottom:6px;">→ En marcha</div>`;
+  }
+  html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px;">`;
+  html += `<button id="fl-move-${fid}" style="${actionBtnBase}background:#1e40af;">➡️ Moverse</button>`;
+  html += `<button id="fl-stop-${fid}" ${hasDestination ? '' : 'disabled'} style="${actionBtnBase}background:${hasDestination ? '#7c3aed' : '#374151'};opacity:${hasDestination ? 1 : 0.45};cursor:${hasDestination ? 'pointer' : 'not-allowed'};">⏹ Detenerse</button>`;
+  html += `<button id="fl-embark-${fid}" style="${actionBtnBase}background:#065f46;">⚓ Embarcar</button>`;
+  html += `<button id="fl-disembark-${fid}" style="${actionBtnBase}background:#7c2d12;">🏖️ Desembarcar</button>`;
+  html += `</div>`;
+  html += `<div id="fl-panel-${fid}" style="margin-top:8px;font-size:12px;"></div>`;
+  html += `</div></div>`;
+  return html;
+};
+
+// Attaches action listeners to fleet buttons inside the navigation popup
+const attachFleetListeners = (fleet) => {
+  const fid = fleet.army_id;
+
+  document.getElementById(`fl-move-${fid}`)?.addEventListener('click', () => {
+    map.closePopup();
+    window.startFleetMovement(fid, fleet.name, fleet.h3_index);
+  });
+
+  const stopBtn = document.getElementById(`fl-stop-${fid}`);
+  if (stopBtn && !stopBtn.disabled) {
+    stopBtn.addEventListener('click', async () => {
+      try {
+        await mapApi.stopFleet(fid);
+        map.closePopup();
+        RouteVisualizer.clearArmy(fid);
+        showToast(`⏹ ${fleet.name} detenida.`, 'info');
+        await fetchHexagonData();
+      } catch (err) {
+        showToast(`❌ ${err?.response?.data?.message || 'Error al detener la flota'}`, 'error');
+      }
+    });
+  }
+
+  document.getElementById(`fl-embark-${fid}`)?.addEventListener('click', async () => {
+    const panel = document.getElementById(`fl-panel-${fid}`);
+    if (!panel) return;
+    panel.innerHTML = '<span style="color:#9ca3af;">Cargando...</span>';
+    try {
+      const data = await mapApi.getEmbarkableArmies(fid);
+      const armies  = data.armies               || [];
+      const chars   = data.standalone_characters || [];
+      const workers = data.standalone_workers    || [];
+      const rowStyle = 'display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #374151;';
+      const btnGreen = 'padding:2px 8px;border:none;border-radius:3px;background:#065f46;color:#fff;font-size:11px;cursor:pointer;';
+      let html = '';
+
+      if (armies.length) {
+        html += `<div style="font-size:10px;color:#9ca3af;margin:4px 0 2px;">⚔️ Ejércitos</div>`;
+        html += armies.map(a => {
+          const parts = [];
+          if (a.troop_count > 0) parts.push(`⚔️ ${a.troop_count}`);
+          if (a.char_count  > 0) parts.push(`👑 ${a.char_count}`);
+          const label = parts.length ? `${a.name} (${parts.join(' ')})` : a.name;
+          return `<div style="${rowStyle}"><span style="font-size:12px;">${label}</span>
+            <button onclick="window.doFleetEmbark(${fid},${a.army_id},'${a.name.replace(/'/g, "\\'")}',this)" style="${btnGreen}">Embarcar</button></div>`;
+        }).join('');
+      }
+
+      if (chars.length) {
+        html += `<div style="font-size:10px;color:#9ca3af;margin:4px 0 2px;">👑 Personajes sueltos</div>`;
+        html += chars.map(c =>
+          `<div style="${rowStyle}"><span style="font-size:12px;">👑 ${c.name}</span>
+            <button onclick="window.doFleetEmbarkChar(${fid},${c.id},'${c.name.replace(/'/g, "\\'")}',this)" style="${btnGreen}">Embarcar</button></div>`
+        ).join('');
+      }
+
+      if (workers.length) {
+        html += `<div style="font-size:10px;color:#9ca3af;margin:4px 0 2px;">⛏️ Constructores (${workers.length})</div>`;
+        html += workers.map(w =>
+          `<div style="${rowStyle}"><span style="font-size:12px;">⛏️ Constructor #${w.id}</span>
+            <button onclick="window.doFleetEmbarkWorker(${fid},${w.id},this)" style="${btnGreen}">Embarcar</button></div>`
+        ).join('');
+      }
+
+      panel.innerHTML = html || '<span style="color:#6b7280;">Nada disponible para embarcar.</span>';
+    } catch { panel.innerHTML = '<span style="color:#ef4444;">Error al cargar.</span>'; }
+  });
+
+  document.getElementById(`fl-disembark-${fid}`)?.addEventListener('click', async () => {
+    const panel = document.getElementById(`fl-panel-${fid}`);
+    if (!panel) return;
+    panel.innerHTML = '<span style="color:#9ca3af;">Cargando...</span>';
+    try {
+      const data = await mapApi.getFleetDetail(fid);
+      const cargo   = data.fleet?.cargo || {};
+      const armies  = cargo.embarked_armies   || [];
+      const chars   = cargo.standalone_chars  || [];
+      const workers = cargo.standalone_workers || [];
+      const rowStyle = 'display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #374151;';
+      const btnRed = 'padding:2px 8px;border:none;border-radius:3px;background:#7c2d12;color:#fff;font-size:11px;cursor:pointer;';
+      let html = '';
+
+      if (armies.length) {
+        html += `<div style="font-size:10px;color:#9ca3af;margin:4px 0 2px;">⚔️ Ejércitos</div>`;
+        html += armies.map(a => `<div style="${rowStyle}">
+          <span>⚔️ ${a.name} (${a.troop_count})</span>
+          <button onclick="window.doFleetDisembark(${a.army_id},'${a.name.replace(/'/g, "\\'")}',${fid},this)" style="${btnRed}">Desembarcar</button>
+        </div>`).join('');
+      }
+
+      if (chars.length) {
+        html += `<div style="font-size:10px;color:#9ca3af;margin:4px 0 2px;">👑 Personajes</div>`;
+        html += chars.map(c => `<div style="${rowStyle}">
+          <span>👑 ${c.name}</span>
+          <button onclick="window.doFleetDisembarkChar(${c.id},'${c.name.replace(/'/g, "\\'")}',${fid},this)" style="${btnRed}">Desembarcar</button>
+        </div>`).join('');
+      }
+
+      if (workers.length) {
+        html += `<div style="font-size:10px;color:#9ca3af;margin:4px 0 2px;">⛏️ Constructores</div>`;
+        html += workers.map(w => `<div style="${rowStyle}">
+          <span>⛏️ ${w.type_name} #${w.id}</span>
+          <button onclick="window.doFleetDisembarkWorker(${w.id},${fid},this)" style="${btnRed}">Desembarcar</button>
+        </div>`).join('');
+      }
+
+      panel.innerHTML = html || '<span style="color:#6b7280;">Nada embarcado.</span>';
+    } catch { panel.innerHTML = '<span style="color:#ef4444;">Error al cargar carga.</span>'; }
+  });
 };
 
 /**
@@ -3295,18 +4958,43 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
     // Compute scouting info for the enemy popup button
     const { hasExplorersAtHex, scoutingArmyId, attackingArmyId } = _getScoutingInfo(_pp_armies);
 
-    // Build popup HTML content using external generator
-    const popupContent = generateArmyPopup(data, {
-      currentPlayerId: playerId.value,
-      h3_index,
-      coord_x,
-      coord_y,
-      hexOwnerId: _pp_coords.ownerId,
-      currentIndex: 0,
-      hasExplorersAtHex,
-      scoutingArmyId,
-      attackingArmyId
-    });
+    // Characters at this hex (own, age >= 16, not riding with an army)
+    if (_char_cache.length === 0) await fetchAndRenderCharacters();
+    const charsAtHex = _char_cache.filter(c => c.h3_index === h3_index && !c.army_id && c.age >= 16);
+    const characterAtHex = charsAtHex[0] ?? null; // legacy — for assign-commander button
+
+    // Fleets at this hex (own fleets cached from last fetchHexagonData)
+    const fleetsAtHex = _all_fleets.filter(f => f.h3_index === h3_index);
+
+    // Build combined items list: armies → characters → fleets
+    _pp_items = [
+      ..._pp_armies.map(a => ({ type: 'army',      data: a })),
+      ...charsAtHex.map(c => ({ type: 'character', data: c })),
+      ...fleetsAtHex.map(f => ({ type: 'fleet',    data: f })),
+    ];
+
+    if (_pp_items.length === 0) return;
+
+    // Initial render depends on the type of the first item
+    const firstItem = _pp_items[0];
+    let popupContent;
+    if (firstItem.type === 'fleet') {
+      popupContent = _generateFleetItemHTML(firstItem.data, _pp_items.length, 0);
+    } else {
+      popupContent = generateArmyPopup(data, {
+        currentPlayerId: playerId.value,
+        h3_index,
+        coord_x,
+        coord_y,
+        hexOwnerId: _pp_coords.ownerId,
+        currentIndex: 0,
+        totalItems: _pp_items.length,
+        hasExplorersAtHex,
+        scoutingArmyId,
+        attackingArmyId,
+        characterAtHex
+      });
+    }
 
     // Create and show popup — store reference for navigation
     const popup = L.popup({
@@ -3319,12 +5007,15 @@ const showArmyDetailsPopup = async (h3_index, latLng) => {
 
     _pp_ref = popup;
 
-    // Attach listeners for the first army after DOM renders
+    // Attach listeners for the first item after DOM renders
     setTimeout(() => {
-      if (_pp_armies.length === 0) return;
-      const first = _pp_armies[0];
-      if (first.player_id === playerId.value) attachArmyListeners(first, h3_index);
-      else attachEnemyListeners(first);
+      if (firstItem.type === 'fleet') {
+        attachFleetListeners(firstItem.data);
+      } else if (_pp_armies.length > 0) {
+        const first = _pp_armies[0];
+        if (first.player_id === playerId.value) attachArmyListeners(first, h3_index);
+        else attachEnemyListeners(first);
+      }
     }, 100);
 
   } catch (error) {
@@ -3400,6 +5091,117 @@ const colonizeFromPopup = async (h3_index) => {
     // CRITICAL: Always reset the colonizing state, even if there was an error
     isColonizing.value = false;
     console.log('[Colonize] State reset, ready for next colonization');
+  }
+};
+
+/**
+ * Get building icon emoji by building name
+ */
+const getBuildingIcon = (name = '', typeName = '') => {
+  const n = name.toLowerCase();
+  const t = (typeName || '').toLowerCase();
+  if (n.includes('granja') || n.includes('farm')) return '🌾';
+  if (n.includes('astillero') || n.includes('shipyard') ||
+      n.includes('portus') || n.includes('cothon') ||
+      n.includes('emporio') || n.includes('embarcadero') || t === 'maritime') return '⛵';
+  if (n.includes('mina') || n.includes('mine')) return '⛏️';
+  if (n.includes('aserradero') || n.includes('lumber')) return '🌲';
+  if (n.includes('mercado') || n.includes('market') || n.includes('foro') || n.includes('factor') || n.includes('lonja') || n.includes('feria')) return '⚖️';
+  if (t === 'military') return '🏰';
+  if (t === 'religious') return '🏛️';
+  if (t === 'economic') return '⚖️';
+  return '🗼';
+};
+
+/**
+ * Open the building construction modal for a fief (shows only base buildings)
+ */
+const openBuildModal = async (h3_index) => {
+  try {
+    buildModalH3.value = h3_index;
+    buildModalBuildings.value = [];
+    showBuildModal.value = true;
+    const data = await mapApi.getBuildings();
+    // Only show buildings with no prerequisite (base-level buildings)
+    buildModalBuildings.value = (data.buildings || []).filter(b => !b.required_building_id);
+  } catch (err) {
+    showToast('Error al cargar catálogo de edificios', 'error');
+    showBuildModal.value = false;
+  }
+};
+
+/**
+ * Close the building construction modal
+ */
+const closeBuildModal = () => {
+  showBuildModal.value = false;
+  buildModalH3.value = null;
+  buildModalBuildings.value = [];
+  buildModalOpenedFromWorker.value = false;
+};
+
+/**
+ * Open the building upgrade modal for a fief
+ */
+const openUpgradeModal = (h3_index, upgrade) => {
+  upgradeModalH3.value = h3_index;
+  upgradeModalBuilding.value = upgrade;
+  showUpgradeModal.value = true;
+};
+
+/**
+ * Close the building upgrade modal
+ */
+const closeUpgradeModal = () => {
+  showUpgradeModal.value = false;
+  upgradeModalH3.value = null;
+  upgradeModalBuilding.value = null;
+};
+
+/**
+ * Execute fief building upgrade
+ */
+const doUpgrade = async () => {
+  if (isUpgrading.value) return;
+  try {
+    isUpgrading.value = true;
+    const data = await mapApi.upgradeFiefBuilding(upgradeModalH3.value);
+    if (data.success) {
+      closeUpgradeModal();
+      await updateFiefsUI();
+      showToast(`🏰 Ampliación iniciada: ${data.building_name}`, 'success');
+    } else {
+      showToast(data.message || 'Error al iniciar ampliación', 'error');
+    }
+  } catch (err) {
+    showToast(err.response?.data?.message || 'Error al iniciar ampliación', 'error');
+  } finally {
+    isUpgrading.value = false;
+  }
+};
+
+/**
+ * Start construction of a building in a fief
+ */
+const doConstruct = async (h3_index, building_id) => {
+  if (isConstructing.value) return;
+  try {
+    isConstructing.value = true;
+    const data = await mapApi.constructBuilding(h3_index, building_id);
+    if (data.success) {
+      playerGold.value = data.new_gold_balance;
+      const building = buildModalBuildings.value.find(b => b.id === building_id);
+      const buildingName = building?.name || data.building_name || 'edificio';
+      closeBuildModal();
+      await updateFiefsUI();
+      showToast(`🏗️ Construcción iniciada: ${buildingName}`, 'success');
+    } else {
+      showToast(data.message || 'Error al iniciar construcción', 'error');
+    }
+  } catch (err) {
+    showToast(err.response?.data?.message || 'Error al iniciar construcción', 'error');
+  } finally {
+    isConstructing.value = false;
   }
 };
 
@@ -3573,6 +5375,10 @@ const handleArmyDismissed = async ({ message, armyDissolved }) => {
   if (armyDissolved) RouteVisualizer.clearAll?.();
 };
 
+const handleArmiesTransferred = async () => {
+  await Promise.all([fetchTroops(), fetchArmyData()]);
+};
+
 /**
  * Maneja el resultado de un ataque manual lanzado desde TroopsPanel.
  * Refresca ejércitos y marcadores del mapa, muestra resultado al jugador.
@@ -3731,8 +5537,18 @@ const pollNotifications = async () => {
   }
 };
 
+const fetchPendingRelations = async () => {
+  try {
+    const data = await mapApi.getPendingRelations();
+    pendingRelationsCount.value = data.pending?.length ?? 0;
+  } catch {
+    // fallo silencioso
+  }
+};
+
 const startNotifPolling = () => {
-  pollNotifications(); // carga inicial inmediata
+  pollNotifications();      // carga inicial inmediata
+  fetchPendingRelations();  // badge inicial
   notifPollIntervalId = setInterval(pollNotifications, NOTIF_POLL_INTERVAL);
 };
 
@@ -3754,9 +5570,13 @@ const handleNotificationRead = async (notif) => {
   }
 };
 
-const handleNotificationsReadAll = () => {
-  // The API call was already made inside NotificationsPanel; just sync local state
-  notifications.value.forEach(n => { n.is_read = true; });
+const handleNotificationsReadTab = async (type) => {
+  // Local state already updated optimistically in NotificationsPanel
+  try {
+    await mapApi.markNotificationsTypeRead(type);
+  } catch (err) {
+    console.error('Error al marcar tab como leído:', err);
+  }
 };
 
 /**
@@ -3765,32 +5585,41 @@ const handleNotificationsReadAll = () => {
 const openRecruitmentForFief = async (fief) => {
   activeKingdomTab.value = 'military';
   selectedRecruitmentFief.value = fief;
-  
-  if (unitTypes.value.length === 0) {
-    await fetchUnitTypes();
-  }
+  recruitablePool.value = null;
+
+  const [, poolData] = await Promise.all([
+    unitTypes.value.length === 0 ? fetchUnitTypes() : Promise.resolve(),
+    mapApi.getRecruitablePool(fief.h3_index).catch(() => null),
+  ]);
+  if (poolData?.success) recruitablePool.value = poolData.recruitable;
 };
 
 /**
  * Handle recruitment event from MilitaryPanel
  */
-const handleRecruitmentEmit = async ({ fief, army_name, units }) => {
+const handleRecruitmentEmit = async ({ fief, army_name, units, mode = 'field' }) => {
   try {
     isRecruiting.value = true;
     const response = await mapApi.bulkRecruit({
       h3_index: fief.h3_index,
       army_name,
       units,
+      mode,
     });
 
     if (response.success) {
       const totalTroops = units.reduce((s, u) => s + u.quantity, 0);
-      showToast(`✅ Batallón "${response.army_name}" reclutado con ${totalTroops} tropas en ${fief.name}`, 'success');
+      if (mode === 'garrison') {
+        showToast(`🏰 ${totalTroops} tropas acuarteladas en ${fief.name}`, 'success');
+      } else {
+        showToast(`✅ Batallón "${response.army_name}" reclutado con ${totalTroops} tropas en ${fief.name}`, 'success');
+      }
       await fetchPlayerData();
-      await fetchArmyCapacity();
+      if (mode === 'field') await fetchArmyCapacity();
       await updateFiefsUI();
       activeKingdomTab.value = 'fiefs';
       selectedRecruitmentFief.value = null;
+      recruitablePool.value = null;
     } else {
       showToast(response.message, 'error');
     }
@@ -3922,6 +5751,201 @@ const totalUpkeep = computed(() => {
 });
 
 /**
+ * Fetch the player's own worker list for the market panel.
+ * Also called after buying a worker to keep the panel in sync.
+ */
+const fetchMyWorkers = async () => {
+  loadingWorkers.value = true;
+  try {
+    const data = await mapApi.getMyWorkers();
+    if (data.success) {
+      myWorkers.value = data.workers;
+      // Redibujar rutas de constructores en azul
+      data.workers.forEach(w => {
+        if (w.destination_h3) {
+          RouteVisualizer.drawWorkerPath(w.id, w.h3_index, w.destination_h3);
+        } else {
+          RouteVisualizer.clearWorker(w.id);
+        }
+      });
+    }
+  } catch {
+    // Non-critical
+  } finally {
+    loadingWorkers.value = false;
+  }
+};
+
+/**
+ * Start worker movement from the market panel (closes panel, activates crosshair).
+ * @param {number} workerId - ID of the specific worker to move
+ * @param {string} fromH3   - Hex where the worker is currently located
+ */
+const startWorkerMoveFromPanel = (workerId, fromH3) => {
+  activePanel.value = null; // Close panel so the map is clickable
+  window.startWorkerMovement(fromH3, workerId);
+};
+
+/**
+ * Start bridge construction from the market panel.
+ * @param {string} h3_index
+ */
+const buildBridgeFromPanel = async (h3_index) => {
+  try {
+    const result = await mapApi.startBridgeConstruction(h3_index);
+    if (result.success) {
+      showToast(`🌉 ${result.message}`, 'success');
+      await fetchHexagonData();
+      await fetchMyWorkers(); // workers consumed — refresh panel list
+    } else {
+      showToast(`⚠️ ${result.message}`, 'warning');
+    }
+  } catch (err) {
+    const msg = err?.response?.data?.message || 'Error al iniciar la construcción';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
+/**
+ * Load worker type definitions once on mount.
+ * Stored in workerTypes ref and passed into popup config for the hire form.
+ */
+const loadWorkerTypes = async () => {
+  try {
+    const data = await mapApi.getWorkerTypes();
+    if (data.success) workerTypes.value = data.worker_types;
+  } catch {
+    // Non-critical — popup will just hide the hire form
+  }
+};
+
+/**
+ * Hire a worker from the cell popup.
+ */
+/**
+ * Start a bridge construction from the worker map popup.
+ * Workers at h3_index are consumed. Only valid on Río / Agua terrain.
+ */
+const buildBridgeFromPopup = async (h3_index) => {
+  try {
+    const result = await mapApi.startBridgeConstruction(h3_index);
+    if (result.success) {
+      showToast(`🌉 ${result.message}`, 'success');
+      await fetchHexagonData();
+      fetchMyWorkers(); // remove consumed workers from market panel
+    } else {
+      showToast(`⚠️ ${result.message}`, 'warning');
+    }
+  } catch (err) {
+    const msg = err?.response?.data?.message || 'Error al iniciar la construcción';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
+const repairBuildingFromPopup = async (h3_index) => {
+  try {
+    const result = await mapApi.repairBuilding({ h3_index });
+    if (result.success) {
+      showToast(`🔧 ${result.message}`, 'success');
+      playerGold.value = Math.max(0, playerGold.value - (result.repair_cost || 0));
+      map.closePopup();
+      await fetchHexagonData();
+    }
+  } catch (err) {
+    const msg = err?.response?.data?.message || 'Error al reparar el edificio';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
+const buyWorkerFromMarketPanel = async (h3_index, worker_type_id) => {
+  try {
+    const workerType = workerTypes.value.find(t => t.id === worker_type_id);
+    const result = await mapApi.buyWorker({ h3_index, worker_type_id });
+    if (result.success) {
+      showToast(`⛏️ ${result.message}`, 'success');
+      playerGold.value = Math.max(0, playerGold.value - (workerType?.cost ?? 0));
+      marketHireTypeId.value = null;
+      marketHireH3.value = null;
+      await fetchMyWorkers();
+    } else {
+      showToast(`❌ ${result.message}`, 'error');
+    }
+  } catch (err) {
+    const msg = err?.response?.data?.message || 'Error al contratar trabajador';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
+const buyWorkerFromPopup = async (h3_index, worker_type_id) => {
+  try {
+    const result = await mapApi.buyWorker({ h3_index, worker_type_id });
+    if (result.success) {
+      showToast(`⛏️ ${result.message}`, 'success');
+      map.closePopup();
+      await fetchHexagonData();
+      fetchMyWorkers(); // keep market panel in sync
+    }
+  } catch (err) {
+    const msg = err?.response?.data?.message || 'Error al contratar trabajador';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
+/**
+ * Creates a new fleet at a port hex and opens the Naval panel.
+ */
+const createFleetAtHex = async (h3_index) => {
+  try {
+    const result = await mapApi.createFleet(h3_index);
+    if (result.success) {
+      showToast(`⛵ Flota "${result.name}" creada en el puerto.`, 'success');
+      openOverlay('naval');
+    }
+  } catch (err) {
+    const msg = err?.response?.data?.message || 'Error al crear la flota.';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
+/**
+ * Upgrade farm level from KingdomPanel fiefs table.
+ */
+const handleUpgradeFarmFromTable = async ({ h3_index, cost }) => {
+  try {
+    const data = await mapApi.upgradeFarm(h3_index);
+    if (data.success) {
+      showToast(`🌾 ${data.message || 'Granja mejorada'}`, 'success');
+      playerGold.value = Math.max(0, playerGold.value - cost);
+      const fief = myFiefs.value.find(f => f.h3_index === h3_index);
+      if (fief) fief.farm_level = (fief.farm_level || 0) + 1;
+    } else {
+      showToast(`❌ ${data.message || 'Error al mejorar granja'}`, 'error');
+    }
+  } catch (err) {
+    showToast(`❌ ${err?.response?.data?.message || 'Error al mejorar granja'}`, 'error');
+  }
+};
+
+/**
+ * Hire a worker from the KingdomPanel fiefs table.
+ * @param {{ h3_index: string, worker_type_id: number, cost: number }} data
+ */
+const handleBuyWorkerFromTable = async ({ h3_index, worker_type_id, cost }) => {
+  try {
+    const result = await mapApi.buyWorker({ h3_index, worker_type_id });
+    if (result.success) {
+      showToast(`⛏️ ${result.message}`, 'success');
+      playerGold.value = Math.max(0, playerGold.value - cost);
+      await fetchHexagonData();
+      fetchMyWorkers(); // keep market panel in sync
+    }
+  } catch (err) {
+    const msg = err?.response?.data?.message || 'Error al contratar trabajador';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
+/**
  * Check authentication status
  * Loads user session from server
  */
@@ -3943,27 +5967,26 @@ const checkAuth = async () => {
       currentUser.value = response.user;
       localStorage.setItem('user', JSON.stringify(response.user));
       console.log(`[Auth] ✓ Session verified: ${currentUser.value.username} (${currentUser.value.role})`);
+      if (!response.user.is_initialized) {
+        showWelcomePanel.value = true;
+        console.log('[Auth] New player detected — showing Epic Initialization panel');
+      }
     } else {
-      // No session, clear user data
+      // No session, clear user data and redirect immediately
       currentUser.value = null;
       localStorage.removeItem('user');
       console.log('[Auth] ⚠️ No active session');
-
-      // Redirect to login
-      showToast('Por favor inicia sesión', 'error');
-      setTimeout(() => {
-        window.location.href = '/login.html';
-      }, 2000);
+      window.location.replace('/login.html');
     }
   } catch (err) {
-    console.error('[Auth] Error checking authentication (GET /api/auth/me):', err);
-    currentUser.value = null;
-    localStorage.removeItem('user');
-
-    // Redirect to login
-    setTimeout(() => {
-      window.location.href = '/login.html';
-    }, 2000);
+    // 401 is handled by the global axios interceptor in mapApi.js
+    // Only redirect here for non-401 errors (network failures, etc.)
+    if (err.response?.status !== 401) {
+      console.error('[Auth] Error checking authentication:', err);
+      currentUser.value = null;
+      localStorage.removeItem('user');
+      window.location.replace('/login.html');
+    }
   }
 };
 
@@ -3987,6 +6010,46 @@ const saveProfile = async () => {
     showToast(err?.response?.data?.error || 'Error de conexión', 'error');
   } finally {
     savingProfile.value = false;
+  }
+};
+
+/**
+ * Called when the Epic Initialization panel completes.
+ * Updates local user state and centers the map on the new capital.
+ */
+const onInitDone = ({ capital_h3 } = {}) => {
+  showWelcomePanel.value = false;
+  // Re-fetch full user data from server so culture_id, culture_name, etc. are up to date
+  mapApi.getAuthMe().then(response => {
+    if (response.success) {
+      currentUser.value = response.user;
+      localStorage.setItem('user', JSON.stringify(response.user));
+    }
+  }).catch(() => {});
+  // Center map on the new capital and refresh data
+  if (capital_h3) {
+    import('h3-js').then(({ cellToLatLng }) => {
+      const [lat, lng] = cellToLatLng(capital_h3);
+      if (map) map.setView([lat, lng], 13);
+    }).catch(() => {});
+  }
+  // Refresh fiefs, army capacity and division borders
+  updateFiefsUI();
+  fetchArmyCapacity();
+  fetchDivisionBoundaries();
+  mapApi.getCapital().then(r => {
+    if (r?.success) { capitalH3Index.value = r.h3_index; isExiled.value = r.is_exiled ?? false; }
+  }).catch(() => {});
+};
+
+/**
+ * Called when EconomyPanel reports a gold change (farm upgrade).
+ * Syncs the player gold in local state.
+ */
+const onGoldUpdated = (newGold) => {
+  if (currentUser.value) {
+    currentUser.value.gold = newGold;
+    localStorage.setItem('user', JSON.stringify(currentUser.value));
   }
 };
 
@@ -4083,6 +6146,223 @@ const setupMapInteractionController = () => {
     showToast('Movimiento cancelado', 'info');
   };
 
+  // Exponer función global para iniciar movimiento de un trabajador individual
+  window.startWorkerMovement = (fromH3, workerId) => {
+    console.log(`[MapViewer] Iniciando movimiento trabajador #${workerId} desde ${fromH3}`);
+    MapInteractionController.startWorkerMovement(fromH3, workerId);
+    if (map) {
+      map.getContainer().style.cursor = 'crosshair';
+    }
+    showToast('🎯 Selecciona el destino para los trabajadores. Click derecho para cancelar.', 'info');
+  };
+
+  // Exponer función global para iniciar movimiento de flota naval
+  window.startFleetMovement = (fleetId, fleetName, fleetH3) => {
+    MapInteractionController.startArmyMovement(`fleet_${fleetId}`, fleetName, fleetH3);
+    if (map) map.getContainer().style.cursor = 'crosshair';
+    showToast(`⛵ Selecciona el destino para ${fleetName}. Click derecho para cancelar.`, 'info');
+  };
+
+  // Embarcar / Desembarcar desde popup de flota en el mapa
+  window.doFleetEmbark = async (fleetId, armyId, armyName, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      const result = await mapApi.embarkArmy(fleetId, armyId);
+      showToast(`✅ ${armyName} embarcado.`, 'success');
+      if (result?.warning) showToast(`⚠️ ${result.warning}`, 'warning');
+      map.closePopup();
+      await fetchHexagonData();
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      showToast(`❌ ${err?.response?.data?.message || 'Error al embarcar'}`, 'error');
+    }
+  };
+
+  window.doFleetEmbarkChar = async (fleetId, charId, charName, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      await mapApi.embarkCharacter(fleetId, charId);
+      showToast(`✅ ${charName} embarcado.`, 'success');
+      map.closePopup();
+      await fetchHexagonData();
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      showToast(`❌ ${err?.response?.data?.message || 'Error al embarcar'}`, 'error');
+    }
+  };
+
+  window.doFleetEmbarkWorker = async (fleetId, workerId, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      await mapApi.embarkWorker(fleetId, workerId);
+      showToast(`✅ Constructor embarcado.`, 'success');
+      map.closePopup();
+      await fetchHexagonData();
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      showToast(`❌ ${err?.response?.data?.message || 'Error al embarcar'}`, 'error');
+    }
+  };
+
+  window.doFleetDisembark = async (armyId, armyName, fleetId, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      const landingData = await mapApi.getLandingHexes(fleetId);
+      if (!landingData.is_sea) {
+        // Coastal hex: land directly
+        await mapApi.disembarkArmy(armyId);
+        showToast(`✅ ${armyName} desembarcado.`, 'success');
+        map.closePopup();
+        await fetchHexagonData();
+      } else {
+        // Sea hex: need to pick a landing hex
+        const hexes = landingData.landing_hexes;
+        if (hexes.length === 0) {
+          showToast('No hay celdas de tierra adyacentes para desembarcar.', 'error');
+          if (btn) btn.disabled = false;
+          return;
+        }
+        if (hexes.length === 1) {
+          await mapApi.disembarkArmy(armyId, hexes[0].h3_index);
+          showToast(`✅ ${armyName} desembarcado en ${hexes[0].terrain_name}.`, 'success');
+          map.closePopup();
+          await fetchHexagonData();
+        } else {
+          // Show inline hex selector in the panel
+          const panel = btn?.closest('[id^="fl-panel-"]');
+          if (panel) {
+            const btnStyle = 'margin:2px;padding:3px 8px;border:none;border-radius:3px;background:#7c2d12;color:#fff;font-size:11px;cursor:pointer;';
+            panel.innerHTML = `<div style="font-size:11px;color:#d1d5db;margin-bottom:4px;">⚓ Elige celda de desembarco:</div>` +
+              hexes.map(hx => `<button onclick="window.doFleetDisembarkAt(${armyId},'${armyName.replace(/'/g, "\\'")}','${hx.h3_index}','${hx.terrain_name}',this)"
+                style="${btnStyle}">🏖️ ${hx.terrain_name} <span style="font-size:9px;opacity:0.6;">${hx.h3_index.slice(0,8)}…</span></button>`
+              ).join('');
+          } else {
+            if (btn) btn.disabled = false;
+          }
+        }
+      }
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      showToast(`❌ ${err?.response?.data?.message || 'Error al desembarcar'}`, 'error');
+    }
+  };
+
+  window.doFleetDisembarkAt = async (armyId, armyName, targetH3, terrainName, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      await mapApi.disembarkArmy(armyId, targetH3);
+      showToast(`✅ ${armyName} desembarcado en ${terrainName}.`, 'success');
+      map.closePopup();
+      await fetchHexagonData();
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      showToast(`❌ ${err?.response?.data?.message || 'Error al desembarcar'}`, 'error');
+    }
+  };
+
+  window.doFleetDisembarkChar = async (charId, charName, fleetId, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      const landing = await mapApi.getLandingHexes(fleetId);
+      if (!landing.is_sea) {
+        await mapApi.disembarkCharacter(charId);
+        showToast(`✅ ${charName} desembarcado.`, 'success');
+        map.closePopup();
+        await fetchHexagonData();
+      } else if (landing.landing_hexes.length === 1) {
+        await mapApi.disembarkCharacter(charId, landing.landing_hexes[0].h3_index);
+        showToast(`✅ ${charName} desembarcado en ${landing.landing_hexes[0].terrain_name}.`, 'success');
+        map.closePopup();
+        await fetchHexagonData();
+      } else if (landing.landing_hexes.length > 1) {
+        const panel = btn?.closest('[id^="fl-panel-"]');
+        if (panel) {
+          const btnRed = 'padding:2px 8px;border:none;border-radius:3px;background:#7c2d12;color:#fff;font-size:11px;cursor:pointer;margin:2px;';
+          panel.innerHTML = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px;">Elige dónde desembarcar a ${charName}:</div>` +
+            landing.landing_hexes.map(hx =>
+              `<button onclick="window.doFleetDisembarkCharAt(${charId},'${charName.replace(/'/g, "\\'")}',${fleetId},'${hx.h3_index}','${hx.terrain_name}',this)" style="${btnRed}">${hx.terrain_name}</button>`
+            ).join('');
+        }
+        if (btn) btn.disabled = false;
+      } else {
+        showToast('❌ No hay hexes de tierra adyacentes.', 'error');
+        if (btn) btn.disabled = false;
+      }
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      showToast(`❌ ${err?.response?.data?.message || 'Error al desembarcar'}`, 'error');
+    }
+  };
+
+  window.doFleetDisembarkCharAt = async (charId, charName, fleetId, targetH3, terrainName, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      await mapApi.disembarkCharacter(charId, targetH3);
+      showToast(`✅ ${charName} desembarcado en ${terrainName}.`, 'success');
+      map.closePopup();
+      await fetchHexagonData();
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      showToast(`❌ ${err?.response?.data?.message || 'Error al desembarcar'}`, 'error');
+    }
+  };
+
+  window.doFleetDisembarkWorker = async (workerId, fleetId, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      const landing = await mapApi.getLandingHexes(fleetId);
+      if (!landing.is_sea) {
+        await mapApi.disembarkWorker(workerId);
+        showToast(`✅ Constructor desembarcado.`, 'success');
+        map.closePopup();
+        await fetchHexagonData();
+      } else if (landing.landing_hexes.length === 1) {
+        await mapApi.disembarkWorker(workerId, landing.landing_hexes[0].h3_index);
+        showToast(`✅ Constructor desembarcado en ${landing.landing_hexes[0].terrain_name}.`, 'success');
+        map.closePopup();
+        await fetchHexagonData();
+      } else if (landing.landing_hexes.length > 1) {
+        const panel = btn?.closest('[id^="fl-panel-"]');
+        if (panel) {
+          const btnRed = 'padding:2px 8px;border:none;border-radius:3px;background:#7c2d12;color:#fff;font-size:11px;cursor:pointer;margin:2px;';
+          panel.innerHTML = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px;">Elige dónde desembarcar el constructor:</div>` +
+            landing.landing_hexes.map(hx =>
+              `<button onclick="window.doFleetDisembarkWorkerAt(${workerId},${fleetId},'${hx.h3_index}','${hx.terrain_name}',this)" style="${btnRed}">${hx.terrain_name}</button>`
+            ).join('');
+        }
+        if (btn) btn.disabled = false;
+      } else {
+        showToast('❌ No hay hexes de tierra adyacentes.', 'error');
+        if (btn) btn.disabled = false;
+      }
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      showToast(`❌ ${err?.response?.data?.message || 'Error al desembarcar'}`, 'error');
+    }
+  };
+
+  window.doFleetDisembarkWorkerAt = async (workerId, fleetId, targetH3, terrainName, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      await mapApi.disembarkWorker(workerId, targetH3);
+      showToast(`✅ Constructor desembarcado en ${terrainName}.`, 'success');
+      map.closePopup();
+      await fetchHexagonData();
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      showToast(`❌ ${err?.response?.data?.message || 'Error al desembarcar'}`, 'error');
+    }
+  };
+
+  // Exponer función global para iniciar movimiento de personaje
+  window.startCharacterMovement = (characterId, characterName, fromH3) => {
+    console.log(`[MapViewer] Iniciando movimiento personaje: ${characterName} (${characterId}) desde ${fromH3}`);
+    // Reutiliza el modo de selección de ejército pero guarda el contexto como personaje
+    MapInteractionController.startArmyMovement(`char_${characterId}`, characterName, fromH3);
+    if (map) map.getContainer().style.cursor = 'crosshair';
+    showToast(`🎯 Selecciona el destino para ${characterName}. Click derecho para cancelar.`, 'info');
+  };
+
   // Registrar callback para cambios de modo
   MapInteractionController.setOnModeChange((mode, data) => {
     console.log(`[MapViewer] Modo de interacción cambió a: ${mode}`, data);
@@ -4102,6 +6382,57 @@ const setupMapInteractionController = () => {
  * @param {string} targetH3 - Hexágono destino
  * @param {string} armyName - Nombre del ejército (para feedback)
  */
+const processCharacterMovement = async (characterId, targetH3, characterName) => {
+  try {
+    const response = await mapApi.moveCharacter(characterId, targetH3);
+    if (response.success) {
+      showToast(`✅ ${characterName} en marcha hacia destino`, 'success');
+      if (response.path && response.from) {
+        RouteVisualizer.drawPath(`char_${characterId}`, response.path, response.from);
+      }
+      await fetchAndRenderCharacters();
+    } else {
+      showToast(`⚠️ ${response.message || 'No se pudo mover el personaje'}`, 'warning');
+    }
+  } catch (error) {
+    const msg = error.response?.data?.message || 'Error al mover personaje';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
+/**
+ * Dispatcher común para onSelectDestination en todos los handlers del mapa.
+ * Enruta según prefijo: fleet_ → processFleetMovement, char_ → processCharacterMovement, resto → processArmyMovement.
+ */
+const dispatchMovement = async (armyId, targetH3, armyName) => {
+  const sid = String(armyId);
+  if (sid.startsWith('fleet_')) {
+    await processFleetMovement(parseInt(sid.replace('fleet_', ''), 10), targetH3, armyName);
+  } else if (sid.startsWith('char_')) {
+    await processCharacterMovement(parseInt(sid.replace('char_', ''), 10), targetH3, armyName);
+  } else {
+    await processArmyMovement(armyId, targetH3, armyName);
+  }
+};
+
+const processFleetMovement = async (fleetId, targetH3, fleetName) => {
+  try {
+    const response = await mapApi.moveFleet(fleetId, targetH3);
+    if (response.success) {
+      showToast(`✅ ${response.message || `${fleetName} en marcha hacia ${targetH3}`}`, 'success');
+      if (response.data?.path && response.data?.from) {
+        RouteVisualizer.drawPath(fleetId, response.data.path, response.data.from);
+      }
+      await fetchHexagonData();
+    } else {
+      showToast(`⚠️ ${response.message || 'No se pudo mover la flota'}`, 'warning');
+    }
+  } catch (error) {
+    const msg = error.response?.data?.message || error.message || 'Error al mover la flota';
+    showToast(`❌ ${msg}`, 'error');
+  }
+};
+
 const processArmyMovement = async (armyId, targetH3, armyName) => {
   try {
     console.log(`[MapViewer] Procesando movimiento: Ejército ${armyId} → ${targetH3}`);
@@ -4126,6 +6457,37 @@ const processArmyMovement = async (armyId, targetH3, armyName) => {
   } catch (error) {
     console.error('[MapViewer] Error procesando movimiento:', error);
     const errorMsg = error.response?.data?.message || error.message || 'Error al mover ejército';
+    showToast(`❌ ${errorMsg}`, 'error');
+  }
+};
+
+/**
+ * Envía la orden de movimiento para todos los trabajadores propios en fromH3.
+ * @param {string} fromH3 - Hex origen donde están los trabajadores
+ * @param {string} targetH3 - Hex destino seleccionado por el jugador
+ */
+const processWorkerMovement = async (workerId, fromH3, targetH3) => {
+  try {
+    const parsedId = Number(workerId);
+    if (!parsedId || !Number.isFinite(parsedId)) {
+      console.error(`[MapViewer] workerId inválido: ${workerId}. Recarga la página e inténtalo de nuevo.`);
+      showToast('Error: ID de trabajador no disponible. Recarga la página.', 'error');
+      return;
+    }
+    console.log(`[MapViewer] Movimiento trabajador #${parsedId}: ${fromH3} → ${targetH3}`);
+    const response = await mapApi.setWorkerHexDestination(parsedId, targetH3);
+
+    if (response.success) {
+      showToast(`✅ ${response.message || `Trabajadores en ruta hacia ${targetH3}`}`, 'success');
+      RouteVisualizer.drawWorkerPath(parsedId, fromH3, targetH3);
+      await fetchMyWorkers();
+      await fetchHexagonData();
+    } else {
+      showToast(`⚠️ ${response.message || 'No se pudo mover los trabajadores'}`, 'warning');
+    }
+  } catch (error) {
+    console.error('[MapViewer] Error procesando movimiento de trabajadores:', error);
+    const errorMsg = error.response?.data?.message || error.message || 'Error al mover trabajadores';
     showToast(`❌ ${errorMsg}`, 'error');
   }
 };
@@ -4231,6 +6593,7 @@ const handleKeyDown = (event) => {
 // Lifecycle hooks
 onMounted(() => {
   checkAuth(); // Check authentication first
+  loadWorkerTypes(); // Load worker type catalog for popup hire form
   initMap();
   fetchTerrainTypes();
   fetchWorldState();
@@ -4240,6 +6603,8 @@ onMounted(() => {
   loadMessages(); // Load initial messages
   startSync(); // Start server synchronization (polls every 30 seconds)
   startNotifPolling(); // Start background notification polling (every 45 seconds)
+  fetchDivisionBoundaries(); // Load political division borders
+  fetchMyWorkers();          // Draw worker movement routes on startup
   // Pre-fetch capital so the "Fundar Capital" button condition is reliable from the first click
   mapApi.getCapital().then(r => {
     if (r?.success) { capitalH3Index.value = r.h3_index; isExiled.value = r.is_exiled ?? false; }
@@ -4372,7 +6737,7 @@ onBeforeUnmount(() => {
   position: fixed;
   left: 0;
   top: 0;
-  width: 260px; /* Ancho amplio para legibilidad */
+  width: 300px; /* Ancho amplio para legibilidad */
   height: 100vh; /* Ocupa todo el alto */
   background: #110f0d; /* Fondo oscuro medieval */
   background-image:
@@ -4559,8 +6924,32 @@ onBeforeUnmount(() => {
 }
 
 /* Sidebar Footer */
+.legal-links {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 8px 4px;
+  flex-wrap: wrap;
+}
+
+.legal-links a {
+  font-size: 0.6rem;
+  color: #3a2e20;
+  text-decoration: none;
+  letter-spacing: 0.3px;
+  transition: color 0.2s;
+  font-family: var(--font-sans);
+}
+
+.legal-links a:hover { color: #6a5a40; }
+
+.legal-sep {
+  font-size: 0.6rem;
+  color: #2a2015;
+}
+
 .sidebar-footer {
-  padding: 12px;
+  padding: 12px 12px 4px;
   border-top: 2px solid var(--color-accent-gold);
   display: flex;
   flex-direction: column;
@@ -4595,6 +6984,18 @@ onBeforeUnmount(() => {
 
 .username {
   font-family: var(--font-sans);
+  font-size: 0.75rem;
+}
+
+.culture-badge {
+  display: block;
+  font-size: 0.68rem;
+  font-family: var(--font-sans);
+  color: var(--gold-light, #c5a059);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  margin-top: 1px;
 }
 
 /* Profile panel */
@@ -4712,9 +7113,9 @@ onBeforeUnmount(() => {
 #context-panel,
 .context-panel {
   position: fixed;
-  left: 260px; /* Justo después del sidebar de 260px */
+  left: 300px; /* Justo después del sidebar de 300px */
   top: 0;
-  width: calc(50vw - 260px); /* Ocupa la mitad del espacio restante */
+  width: calc(50vw - 300px); /* Ocupa la mitad del espacio restante */
   height: 100vh;
   background: #1c1814; /* Marrón oscuro (estilo pergamino viejo) */
   background-image:
@@ -4799,6 +7200,265 @@ onBeforeUnmount(() => {
   font-style: italic;
   text-align: center;
   padding: 40px 20px;
+}
+
+/* ── Market Panel ── */
+.market-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.market-section {
+  padding: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.market-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #c5a059;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.market-worker-count {
+  background: rgba(197,160,89,0.2);
+  color: #c5a059;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.market-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.market-hire-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.market-select {
+  width: 100%;
+  padding: 5px 8px;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(197,160,89,0.35);
+  border-radius: 4px;
+  color: #e8d5b5;
+  font-size: 12px;
+  cursor: pointer;
+}
+.market-select:focus { outline: none; border-color: #c5a059; }
+
+.market-hint {
+  font-size: 10px;
+  color: var(--color-text-dim);
+  margin: 0;
+}
+
+.market-food-price-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.market-price-label {
+  font-size: 11px;
+  color: var(--color-text-dim);
+}
+
+.market-price-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fbbf24;
+}
+
+.market-food-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.market-qty-input {
+  flex: 1;
+  padding: 5px 8px;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(197,160,89,0.35);
+  border-radius: 4px;
+  color: #e8d5b5;
+  font-size: 12px;
+  min-width: 0;
+}
+.market-qty-input:focus { outline: none; border-color: #c5a059; }
+
+.market-food-total {
+  font-size: 11px;
+  color: #fbbf24;
+  white-space: nowrap;
+}
+
+.market-food-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.market-btn {
+  flex: 1;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.market-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.market-btn:not(:disabled):hover { opacity: 0.85; }
+
+.market-btn-hire {
+  background: #b45309;
+  color: #fef3c7;
+}
+.market-btn-hire:disabled { background: #374151; color: #6b7280; }
+
+.market-btn-buy {
+  background: #16a34a;
+  color: #f0fdf4;
+}
+
+.market-btn-sell {
+  background: #b45309;
+  color: #fef3c7;
+}
+
+.btn-refresh-workers {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0.7;
+}
+.btn-refresh-workers:hover { opacity: 1; }
+
+.workers-loading,
+.workers-empty {
+  text-align: center;
+  color: var(--color-text-dim);
+  font-size: 12px;
+  padding: 20px 8px;
+}
+.workers-hint {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.workers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  max-height: calc(100vh - 200px);
+}
+
+.worker-card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.worker-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.worker-type-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f59e0b;
+}
+
+.worker-id {
+  font-size: 10px;
+  color: var(--color-text-dim);
+}
+
+.worker-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--color-text-dim);
+}
+
+.worker-en-route {
+  color: #34d399;
+  font-size: 11px;
+}
+
+.worker-card-stats {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--color-text-dim);
+}
+
+.worker-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.worker-btn {
+  flex: 1;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.worker-btn:hover:not(:disabled) { opacity: 0.85; }
+
+.worker-btn-build {
+  background: #374151;
+  color: #9ca3af;
+  border: 1px solid #4b5563;
+  cursor: not-allowed;
+}
+
+.worker-btn-build-active {
+  background: #22c55e;
+  color: #14532d;
+}
+
+.worker-btn-move {
+  background: #f59e0b;
+  color: #1c1917;
+}
+
+.worker-terrain {
+  font-size: 10px;
+  color: #60a5fa;
 }
 
 /* Layers Panel Sections */
@@ -5241,6 +7901,18 @@ onBeforeUnmount(() => {
 
 .fief-food {
   color: var(--color-accent-gold);
+}
+
+.fief-autonomy {
+  color: #a0c4a0;
+}
+
+.fief-autonomy--ok {
+  color: #6fcf97;
+}
+
+.fief-autonomy--low {
+  color: #e74c3c;
 }
 
 .loading-more {
@@ -7228,6 +9900,200 @@ onBeforeUnmount(() => {
   }
 }
 
+/* ============================================
+   Building Construction Modal
+   ============================================ */
+.build-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.build-modal {
+  background: #1c1814;
+  border: 2px solid #c5a059;
+  border-radius: 10px;
+  padding: 24px;
+  width: 600px;
+  max-width: 95vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.7);
+  font-family: 'Cinzel', serif;
+}
+
+.build-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.build-modal-title {
+  color: #ffd700;
+  font-size: 1.3rem;
+  margin: 0;
+}
+
+.build-modal-close {
+  background: none;
+  border: 1px solid #5d4e37;
+  color: #e8d5b5;
+  font-size: 1rem;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.build-modal-close:hover {
+  background: rgba(197, 160, 89, 0.2);
+  border-color: #c5a059;
+}
+
+.build-modal-subtitle {
+  color: #a89875;
+  font-size: 0.78rem;
+  margin: 0 0 18px;
+  font-family: monospace;
+}
+
+.build-modal-h3 {
+  color: #e8d5b5;
+}
+
+.build-cards-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.build-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid #5d4e37;
+  border-radius: 8px;
+  padding: 12px 14px;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.build-card:hover:not(.build-card-disabled) {
+  border-color: #c5a059;
+  background: rgba(197, 160, 89, 0.08);
+}
+
+.build-card-disabled {
+  opacity: 0.5;
+}
+
+.build-card-icon {
+  font-size: 2rem;
+  min-width: 40px;
+  text-align: center;
+}
+
+.build-card-info {
+  flex: 1;
+}
+
+.build-card-name {
+  color: #ffd700;
+  font-size: 1rem;
+  margin: 0 0 2px;
+}
+
+.build-card-type {
+  color: #a89875;
+  font-size: 0.72rem;
+  margin: 0 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.build-card-desc {
+  color: #c8b89a;
+  font-size: 0.82rem;
+  margin: 0 0 8px;
+  font-family: 'Palatino Linotype', serif;
+  font-style: italic;
+}
+
+.build-card-stats {
+  display: flex;
+  gap: 12px;
+}
+
+.build-stat {
+  color: #e8d5b5;
+  font-size: 0.82rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
+.build-stat-food {
+  color: #4caf50;
+}
+
+.build-card-btn {
+  background: linear-gradient(135deg, #8b6914, #c5a059);
+  border: none;
+  color: #1c1814;
+  font-family: 'Cinzel', serif;
+  font-size: 0.85rem;
+  font-weight: bold;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  min-width: 90px;
+}
+
+.build-card-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #c5a059, #ffd700);
+  transform: translateY(-1px);
+}
+
+.build-card-btn:disabled {
+  background: #3a3028;
+  color: #6a5a40;
+  cursor: not-allowed;
+}
+
+.build-empty {
+  text-align: center;
+  color: #a89875;
+  font-style: italic;
+  padding: 30px;
+}
+
+.upgrade-preview {
+  padding: 8px 0;
+}
+
+.upgrade-card {
+  border-color: rgba(93, 63, 211, 0.5) !important;
+  background: rgba(30, 20, 60, 0.6) !important;
+}
+
+.upgrade-warning {
+  text-align: center;
+  color: #ff9800;
+  font-size: 0.82rem;
+  margin-top: 10px;
+  padding: 6px 12px;
+  background: rgba(255, 152, 0, 0.1);
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  border-radius: 6px;
+}
+
 /* Toast Notifications - Bottom Right Corner */
 .toast-container {
   position: fixed;
@@ -7281,6 +10147,7 @@ onBeforeUnmount(() => {
 .toast-message {
   flex: 1;
   line-height: 1.5;
+  white-space: pre-line;
 }
 
 .toast-success {
@@ -7409,7 +10276,7 @@ onBeforeUnmount(() => {
 .game-overlay {
   position: fixed;
   top: 0;
-  left: 260px; /* After sidebar */
+  left: 300px; /* After sidebar */
   right: 0;
   bottom: 0;
   background: linear-gradient(135deg,
@@ -7874,6 +10741,14 @@ onBeforeUnmount(() => {
 /* ========================================
    MILITARY RECRUITMENT PANEL
    ======================================== */
+.divisions-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: linear-gradient(135deg, #0f0a04 0%, #1a1208 100%);
+}
+
 .military-recruitment-panel {
   flex: 1;
   display: flex;
@@ -8300,5 +11175,182 @@ onBeforeUnmount(() => {
 .current-fief-mini {
   padding: 15px !important;
   border-color: rgba(255, 215, 0, 0.4) !important;
+}
+
+/* ============================================
+   HEX STACKER MARKER
+   ============================================ */
+
+/* ── Character map markers ─────────────────────────────────────── */
+:deep(.char-map-marker) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  color: #c5a059;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8));
+  cursor: default;
+}
+
+:deep(.char-map-marker svg) {
+  background: #1a1008;
+  border: 2px solid #c5a059;
+  border-radius: 50%;
+  padding: 2px;
+  width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+}
+
+:deep(.char-map-marker--main svg) {
+  border-color: #ffd700;
+  color: #ffd700;
+  box-shadow: 0 0 8px 2px rgba(255,215,0,0.5);
+}
+
+:deep(.char-map-marker--enemy) {
+  color: var(--enemy-color, #e53e3e);
+}
+:deep(.char-map-marker--enemy svg) {
+  background: #1a0808;
+  border-color: var(--enemy-color, #e53e3e);
+  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--enemy-color, #e53e3e) 40%, transparent);
+}
+
+
+:deep(.char-map-name) {
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px #000, 0 0 4px #000;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+:deep(.char-map-tooltip) {
+  background: rgba(20, 12, 4, 0.92);
+  border: 1px solid rgba(197,160,89,0.5);
+  color: #e8d5a3;
+  border-radius: 5px;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+:deep(.char-leaflet-popup .leaflet-popup-content-wrapper) {
+  background: #1a1008;
+  border: 1px solid rgba(197,160,89,0.4);
+  border-radius: 8px;
+  color: #e8d5a3;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  padding: 0;
+}
+:deep(.char-leaflet-popup .leaflet-popup-tip) {
+  background: #1a1008;
+}
+:deep(.char-leaflet-popup .leaflet-popup-content) {
+  margin: 0;
+}
+
+:deep(.char-popup) {
+  padding: 10px 12px;
+  min-width: 180px;
+}
+:deep(.char-popup-header) {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+:deep(.char-popup-icon) {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+:deep(.char-popup-name) {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #e8d5a3;
+  line-height: 1.3;
+}
+:deep(.char-popup-meta) {
+  font-size: 0.68rem;
+  color: #a89070;
+  margin-top: 2px;
+}
+:deep(.char-popup-actions) {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-start;
+}
+:deep(.char-popup-moving) {
+  font-size: 0.65rem;
+  color: #ffd93d;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+/* Strip Leaflet's default divIcon styles so our container is clean */
+:deep(.hex-stacker-icon) {
+  background: none !important;
+  border: none !important;
+  /* overflow:visible lets the troop count badge peek outside the icon box */
+  overflow: visible !important;
+}
+
+/* The outer wrapper div generated by HexStacker.js */
+:deep(.hex-stacker) {
+  overflow: visible;
+}
+
+/* The troops slot — pointer-events come from inline style, but ensure cursor */
+:deep(.hex-stacker .hs-troops) {
+  cursor: pointer;
+}
+
+/* H3 Search Widget */
+.h3-search-widget {
+  position: fixed;
+  top: 12px;
+  left: 312px; /* 300px sidebar + 12px gap */
+  z-index: 1000;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.h3-search-input {
+  width: 160px;
+  padding: 5px 8px;
+  background: rgba(17, 15, 13, 0.85);
+  border: 1px solid #5a4a2a;
+  border-radius: 4px;
+  color: #d4b483;
+  font-size: 12px;
+  outline: none;
+  backdrop-filter: blur(4px);
+}
+
+.h3-search-input::placeholder {
+  color: #7a6a4a;
+}
+
+.h3-search-input:focus {
+  border-color: #c8a96e;
+}
+
+.h3-search-btn {
+  padding: 5px 8px;
+  background: rgba(17, 15, 13, 0.85);
+  border: 1px solid #5a4a2a;
+  border-radius: 4px;
+  color: #d4b483;
+  font-size: 12px;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: border-color 0.15s;
+}
+
+.h3-search-btn:hover {
+  border-color: #c8a96e;
 }
 </style>

@@ -2,7 +2,7 @@ const pool = require('../../db.js');
 
 class AdminModel {
     async ResetWorld() {
-        await pool.query("UPDATE world_state SET current_turn = 0, game_date = '1039-03-01' WHERE id = 1");
+        await pool.query("UPDATE world_state SET current_turn = 0, game_date = '0210-01-01 BC' WHERE id = 1");
     }
     async GetStats() {
         const world = (await pool.query('SELECT current_turn, game_date FROM world_state WHERE id = 1')).rows[0];

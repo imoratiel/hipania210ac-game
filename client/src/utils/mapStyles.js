@@ -22,10 +22,10 @@ export function getHexagonFillStyle(hex, config) {
   let fillOpacity = 1.0; // Opacidad completa para máxima claridad visual
 
   // Override fill logic based on priorities
-  if (isCapital && isMyTerritory) {
+  if (isPoliticalView && isCapital && isMyTerritory) {
     fillColor = '#ff0000';
     fillOpacity = 1.0;
-  } else if (isMyTerritory) {
+  } else if (isPoliticalView && isMyTerritory) {
     fillColor = '#ff0000';
     fillOpacity = 1.0;
   } else if (isPoliticalView && hex.player_id) {
@@ -63,13 +63,8 @@ export function getHexagonBorderStyle(hex, config) {
   let borderColor = '#d32f2f';
   let borderWeight = 3;
 
-  // Logic from requirements for CAPITAL
-  if (isCapital) {
-    borderColor = '#ff0000';
-    borderWeight = 6;
-  }
-  // Logic for other cases (Roads, Enemies)
-  else if (isMyTerritory) {
+  // Capital uses the same border style as any own territory (icon is enough distinction)
+  if (isPoliticalView && isMyTerritory) {
     borderColor = '#d32f2f';
     borderWeight = 3;
   } else if (isPoliticalView && playerColor) {

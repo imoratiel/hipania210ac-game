@@ -2,7 +2,8 @@ const fs = require('fs');
 const path = require('path');
 
 // Directorio de logs
-const LOGS_DIR = path.join(__dirname, '..', '..', 'logs');
+const LOGS_DIR  = path.join(__dirname, '..', '..', 'logs');
+const BOTS_DIR  = path.join(LOGS_DIR, 'bots');
 
 // Archivos de log segregados
 const LOG_FILES = {
@@ -12,6 +13,80 @@ const LOG_FILES = {
     armies: path.join(LOGS_DIR, 'armies.log'), // Simulación de ejércitos
     legacy: path.join(LOGS_DIR, 'server.log') // Compatibilidad con código existente
 };
+
+// Archivo que guarda la fecha de la última rotación
+const ROTATION_MARKER = path.join(LOGS_DIR, '.last_rotation');
+// Días entre rotaciones
+const ROTATION_DAYS = 15;
+// Cuántas rotaciones históricas conservar por archivo (15 días × 2 = 30 días de historial)
+const MAX_ROTATIONS = 2;
+
+/**
+ * Rota los archivos de log actuales añadiendo la fecha al nombre,
+ * vacía los logs activos y elimina históricos más antiguos.
+ */
+function rotateLogs() {
+    try {
+        const dateTag = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+        // Rotar archivos de log principales
+        for (const [key, filePath] of Object.entries(LOG_FILES)) {
+            if (!fs.existsSync(filePath)) continue;
+
+            // Renombrar actual → archivo histórico con fecha
+            const ext = path.extname(filePath);         // .log
+            const base = filePath.slice(0, -ext.length); // ruta sin extensión
+            const rotated = `${base}.${dateTag}${ext}`;
+            fs.renameSync(filePath, rotated);
+
+            // Eliminar históricos que superen MAX_ROTATIONS
+            const dir = path.dirname(filePath);
+            const baseName = path.basename(base);
+            const oldFiles = fs.readdirSync(dir)
+                .filter(f => f.startsWith(baseName + '.') && f.endsWith(ext) && f !== path.basename(filePath))
+                .map(f => ({ name: f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
+                .sort((a, b) => a.mtime - b.mtime); // más antiguo primero
+
+            while (oldFiles.length > MAX_ROTATIONS) {
+                fs.unlinkSync(path.join(dir, oldFiles.shift().name));
+            }
+        }
+
+        // Limpiar logs de bots con más de ROTATION_DAYS días de antigüedad
+        if (fs.existsSync(BOTS_DIR)) {
+            const cutoff = Date.now() - ROTATION_DAYS * 24 * 60 * 60 * 1000;
+            fs.readdirSync(BOTS_DIR)
+                .filter(f => f.endsWith('.log'))
+                .forEach(f => {
+                    const full = path.join(BOTS_DIR, f);
+                    if (fs.statSync(full).mtimeMs < cutoff) fs.unlinkSync(full);
+                });
+        }
+
+        // Guardar fecha de esta rotación
+        fs.writeFileSync(ROTATION_MARKER, new Date().toISOString(), 'utf8');
+        console.log(`✓ Logs rotated (${dateTag})`);
+    } catch (error) {
+        console.error('Error rotating logs:', error);
+    }
+}
+
+/**
+ * Comprueba si han pasado ROTATION_DAYS días desde la última rotación.
+ * Si es así, ejecuta la rotación.
+ */
+function checkLogRotation() {
+    try {
+        if (fs.existsSync(ROTATION_MARKER)) {
+            const last = new Date(fs.readFileSync(ROTATION_MARKER, 'utf8').trim());
+            const daysSince = (Date.now() - last.getTime()) / (1000 * 60 * 60 * 24);
+            if (daysSince < ROTATION_DAYS) return;
+        }
+        rotateLogs();
+    } catch (error) {
+        console.error('Error checking log rotation:', error);
+    }
+}
 
 /**
  * Inicializar sistema de logging
@@ -25,15 +100,14 @@ function initializeLogger() {
             console.log('✓ Logs directory created');
         }
 
-        // Limpiar logs antiguos al inicio del servidor (opcional)
-        // Comentado para mantener histórico entre reinicios
-        /*
-        Object.values(LOG_FILES).forEach(file => {
-            if (fs.existsSync(file)) {
-                fs.unlinkSync(file);
-            }
-        });
-        */
+        // Crear subdirectorio de bots si no existe
+        if (!fs.existsSync(BOTS_DIR)) {
+            fs.mkdirSync(BOTS_DIR, { recursive: true });
+            console.log('✓ Bots logs directory created');
+        }
+
+        // Rotar logs si han pasado 15 días desde la última rotación
+        checkLogRotation();
 
         const startupMessage = `========== SERVER STARTED: ${new Date().toISOString()} ==========`;
         appendToLog(LOG_FILES.engine, startupMessage);
@@ -100,6 +174,20 @@ function logArmy(armyId, eventType, message, metadata = {}) {
     const fullMessage = `[ARMY:${armyId}] [${eventType}] ${message}${metaInfo}`;
 
     appendToLog(LOG_FILES.armies, fullMessage);
+}
+
+/**
+ * Registrar eventos de un agente IA en su propio archivo de log.
+ * Archivo: logs/bots/bot_id{botId}.log
+ * @param {number|string} botId   - player_id del agente IA
+ * @param {string}        message - Mensaje a registrar
+ * @param {Object}        [metadata] - Datos adicionales opcionales
+ */
+function logBot(botId, message, metadata = {}) {
+    const botFile   = path.join(BOTS_DIR, `bot_id${botId}.log`);
+    const metaInfo  = Object.keys(metadata).length > 0 ? ` | ${JSON.stringify(metadata)}` : '';
+    const fullMessage = `${message}${metaInfo}`;
+    appendToLog(botFile, fullMessage);
 }
 
 /**
@@ -200,6 +288,7 @@ function logGameEvent(message) {
  * @param {Object} res - Response de Express
  * @param {Function} next - Next middleware
  */
+// TODO(dead-code): Sin referencias de uso en el proyecto; revisar y eliminar si no se reutiliza.
 function errorLoggingMiddleware(err, req, res, next) {
     logError(err, {
         endpoint: req.originalUrl || req.url,
@@ -241,6 +330,14 @@ const Logger = {
     army: logArmy,
 
     /**
+     * Registrar un evento de un agente IA en su log individual (logs/bots/bot_id{id}.log)
+     * @param {number|string} botId - player_id del agente IA
+     * @param {string} message - Mensaje
+     * @param {Object} [metadata] - Metadata adicional
+     */
+    bot: logBot,
+
+    /**
      * Registrar error con stack trace
      * @param {Error} error - Error
      * @param {Object} context - Contexto del error
@@ -258,5 +355,6 @@ module.exports = {
     Logger,
     logGameEvent,
     initializeLogger,
+    rotateLogs,
     errorLoggingMiddleware
 };

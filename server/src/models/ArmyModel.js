@@ -1,4 +1,5 @@
 const db = require('../../db.js'); // Tu conexión a DB
+const { CHARACTERS: { COMBAT_BUFF_BASE, COMBAT_BUFF_PER_LEVEL } } = require('../config/constants');
 
 class ArmyModel {
     async findById(armyId) {
@@ -30,15 +31,31 @@ class ArmyModel {
             SELECT
                 a.army_id, a.name, a.player_id,
                 a.gold_provisions, a.food_provisions, a.wood_provisions,
+                a.is_garrison,
                 p.display_name AS player_name,
                 p.color AS player_color,
                 a.destination,
-                a.recovering
+                a.recovering,
+                CASE WHEN c.id IS NOT NULL THEN json_build_object(
+                    'id',              c.id,
+                    'name',            c.name,
+                    'full_title',      CONCAT(
+                                           CASE WHEN p2.gender = 'F' THEN nr.title_female ELSE nr.title_male END,
+                                           ' ', c.name
+                                       ),
+                    'level',           c.level,
+                    'personal_guard',  c.personal_guard,
+                    'combat_buff_pct', $2 + (c.level - 1) * $3
+                ) ELSE NULL END AS commander
             FROM armies a
-            JOIN players p ON a.player_id = p.player_id
+            JOIN players p  ON a.player_id = p.player_id
+            LEFT JOIN characters c  ON c.army_id = a.army_id
+            LEFT JOIN players p2    ON p2.player_id = c.player_id
+            LEFT JOIN noble_ranks nr ON nr.id = p2.noble_rank_id
             WHERE a.h3_index = $1
+              AND a.is_naval = FALSE
         `;
-        const result = await db.query(query, [h3_index]);
+        const result = await db.query(query, [h3_index, COMBAT_BUFF_BASE, COMBAT_BUFF_PER_LEVEL]);
         return result;
     }
     async GetArmyUnits(army_id) {
@@ -46,7 +63,7 @@ class ArmyModel {
             SELECT
                 t.unit_type_id, t.quantity, t.experience, t.morale,
                 ut.name AS unit_name, ut.attack, ut.health_points,
-                t.stamina, t.force_rest
+                t.stamina, t.force_rest, ut.unit_class
             FROM troops t
             JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
             WHERE t.army_id = $1
@@ -86,10 +103,16 @@ class ArmyModel {
                 a.h3_index,
                 a.player_id,
                 COUNT(DISTINCT a.army_id) AS army_count,
-                SUM(t.quantity) AS total_troops
+                COALESCE(SUM(CASE WHEN NOT a.is_naval THEN t.quantity ELSE 0 END), 0)::int AS total_troops,
+                BOOL_OR(a.is_garrison) AS has_garrison,
+                BOOL_OR(a.is_naval)    AS has_naval,
+                BOOL_OR(CASE WHEN a.is_naval THEN EXISTS(
+                    SELECT 1 FROM armies a2 WHERE a2.transported_by = a.army_id
+                ) ELSE FALSE END) AS has_embarked_armies
             FROM armies a
-            LEFT JOIN troops t ON a.army_id = t.army_id
+            LEFT JOIN troops t ON a.army_id = t.army_id AND NOT a.is_naval
             WHERE a.h3_index = ANY($1::text[])
+              AND (a.transported_by IS NULL)
             GROUP BY a.h3_index, a.player_id
             ORDER BY a.h3_index
         `;
@@ -147,6 +170,8 @@ class ArmyModel {
                 ut.food_consumption,
                 ut.is_siege,
                 ut.descrip,
+                ut.culture_id,
+                ut.unit_class,
                 COALESCE(
                     json_agg(
                         json_build_object(
@@ -159,7 +184,7 @@ class ArmyModel {
             FROM unit_types ut
             LEFT JOIN unit_requirements ur ON ut.unit_type_id = ur.unit_type_id
             GROUP BY ut.unit_type_id, ut.name, ut.attack, ut.health_points, ut.speed,
-                     ut.gold_upkeep, ut.food_consumption, ut.is_siege, ut.descrip
+                     ut.gold_upkeep, ut.food_consumption, ut.is_siege, ut.descrip, ut.culture_id, ut.unit_class
             ORDER BY ut.unit_type_id
         `;
         const result = await db.query(query);
@@ -178,13 +203,31 @@ class ArmyModel {
     }
     async GetTerritoryForRecruitment(client, h3_index) {
         const result = await client.query(
-            `SELECT td.h3_index, td.population, td.wood_stored, td.stone_stored, td.iron_stored, m.player_id
+            `SELECT td.h3_index, td.population, td.wood_stored, td.stone_stored, td.iron_stored,
+                    m.player_id, p.capital_h3, p.culture_id
              FROM territory_details td
              JOIN h3_map m ON td.h3_index = m.h3_index
+             LEFT JOIN players p ON m.player_id = p.player_id
              WHERE td.h3_index = $1`,
             [h3_index]
         );
         return result;
+    }
+    /**
+     * Returns true if h3_index has a completed military building (Cuartel, Fortaleza, etc.)
+     */
+    async CheckMilitaryBuildingInFief(client, h3_index) {
+        const result = await client.query(
+            `SELECT 1
+             FROM fief_buildings fb
+             JOIN buildings b ON fb.building_id = b.id
+             JOIN building_types bt ON b.type_id = bt.building_type_id
+             WHERE fb.h3_index = $1
+               AND fb.is_under_construction = FALSE
+               AND bt.name = 'military'`,
+            [h3_index]
+        );
+        return result.rows.length > 0;
     }
     async DeductPopulation(client, h3_index, amount) {
         await client.query(
@@ -199,19 +242,28 @@ class ArmyModel {
         );
         return result;
     }
-    async CreateArmy(client, army_name, player_id, h3_index) {
+    async CreateArmy(client, army_name, player_id, h3_index, is_garrison = false) {
         const result = await client.query(
-            `INSERT INTO armies (name, player_id, h3_index)
-             VALUES ($1, $2, $3)
+            `INSERT INTO armies (name, player_id, h3_index, is_garrison)
+             VALUES ($1, $2, $3, $4)
              RETURNING army_id`,
-            [army_name, player_id, h3_index]
+            [army_name, player_id, h3_index, is_garrison]
         );
         return result;
+    }
+
+    async GetGarrisonAtHex(client, h3_index, player_id) {
+        const result = await client.query(
+            `SELECT army_id FROM armies WHERE h3_index = $1 AND player_id = $2 AND is_garrison = TRUE LIMIT 1`,
+            [h3_index, player_id]
+        );
+        return result.rows[0] || null;
     }
     async AddTroops(client, army_id, unit_type_id, quantity) {
         await client.query(
             `INSERT INTO troops (army_id, unit_type_id, quantity, experience, morale, stamina, force_rest)
-             VALUES ($1, $2, $3, 10.00, 50.00, 100.00, false)`,
+             SELECT $1, $2, $3, COALESCE(ut.initial_experience, 0), 50.00, 100.00, false
+             FROM unit_types ut WHERE ut.unit_type_id = $2`,
             [army_id, unit_type_id, quantity]
         );
     }
@@ -280,7 +332,8 @@ class ArmyModel {
                     WHERE ea.h3_index = a.h3_index AND ea.player_id != a.player_id
                 ) AS enemy_count,
                 COALESCE(td.grace_turns, 0)::int AS fief_grace_turns,
-                (m.player_id = a.player_id) AS is_own_fief
+                (m.player_id = a.player_id) AS is_own_fief,
+                a.is_garrison
             FROM armies a
             LEFT JOIN h3_map m ON a.h3_index = m.h3_index
             LEFT JOIN territory_details td ON a.h3_index = td.h3_index
@@ -288,7 +341,9 @@ class ArmyModel {
             LEFT JOIN troops t ON t.army_id = a.army_id
             LEFT JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
             WHERE a.player_id = $1
-            GROUP BY a.army_id, a.name, a.h3_index, a.destination, m.coord_x, m.coord_y, td.custom_name, s.name, td.grace_turns, m.player_id
+              AND (a.is_naval = FALSE OR a.is_naval IS NULL)
+              AND a.transported_by IS NULL
+            GROUP BY a.army_id, a.name, a.h3_index, a.destination, m.coord_x, m.coord_y, td.custom_name, s.name, td.grace_turns, m.player_id, a.is_garrison
             ORDER BY a.name
         `;
         const result = await db.query(query, [player_id]);
@@ -296,7 +351,7 @@ class ArmyModel {
     }
     async GetArmyWithPlayer(army_id) {
         const result = await db.query(
-            'SELECT army_id, name, h3_index, player_id FROM armies WHERE army_id = $1',
+            'SELECT army_id, name, h3_index, player_id, is_garrison FROM armies WHERE army_id = $1',
             [army_id]
         );
         return result;
@@ -329,8 +384,17 @@ class ArmyModel {
                     COALESCE(td.stone_stored, 0) AS fief_stone,
                     COALESCE(td.iron_stored, 0) AS fief_iron,
                     (m.player_id = a.player_id) AS is_own_fief,
+                    a.is_garrison,
                     t.name AS terrain_name,
-                    pl.capital_h3
+                    pl.capital_h3,
+                    EXISTS (
+                        SELECT 1 FROM fief_buildings fb
+                        JOIN buildings b ON fb.building_id = b.id
+                        JOIN building_types bt ON b.type_id = bt.building_type_id
+                        WHERE fb.h3_index = a.h3_index
+                          AND bt.name = 'military'
+                          AND NOT fb.is_under_construction
+                    ) AS fief_has_military
              FROM armies a
              LEFT JOIN h3_map m ON a.h3_index = m.h3_index
              LEFT JOIN territory_details td ON a.h3_index = td.h3_index
@@ -343,7 +407,7 @@ class ArmyModel {
 
         const troopsResult = await db.query(
             `SELECT t.unit_type_id, t.quantity, t.experience, t.morale, t.stamina, t.force_rest,
-                    ut.name AS unit_name, ut.attack, ut.health_points, ut.speed
+                    ut.name AS unit_name, ut.attack, ut.health_points, ut.speed, ut.unit_class
              FROM troops t
              JOIN unit_types ut ON ut.unit_type_id = t.unit_type_id
              WHERE t.army_id = $1
@@ -351,7 +415,25 @@ class ArmyModel {
             [armyId]
         );
 
-        return { army: armyResult.rows[0], troops: troopsResult.rows };
+        const commanderResult = await db.query(
+            `SELECT c.id, c.name, c.level, c.personal_guard, c.is_captive,
+                    $2::int + (c.level - 1) * $3::int AS combat_buff_pct,
+                    CONCAT(
+                        CASE WHEN pl2.gender = 'F' THEN nr.title_female ELSE nr.title_male END,
+                        ' ', c.name
+                    ) AS full_title
+             FROM characters c
+             LEFT JOIN players pl2 ON pl2.player_id = c.player_id
+             LEFT JOIN noble_ranks nr ON nr.id = pl2.noble_rank_id
+             WHERE c.army_id = $1`,
+            [armyId, COMBAT_BUFF_BASE, COMBAT_BUFF_PER_LEVEL]
+        );
+
+        return {
+            army: armyResult.rows[0],
+            troops: troopsResult.rows,
+            commander: commanderResult.rows[0] ?? null,
+        };
     }
 
     async GetArmiesAtHexForMerge(client, h3_index, player_id, host_army_id) {
@@ -382,8 +464,9 @@ class ArmyModel {
     async GetPlayerArmyCapacity(client, player_id) {
         const result = await client.query(`
             SELECT
-                (SELECT COUNT(*) FROM armies WHERE player_id = $1)::int AS army_count,
-                (SELECT COUNT(*) FROM h3_map  WHERE player_id = $1)::int AS fief_count
+                (SELECT COUNT(*) FROM armies WHERE player_id = $1 AND NOT is_garrison AND NOT is_naval)::int AS army_count,
+                (SELECT COUNT(*) FROM armies WHERE player_id = $1 AND is_naval = TRUE)::int                  AS fleet_count,
+                (SELECT COUNT(*) FROM h3_map  WHERE player_id = $1)::int                                     AS fief_count
         `, [player_id]);
         return result.rows[0];
     }
@@ -403,9 +486,96 @@ class ArmyModel {
         return result.rows[0];
     }
 
+    async GetArmiesAtHex(h3_index, player_id) {
+        const result = await db.query(
+            `SELECT
+                a.army_id, a.name, a.is_garrison,
+                CASE WHEN c.id IS NOT NULL THEN json_build_object(
+                    'id',              c.id,
+                    'name',            c.name,
+                    'full_title',      CONCAT(
+                                           CASE WHEN p.gender = 'F' THEN nr.title_female ELSE nr.title_male END,
+                                           ' ', c.name
+                                       ),
+                    'level',           c.level,
+                    'personal_guard',  c.personal_guard,
+                    'combat_buff_pct', $3 + (c.level - 1) * $4
+                ) ELSE NULL END AS commander
+             FROM armies a
+             LEFT JOIN characters c ON c.army_id = a.army_id
+             LEFT JOIN players p    ON p.player_id = a.player_id
+             LEFT JOIN noble_ranks nr ON nr.id = p.noble_rank_id
+             WHERE a.h3_index = $1 AND a.player_id = $2 AND a.destination IS NULL
+             ORDER BY a.army_id`,
+            [h3_index, player_id, COMBAT_BUFF_BASE, COMBAT_BUFF_PER_LEVEL]
+        );
+        return result.rows;
+    }
+
+    /**
+     * Returns a single troop row for a specific army + unit type (with stats).
+     */
+    async GetTroopGroup(client, army_id, unit_type_id) {
+        const result = await client.query(
+            `SELECT troop_id, quantity, experience, morale, stamina, force_rest
+             FROM troops WHERE army_id = $1 AND unit_type_id = $2`,
+            [army_id, unit_type_id]
+        );
+        return result.rows[0] || null;
+    }
+
+    /**
+     * Transfers quantity units of unit_type_id from fromArmyId to toArmyId.
+     * Applies weighted average stats. Both armies must be fetched before calling.
+     */
+    async TransferTroops(client, fromArmyId, toArmyId, unitTypeId, quantity) {
+        // Get source troop row
+        const src = await this.GetTroopGroup(client, fromArmyId, unitTypeId);
+        if (!src || parseInt(src.quantity) < quantity) {
+            throw new Error(`Tropas insuficientes para transferir (tipo ${unitTypeId})`);
+        }
+
+        const srcExp     = parseFloat(src.experience);
+        const srcMorale  = parseFloat(src.morale);
+        const srcStamina = parseFloat(src.stamina);
+        const srcRest    = src.force_rest;
+
+        // Get target troop row (may not exist)
+        const dst = await this.GetTroopGroup(client, toArmyId, unitTypeId);
+
+        if (dst) {
+            const dstQty    = parseInt(dst.quantity);
+            const totalQty  = dstQty + quantity;
+            const wExp      = Math.round((parseFloat(dst.experience) * dstQty + srcExp * quantity) / totalQty * 100) / 100;
+            const wMorale   = Math.round((parseFloat(dst.morale)     * dstQty + srcMorale * quantity) / totalQty * 100) / 100;
+            const wStamina  = Math.round((parseFloat(dst.stamina)    * dstQty + srcStamina * quantity) / totalQty * 100) / 100;
+            const newRest   = dst.force_rest || srcRest;
+
+            await client.query(
+                `UPDATE troops SET quantity=$1, experience=$2, morale=$3, stamina=$4, force_rest=$5
+                 WHERE army_id=$6 AND unit_type_id=$7`,
+                [totalQty, wExp, wMorale, wStamina, newRest, toArmyId, unitTypeId]
+            );
+        } else {
+            await client.query(
+                `INSERT INTO troops (army_id, unit_type_id, quantity, experience, morale, stamina, force_rest)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [toArmyId, unitTypeId, quantity, srcExp, srcMorale, srcStamina, srcRest]
+            );
+        }
+
+        // Decrease source
+        const remaining = parseInt(src.quantity) - quantity;
+        if (remaining <= 0) {
+            await client.query('DELETE FROM troops WHERE troop_id = $1', [src.troop_id]);
+        } else {
+            await client.query('UPDATE troops SET quantity=$1 WHERE troop_id=$2', [remaining, src.troop_id]);
+        }
+    }
+
     /**
      * Adds troops to an existing army, merging with existing rows of the same unit type.
-     * If no row exists for that unit_type_id, inserts a fresh one (experience=10, morale=50).
+     * If no row exists for that unit_type_id, inserts a fresh one (initial_experience from unit_types, morale=50).
      */
     async ReinforceTroops(client, army_id, unit_type_id, quantity) {
         const existing = await client.query(
@@ -420,7 +590,8 @@ class ArmyModel {
         } else {
             await client.query(
                 `INSERT INTO troops (army_id, unit_type_id, quantity, experience, morale, stamina, force_rest)
-                 VALUES ($1, $2, $3, 10.00, 50.00, 100.00, false)`,
+                 SELECT $1, $2, $3, COALESCE(ut.initial_experience, 0), 50.00, 100.00, false
+                 FROM unit_types ut WHERE ut.unit_type_id = $2`,
                 [army_id, unit_type_id, quantity]
             );
         }

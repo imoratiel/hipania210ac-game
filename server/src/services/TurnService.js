@@ -24,7 +24,7 @@ class TurnService {
             res.json({
                 success: true,
                 turn: state.current_turn,
-                date: state.game_date,
+                date: { day: state.day, month: state.month, year: state.year, era: state.era },
                 is_paused: state.is_paused
             });
         } catch (error) {
@@ -84,7 +84,6 @@ class TurnService {
 
             const engineRunning = isEngineActive();
             const gamePaused = state.is_paused;
-            const titheActive = CONFIG.gameplay?.tithe_active === true;
 
             res.json({
                 success: true,
@@ -96,20 +95,6 @@ class TurnService {
                         status: engineRunning ? (gamePaused ? 'paused' : 'active') : 'stopped',
                         startTime: engineInfo.startTime,
                         uptimeMs: engineInfo.uptimeMs,
-                    },
-                    {
-                        id: 'tax_collector',
-                        name: 'Recaudación Fiscal',
-                        description: `${CONFIG.gameplay?.tax_rate ?? 5}% del oro en feudos — día 10 de cada mes`,
-                        status: engineRunning && !gamePaused ? 'active' : 'inactive',
-                    },
-                    {
-                        id: 'tithe_system',
-                        name: 'Sistema de Diezmo',
-                        description: '10% de recursos hacia la capital — día 10 de cada mes',
-                        status: titheActive
-                            ? (engineRunning && !gamePaused ? 'active' : 'inactive')
-                            : 'disabled',
                     },
                     {
                         id: 'army_movement',
@@ -140,7 +125,9 @@ class TurnService {
             if (isEngineActive()) {
                 return res.json({ success: true, message: 'El motor ya está en ejecución.' });
             }
-            restartEngine();
+            // Use startTimeEngine directly so it works even after a cold start
+            // where _enginePool/_engineConfig were never set (engine_auto_start=false).
+            startTimeEngine(pool, CONFIG);
             // Persist so the engine auto-starts on next container restart
             await AdminModel.UpsertConfig('system', 'engine_auto_start', 'true');
             if (!CONFIG.system) CONFIG.system = {};

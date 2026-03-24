@@ -2,11 +2,12 @@ version: '3.8'
 
 services:
   # --- SERVIDOR DE APLICACIÓN (NODE.JS) ---
-  app:
+  backend:
     build:
       context: ./server
       dockerfile: Dockerfile
-    container_name: marca_hispanica_app
+    container_name: marca_hispanica_backend
+    tty: true
     restart: always
     # Puertos: mapeamos el 3000 de tu PC al 3000 del contenedor
     ports:
@@ -22,10 +23,17 @@ services:
       - NODE_ENV=development
       - DB_HOST=db
       - DB_PORT=5432
+      - CORS_ORIGINS=http://localhost:8080,http://localhost:5173
     # El servidor no arranca hasta que la base de datos esté lista
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - game-network
 
@@ -48,14 +56,62 @@ services:
       - pgdata:/var/lib/postgresql/data
       # Autoejecución de tus scripts de la carpeta /sql/
       - ./sql:/docker-entrypoint-initdb.d/:ro
-    # Verificación de salud para que 'app' sepa cuándo conectarse
+    # Verificación de salud para que 'backend' sepa cuándo conectarse
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}" ]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
       - game-network
+
+  client:    
+    container_name: marca_hispanica_client
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - game-network
+
+  # --- ORQUESTADOR DE KAFKA ---
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    profiles: ["kafka-stack"] # <--- Esto los oculta por defecto
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - game-network
+
+  # --- BROKER DE KAFKA ---
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    profiles: ["kafka-stack"] # <--- Esto los oculta por defecto
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092" # Para uso interno (otros contenedores)
+      - "9093:9093" # Para uso externo (tu PC Windows)
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      # Aquí está la magia:
+      # PLAINTEXT es para dentro de Docker (usa el puerto 9092)
+      # PLAINTEXT_HOST es para fuera de Docker (usa el puerto 9093)
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - game-network
+
 
 # --- RECURSOS COMPARTIDOS ---
 networks:

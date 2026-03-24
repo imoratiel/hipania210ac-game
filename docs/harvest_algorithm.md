@@ -1,0 +1,250 @@
+# Algoritmo de Cosecha (`processHarvest`)
+
+**Archivo:** `server/src/logic/turn_engine.js`
+
+---
+
+## Calendario de ejecución
+
+Cada turno equivale a **1 día** de juego (`game_date + INTERVAL '1 day'`). Los procesos económicos se ejecutan en distintas frecuencias:
+
+| Proceso | Frecuencia | Condición | Estado |
+|---|---|---|---|
+| Consumo civil de comida (territorio) | **Mensual** | `dayOfMonth === 1` | ✅ Activo |
+| Solidaridad alimentaria señorío | **Mensual** | `dayOfMonth === 1` (antes del consumo) | ✅ Activo |
+| Consumo militar (provisiones → feudo) | **Cada turno** (diario) | siempre | ✅ Activo |
+| Producción pesquera | **Mensual** | `dayOfMonth === 1` | ⛔ **Desactivado** |
+| **Cosecha agrícola + oro** | **2 veces/año** | `dayOfYear === 75` ó `dayOfYear === 180` | ✅ Activo |
+| Cobro de impuesto fiscal | Mensual | `dayOfMonth === 10` | ✅ Activo |
+
+`dayOfYear = turno_actual % days_per_year`
+
+Las cosechas representan la siega de **primavera** (día 75) y **otoño** (día 180).
+
+---
+
+## A. Solidaridad alimentaria del señorío — día 1 de cada mes (`processSeñorioFoodSolidarity`)
+
+Se ejecuta **antes** del consumo civil. Si un feudo va a quedarse sin comida para cubrir su consumo mensual, el señorío cubre el déficit tomando comida del feudo con mayor superávit dentro del mismo señorío.
+
+**Condiciones:**
+- El feudo en déficit pertenece a un señorío (`division_id IS NOT NULL`)
+- El feudo donante tiene superávit: `food_stored > monthly_consumption`
+- Transferencia: `MIN(déficit, superávit_del_donante)`
+
+El donante nunca queda por debajo de su propio consumo mensual. Si no hay ningún feudo con superávit en el señorío, el déficit no se cubre.
+
+---
+
+## B. Consumo civil — día 1 de cada mes (`processCivilFoodConsumption`)
+
+Todos los feudos con dueño descuentan comida una vez al mes, equivalente a 30 días de consumo:
+
+```
+food_stored -= floor(population / 100) × 0.1 × 30
+           = floor(population / 100) × 3
+```
+
+El valor no baja de 0 (`GREATEST(0, ...)`). Se ejecuta el mismo día que `processMonthlyProduction`.
+
+---
+
+## B. Consumo militar — cada turno (`processMilitaryConsumption`)
+
+Cada ejército calcula su consumo diario de comida:
+
+```
+consumo = floor( SUM(quantity × food_consumption) )
+```
+
+El consumo se cubre en este orden:
+1. **Provisiones del ejército** (`armies.food_provisions`) — se descuenta primero.
+2. **Feudo donde está acampado** (`territory_details.food_stored`) — solo si las provisiones se agotan y el feudo es del mismo jugador.
+
+Valores de `food_consumption` por unidad:
+
+| Unidad             | food_consumption/turno | Razón |
+|--------------------|------------------------|-------|
+| Milicia            | 0.001                  | 1 persona |
+| Soldados           | 0.001                  | 1 persona |
+| Lanceros           | 0.001                  | 1 persona |
+| Arqueros           | 0.001                  | 1 persona |
+| Ballesteros        | 0.001                  | 1 persona |
+| Caballería Ligera  | 0.003                  | jinete + caballo (~3 personas) |
+| Caballería Pesada  | 0.003                  | jinete + caballo (~3 personas) |
+| Explorador         | 0.003                  | explorador + montura (~3 personas) |
+| Ariete             | 0                      | maquinaria, sin consumo |
+| Catapulta          | 0                      | maquinaria, sin consumo |
+
+> Tasa de referencia: 1 persona consume `1/1000 = 0.001` comida/día (`floor(POP/100) × 0.1 / POP`)
+
+---
+
+## C. Producción pesquera — ⛔ DESACTIVADA
+
+> La producción pesquera está temporalmente comentada en `processMonthlyProduction` para simplificar el balance económico durante la fase de pruebas. El código permanece en `turn_engine.js` para reactivarlo cuando sea necesario.
+
+Los feudos con `fishing_output > 0` (terrenos costeros y fluviales) producirían comida mensualmente cuando se reactive:
+
+```
+fishingProduction = floor(fishing_output)   // sin multiplicadores actualmente
+food_stored += fishingProduction             // DESACTIVADO
+```
+
+Valores de `fishing_output` por terreno (para cuando se reactive):
+
+| Terreno | fishing_output |
+|---|---|
+| Mar | 100 |
+| Costa | 85 |
+| Agua | 70 |
+| Río | 50 |
+| Pantanos | 40 |
+| Tierras de Cultivo | 0 |
+| (resto) | 0 |
+
+---
+
+## D. Cosecha agrícola + oro — días 75 y 180 del año (`processHarvest`)
+
+Este es el proceso principal de producción. Se ejecuta **2 veces al año** para todos los jugadores activos.
+
+### D.1 Producción de comida por feudo
+
+**Base del terreno** (`terrain_types.food_output`):
+
+| Terreno              | food_output |
+|----------------------|-------------|
+| Tierras de Cultivo   | 100         |
+| Río                  | 90          |
+| Tierras de Secano    | 55          |
+| Pantanos             | 30          |
+| Estepas              | 35          |
+| Costa                | 10          |
+| Bosque               | 20          |
+| Espesuras            | 10          |
+| Oteros               | 15          |
+| Colinas              | 10          |
+| Alta Montaña / Mar   | 0           |
+
+**Multiplicador de Granja** (`territory_details.farm_level`):
+
+```
+farmMultiplier = 1 + (farm_level × 0.10)
+```
+
+Ejemplo: Granja nivel 2 → ×1.20
+
+**Multiplicador global de balance** (`constants.js → HARVEST.FOOD_PRODUCTION_MULTIPLIER`):
+
+```
+foodProduction = floor(food_output × farmMultiplier × FOOD_PRODUCTION_MULTIPLIER)
+```
+
+- Valor actual: **2.5** *(fase de pruebas — valor canónico: 1)*
+
+**Ejemplo completo** — Tierras de Cultivo con Granja nivel 1:
+```
+floor(100 × 1.10 × 2.5) = 275 comida por cosecha
+```
+
+### D.2 Cosecha Milagrosa (emergencia alimentaria)
+
+Si tras añadir la producción normal el feudo sigue sin poder alimentar a su población el día siguiente, se activa un multiplicador de emergencia:
+
+**Condición:**
+```
+nextDayConsumption = floor(population / 100) × 0.1
+foodAfterHarvest   = food_stored + foodProduction
+
+Si foodAfterHarvest < nextDayConsumption → se activa
+```
+
+**Cálculo:**
+```
+miracleMultiplier ∈ [2.0, 4.0)   (aleatorio uniforme)
+foodProduction = floor(foodProduction × miracleMultiplier)
+```
+
+El evento aparece en el log y en la notificación de cosecha del jugador.
+
+### D.3 Producción de oro por feudo
+
+Independiente del terreno, proporcional a la población:
+
+```
+goldProduction = floor(population × 0.1 × GOLD_PRODUCTION_MULTIPLIER)
+```
+
+- `GOLD_PRODUCTION_MULTIPLIER` = **100** *(fase de pruebas — valor canónico: 1)*
+
+Ejemplo: 500 habitantes → 5.000 oro por cosecha.
+
+### D.4 Consumo de tropas en cosecha
+
+En `processHarvest` también se descuenta el consumo global de tropas del jugador (suma de todos sus ejércitos):
+
+```
+totalFoodConsumption = floor( SUM(quantity × food_consumption) )
+totalGoldConsumption = floor( SUM(quantity × gold_upkeep) )
+```
+
+Valores de `gold_upkeep` por unidad:
+
+| Unidad             | gold_upkeep/turno |
+|--------------------|-------------------|
+| Milicia            | 0.50              |
+| Soldados           | 1.50              |
+| Lanceros           | 1.50              |
+| Arqueros           | 2.00              |
+| Ballesteros        | 3.00              |
+| Caballería Ligera  | 4.00              |
+| Caballería Pesada  | 6.00              |
+| Explorador         | 1.50              |
+| Ariete             | 8.00              |
+| Catapulta          | 22.00             |
+
+### D.5 Balance neto y escritura en BD
+
+```
+netFood = totalFoodProduced - totalFoodConsumption
+netGold = totalGoldProduced - totalGoldConsumption
+```
+
+- **Comida:** se escribe feudo a feudo durante el cálculo (`food_stored += foodProduction`).
+- **Oro:** se aplica al finalizar sobre el jugador (`gold = GREATEST(0, gold + netGold)`). Nunca baja de 0.
+
+### D.6 Notificación al jugador
+
+```
+🌾 Producción Total:
+• Comida: +X
+• Oro: +X
+
+⚔️ Consumo de Tropas:
+• Comida: -X
+• Oro: -X
+
+💰 Balance Neto:
+• Comida: ±X
+• Oro: ±X
+
+[✨ Cosecha Milagrosa si aplica]
+```
+
+Si hay consumo de oro, se envía también una notificación de tipo `Militar` con el pago de soldadas.
+
+---
+
+## Constantes de balance actuales
+
+Ubicación: `server/src/config/constants.js → HARVEST`
+
+| Constante                    | Valor actual | Valor canónico |
+|------------------------------|-------------|----------------|
+| `FOOD_PRODUCTION_MULTIPLIER` | 2.5         | 1              |
+| `GOLD_PRODUCTION_MULTIPLIER` | 100         | 1              |
+| `EMERGENCY_HARVEST_MIN`      | 2.0         | —              |
+| `EMERGENCY_HARVEST_MAX`      | 4.0         | —              |
+
+> Los multiplicadores están elevados intencionalmente durante la fase de pruebas.
