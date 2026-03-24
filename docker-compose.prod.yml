@@ -34,7 +34,7 @@ services:
     container_name: marca_hispanica_client
     restart: always
     ports:
-      - "8080:80"
+      - "80:80"
     depends_on:
       backend:
         condition: service_healthy
