@@ -82,7 +82,8 @@
       "Bash(find d:/claude/mediev-h3-game/server/routes -name *.js)",
       "WebSearch",
       "mcp__plugin_playwright_playwright__browser_snapshot",
-      "mcp__notion__API-get-block-children"
+      "mcp__notion__API-get-block-children",
+      "mcp__notion__API-update-a-block"
     ]
   }
 }

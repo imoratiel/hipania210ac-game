@@ -2197,7 +2197,7 @@ const renderWorkerMarkers = (workers, currentPlayerId) => {
           cursor:pointer;"
           title="${data.worker_count} ${data.worker_type}(s) · ${data.player_name}">⛏️</div>`,
         iconSize: [26, 26],
-        iconAnchor: [13, 13],
+        iconAnchor: [4, 21],
         pane: 'workerPane',
       });
 
@@ -2718,7 +2718,7 @@ const fetchAndRenderCharacters = async () => {
           html:       iconHtml,
           className:  '',
           iconSize:   [52, 36],
-          iconAnchor: [26, 36],
+          iconAnchor: [40, 26],
         });
 
         const marker = L.marker([lat, lng], { icon, pane: 'characterPane', interactive: true });
