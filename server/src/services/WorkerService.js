@@ -82,14 +82,16 @@ class WorkerService {
 
             const playerId = req.user.player_id;
 
-            const [result, ownArmyVision, ownFiefPositions, characterPositions] = await Promise.all([
+            const [result, ownArmyVision, ownFiefPositions, characterPositions, workerPositions, fleetPositions] = await Promise.all([
                 WorkerModel.GetWorkersInBounds(h3Cells),
                 ArmyModel.GetPlayerArmiesWithDetection(playerId),
                 ArmyModel.GetPlayerFiefPositions(playerId),
                 CharacterModel.getStandalonePositions(playerId),
+                WorkerModel.GetPlayerWorkerPositions(playerId),
+                ArmyModel.GetPlayerFleetPositions(playerId),
             ]);
 
-            // Build fog-of-war visibility set (same logic as armies)
+            const FLEET_DETECTION_RANGE = 10;
             const visibleHexes = new Set();
             for (const army of ownArmyVision) {
                 h3.gridDisk(army.h3_index, army.detection_range).forEach(hex => visibleHexes.add(hex));
@@ -99,6 +101,12 @@ class WorkerService {
             }
             for (const charH3 of characterPositions) {
                 h3.gridDisk(charH3, GAME_CONFIG.CHARACTERS.DETECTION_RANGE).forEach(hex => visibleHexes.add(hex));
+            }
+            for (const w of workerPositions) {
+                h3.gridDisk(w.h3_index, w.detection_range).forEach(hex => visibleHexes.add(hex));
+            }
+            for (const fleetH3 of fleetPositions) {
+                h3.gridDisk(fleetH3, FLEET_DETECTION_RANGE).forEach(hex => visibleHexes.add(hex));
             }
 
             // Own workers always visible; enemy workers only if in visible zone

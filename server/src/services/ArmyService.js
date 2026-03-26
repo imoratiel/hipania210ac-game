@@ -1,6 +1,7 @@
 const { Logger } = require('../utils/logger');
 const ArmyModel = require('../models/ArmyModel.js');
 const CharacterModel = require('../models/CharacterModel.js');
+const WorkerModel = require('../models/WorkerModel.js');
 const ArmySimulationService = require('./ArmySimulationService.js');
 const h3 = require('h3-js');
 const pool = require('../../db.js');
@@ -780,19 +781,18 @@ class ArmyService {
             }
 
             // Fetch armies in viewport + player's vision sources in parallel
-            const [armiesResult, ownArmyVision, ownFiefPositions, characterPositions] = await Promise.all([
+            const [armiesResult, ownArmyVision, ownFiefPositions, characterPositions, workerPositions, fleetPositions] = await Promise.all([
                 ArmyModel.GetArmiesInBounds(h3CellsArray),
                 ArmyModel.GetPlayerArmiesWithDetection(playerId),
                 ArmyModel.GetPlayerFiefPositions(playerId),
                 CharacterModel.getStandalonePositions(playerId),
+                WorkerModel.GetPlayerWorkerPositions(playerId),
+                ArmyModel.GetPlayerFleetPositions(playerId),
             ]);
 
-            // ── Build fog-of-war visible hex set using gridDisk ──────────────
-            // Each own army reveals a disk of hexes equal to its max detection_range.
-            // Each owned fief reveals a disk of FIEF_DETECTION_RANGE hexes.
-            // Each standalone character reveals a disk of CHARACTER_DETECTION_RANGE hexes.
             const fiefRange      = GAME_CONFIG.MILITARY.FIEF_DETECTION_RANGE;
             const characterRange = GAME_CONFIG.CHARACTERS.DETECTION_RANGE;
+            const FLEET_DETECTION_RANGE = 10;
             const visibleHexes = new Set();
 
             for (const army of ownArmyVision) {
@@ -803,6 +803,12 @@ class ArmyService {
             }
             for (const charH3 of characterPositions) {
                 h3.gridDisk(charH3, characterRange).forEach(hex => visibleHexes.add(hex));
+            }
+            for (const w of workerPositions) {
+                h3.gridDisk(w.h3_index, w.detection_range).forEach(hex => visibleHexes.add(hex));
+            }
+            for (const fleetH3 of fleetPositions) {
+                h3.gridDisk(fleetH3, FLEET_DETECTION_RANGE).forEach(hex => visibleHexes.add(hex));
             }
 
             // Own armies always visible; enemy armies only if in the visible zone
