@@ -3,6 +3,9 @@
 const h3 = require('h3-js');
 const pool = require('../../db.js');
 const WorkerModel = require('../models/WorkerModel.js');
+const ArmyModel = require('../models/ArmyModel.js');
+const CharacterModel = require('../models/CharacterModel.js');
+const { GAME_CONFIG } = require('../config/constants.js');
 const { buyWorker, GameActionError } = require('./gameActions.js');
 const { Logger } = require('../utils/logger.js');
 
@@ -77,8 +80,33 @@ class WorkerService {
                 return res.json({ success: true, workers: [], current_player_id: req.user.player_id });
             }
 
-            const result = await WorkerModel.GetWorkersInBounds(h3Cells);
-            res.json({ success: true, workers: result.rows, current_player_id: req.user.player_id });
+            const playerId = req.user.player_id;
+
+            const [result, ownArmyVision, ownFiefPositions, characterPositions] = await Promise.all([
+                WorkerModel.GetWorkersInBounds(h3Cells),
+                ArmyModel.GetPlayerArmiesWithDetection(playerId),
+                ArmyModel.GetPlayerFiefPositions(playerId),
+                CharacterModel.getStandalonePositions(playerId),
+            ]);
+
+            // Build fog-of-war visibility set (same logic as armies)
+            const visibleHexes = new Set();
+            for (const army of ownArmyVision) {
+                h3.gridDisk(army.h3_index, army.detection_range).forEach(hex => visibleHexes.add(hex));
+            }
+            for (const fiefH3 of ownFiefPositions) {
+                h3.gridDisk(fiefH3, GAME_CONFIG.MILITARY.FIEF_DETECTION_RANGE).forEach(hex => visibleHexes.add(hex));
+            }
+            for (const charH3 of characterPositions) {
+                h3.gridDisk(charH3, GAME_CONFIG.CHARACTERS.DETECTION_RANGE).forEach(hex => visibleHexes.add(hex));
+            }
+
+            // Own workers always visible; enemy workers only if in visible zone
+            const visibleWorkers = result.rows.filter(
+                w => w.player_id === playerId || visibleHexes.has(w.h3_index)
+            );
+
+            res.json({ success: true, workers: visibleWorkers, current_player_id: playerId });
         } catch (error) {
             Logger.error(error, { endpoint: '/map/workers', method: 'GET', userId: req.user?.player_id });
             res.status(500).json({ success: false, message: 'Error al obtener trabajadores del mapa' });
