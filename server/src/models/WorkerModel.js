@@ -86,6 +86,14 @@ class WorkerModel {
     /**
      * Get all workers belonging to a player, with type metadata.
      */
+    async GetPlayerWorkerPositions(player_id) {
+        const result = await pool.query(
+            'SELECT h3_index, detection_range FROM workers WHERE player_id = $1 AND transported_by IS NULL',
+            [player_id]
+        );
+        return result.rows;
+    }
+
     async GetMyWorkers(player_id) {
         const result = await pool.query(
             `SELECT w.id, w.h3_index, w.destination_h3, w.type_id, w.hp, w.speed, w.detection_range, w.created_at,

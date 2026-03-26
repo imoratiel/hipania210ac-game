@@ -1,6 +1,7 @@
 const { Logger } = require('../utils/logger');
 const CharacterModel = require('../models/CharacterModel');
 const ArmyModel = require('../models/ArmyModel');
+const WorkerModel = require('../models/WorkerModel');
 const DynastyService = require('./DynastyService');
 const GAME_CONFIG = require('../config/constants');
 const pool = require('../../db');
@@ -582,14 +583,17 @@ class CharacterService {
         try {
             const playerId = req.user.player_id;
 
-            const [ownArmyVision, ownFiefPositions, ownCharPositions] = await Promise.all([
+            const [ownArmyVision, ownFiefPositions, ownCharPositions, workerPositions, fleetPositions] = await Promise.all([
                 ArmyModel.GetPlayerArmiesWithDetection(playerId),
                 ArmyModel.GetPlayerFiefPositions(playerId),
                 CharacterModel.getStandalonePositions(playerId),
+                WorkerModel.GetPlayerWorkerPositions(playerId),
+                ArmyModel.GetPlayerFleetPositions(playerId),
             ]);
 
             const fiefRange = GAME_CONFIG.MILITARY.FIEF_DETECTION_RANGE;
             const charRange = GAME_CONFIG.CHARACTERS.DETECTION_RANGE;
+            const FLEET_DETECTION_RANGE = 10;
             const visibleHexes = new Set();
 
             for (const army of ownArmyVision) {
@@ -600,6 +604,12 @@ class CharacterService {
             }
             for (const charH3 of ownCharPositions) {
                 h3.gridDisk(charH3, charRange).forEach(hex => visibleHexes.add(hex));
+            }
+            for (const w of workerPositions) {
+                h3.gridDisk(w.h3_index, w.detection_range).forEach(hex => visibleHexes.add(hex));
+            }
+            for (const fleetH3 of fleetPositions) {
+                h3.gridDisk(fleetH3, FLEET_DETECTION_RANGE).forEach(hex => visibleHexes.add(hex));
             }
 
             const characters = await CharacterModel.getEnemyCharactersAtHexes(playerId, [...visibleHexes]);

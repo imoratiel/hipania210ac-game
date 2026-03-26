@@ -258,16 +258,23 @@ class CombatService {
                 { player_id, attackerArmyId, targetArmyId, result }
             );
 
+            // Combinar desglose del ejército defensor principal + coalición enemiga
+            const enemyCoalition = battle.coalitionB ?? [];
+            const enemyDesglose = [
+                ...makeDesglose(preDefender, enemyBattle.lossRate),
+                ...enemyCoalition.flatMap(c => c.desglose ?? [])
+            ];
+
             return res.json({
                 success: true,
                 result,
                 fief_name: `${attacker.h3_index} · vs "${defender.name}"`,
                 defender_label: `⚔️ ${defender.name}`,
                 attacker_losses: playerBattle.dead,
-                defender_losses: enemyBattle.dead,
+                defender_losses: battle.totalDeadB ?? enemyBattle.dead,
                 desglose: {
                     Atacante: makeDesglose(preAttacker, playerBattle.lossRate),
-                    Milicia:  makeDesglose(preDefender, enemyBattle.lossRate)
+                    Milicia:  enemyDesglose
                 },
                 message,
                 experience_gained: playerBattle.xp
@@ -298,6 +305,9 @@ class CombatService {
      * @returns {Object|null}             - Resumen de la batalla
      */
     async resolveCombat(client, armyAId, armyBId, h3Index, turn, attackerArmyId = null) {
+        // Shorthand para debug de combate (solo activo si DEBUG_COMBAT=true)
+        const dbg = (msg) => Logger.combatDebug(`[T${turn}][${h3Index}] ${msg}`);
+
         // 1. Cargar ejércitos con tropas
         const armies = await CombatModel.getArmiesAtHex(client, h3Index);
         const armyA  = armies.find(a => a.army_id === armyAId);
@@ -333,6 +343,26 @@ class CombatService {
         // 4. Terreno
         const terrain = await CombatModel.getTerrainAtHex(client, h3Index);
 
+        // ── DEBUG: cabecera y composición de ejércitos ────────────────────────
+        dbg('══════════════════════════════════════════════════════');
+        dbg(`COMBATE  A=${armyAId}(${armyA.name}, player ${armyA.player_id})` +
+            ` vs B=${armyBId}(${armyB.name}, player ${armyB.player_id})`);
+        dbg(`Terreno: ${terrain?.terrain_name ?? 'desconocido'} | defBonus=${terrain?.defense_bonus ?? 0}`);
+        dbg(`Atacante declarado: army ${attackerArmyId ?? 'auto'} | A-defensor=${aIsDefender} B-defensor=${bIsDefender}`);
+        const fmtTroops = (troops, hasGuard, commander) => {
+            if (!troops.length && hasGuard)
+                return `  [GUARDIA PERSONAL] ${commander.name} guard=${commander.personal_guard}`;
+            return troops.map(t =>
+                `  ${t.unit_name}(id=${t.unit_type_id}) x${t.quantity}` +
+                ` ATK=${t.attack} DEF=${t.defense} HP=${t.health_points}` +
+                ` morale=${parseFloat(t.morale).toFixed(1)} stamina=${parseFloat(t.stamina).toFixed(1)}`
+            ).join('\n');
+        };
+        dbg(`Ejército A — ${aHasTroops ? armyA.troops.length + ' tipos de tropa' : 'guardia personal'}:\n` + fmtTroops(armyA.troops, aHasGuard, commanderA));
+        dbg(`Ejército B — ${bHasTroops ? armyB.troops.length + ' tipos de tropa' : 'guardia personal'}:\n` + fmtTroops(armyB.troops, bHasGuard, commanderB));
+        if (commanderA) dbg(`Comandante A: ${commanderA.name} (id=${commanderA.id}) lv=${commanderA.level} combat_buff=${commanderA.combat_buff_pct}%`);
+        if (commanderB) dbg(`Comandante B: ${commanderB.name} (id=${commanderB.id}) lv=${commanderB.level} combat_buff=${commanderB.combat_buff_pct}%`);
+
         // 5. Tropas efectivas (reales o guardia virtual)
         const troopsA = aHasTroops ? armyA.troops.map(t => ({ ...t })) : this._buildGuardTroops(commanderA);
         const troopsB = bHasTroops ? armyB.troops.map(t => ({ ...t })) : this._buildGuardTroops(commanderB);
@@ -346,10 +376,14 @@ class CombatService {
         for (const ally of joinA) {
             troopsA.push(...ally.troops.map(t => ({ ...t })));
             Logger.engine(`[TURN ${turn}] Coalición: ejército ${ally.army_id} (player ${ally.player_id}) → bando A (${armyA.name})`);
+            dbg(`Coalición A: ejército ${ally.army_id} (player ${ally.player_id}) ` +
+                `aporta ${ally.troops.reduce((s,t) => s + t.quantity, 0)} tropas`);
         }
         for (const ally of joinB) {
             troopsB.push(...ally.troops.map(t => ({ ...t })));
             Logger.engine(`[TURN ${turn}] Coalición: ejército ${ally.army_id} (player ${ally.player_id}) → bando B (${armyB.name})`);
+            dbg(`Coalición B: ejército ${ally.army_id} (player ${ally.player_id}) ` +
+                `aporta ${ally.troops.reduce((s,t) => s + t.quantity, 0)} tropas`);
         }
 
         // 5b. Bonificadores de moral pre-batalla (solo afectan al cálculo, no se guardan)
@@ -399,15 +433,25 @@ class CombatService {
         await alliedBonus(armyA.player_id, totalQtyB, troopsA);
         await alliedBonus(armyB.player_id, totalQtyA, troopsB);
 
+        // ── DEBUG: moral pre-batalla efectiva ────────────────────────────────
+        dbg('Moral efectiva pre-batalla (tras bonos territoriales y aliados):');
+        troopsA.forEach(t => dbg(`  A ${t.unit_name ?? t.unit_type_id} morale=${parseFloat(t.morale).toFixed(1)}`));
+        troopsB.forEach(t => dbg(`  B ${t.unit_name ?? t.unit_type_id} morale=${parseFloat(t.morale).toFixed(1)}`));
+
         // 6. Calcular tasas de bajas con el nuevo sistema daño-por-unidad
         // tasaOnB = % de bajas que A inflige sobre B
         // tasaOnA = % de bajas que B inflige sobre A
-        const tasaOnB = await this._calculateDamageRate(client, troopsA, troopsB, terrain, bIsDefender, armyA.player_id, armyAId);
-        const tasaOnA = await this._calculateDamageRate(client, troopsB, troopsA, terrain, aIsDefender, armyB.player_id, armyBId);
+        dbg('── Cálculo A→B ──────────────────────────────────────────────────');
+        const tasaOnB = await this._calculateDamageRate(client, troopsA, troopsB, terrain, bIsDefender, armyA.player_id, armyAId, dbg);
+        dbg('── Cálculo B→A ──────────────────────────────────────────────────');
+        const tasaOnA = await this._calculateDamageRate(client, troopsB, troopsA, terrain, aIsDefender, armyB.player_id, armyBId, dbg);
 
         // 7. Resultado: gana quien inflige más presión al enemigo
         const DRAW_THRESHOLD = GAME_CONFIG.MILITARY.COMBAT_DRAW_THRESHOLD;
         const isDraw = Math.abs(tasaOnB - tasaOnA) < DRAW_THRESHOLD;
+        dbg(`Tasas  A→B=${(tasaOnB*100).toFixed(2)}%  B→A=${(tasaOnA*100).toFixed(2)}%` +
+            `  diff=${(Math.abs(tasaOnB-tasaOnA)*100).toFixed(2)}%  umbralEmpate=${(DRAW_THRESHOLD*100).toFixed(2)}%`);
+        dbg(`Resultado preliminar: ${isDraw ? 'EMPATE' : (tasaOnB > tasaOnA ? `Victoria A (${armyA.name})` : `Victoria B (${armyB.name})`)}`);
 
         let winner = null, loser = null;
         if (!isDraw) {
@@ -446,17 +490,41 @@ class CombatService {
             await CharacterModel.updateGuard(client, commanderB.id, commanderB.personal_guard);
         } else { deadB = 0; }
 
+        // Desglose por tipo de unidad (para notificaciones de victoria)
+        const desgloseA = aHasTroops
+            ? armyA.troops.map(t => ({ nombre: t.unit_name, perdidos: Math.ceil(t.quantity * lossRateA) })).filter(d => d.perdidos > 0)
+            : [];
+        const desgloseB = bHasTroops
+            ? armyB.troops.map(t => ({ nombre: t.unit_name, perdidos: Math.ceil(t.quantity * lossRateB) })).filter(d => d.perdidos > 0)
+            : [];
+
         // 9b. Bajas a ejércitos de coalición (misma tasa que su bando)
+        const coalLossesA = [], coalLossesB = [];
         for (const ally of joinA) {
-            await this._applyCasualties(client, ally.troops, lossRateA);
+            const dead = await this._applyCasualties(client, ally.troops, lossRateA);
+            const desglose = ally.troops
+                .map(t => ({ nombre: t.unit_name ?? String(t.unit_type_id), perdidos: Math.ceil(t.quantity * lossRateA) }))
+                .filter(d => d.perdidos > 0);
+            coalLossesA.push({ army_id: ally.army_id, player_id: ally.player_id, name: ally.name, dead, desglose });
             await CombatModel.deleteArmyIfEmpty(client, ally.army_id);
             await ArmyModel.refreshDetectionRange(client, ally.army_id).catch(() => {});
         }
         for (const ally of joinB) {
-            await this._applyCasualties(client, ally.troops, lossRateB);
+            const dead = await this._applyCasualties(client, ally.troops, lossRateB);
+            const desglose = ally.troops
+                .map(t => ({ nombre: t.unit_name ?? String(t.unit_type_id), perdidos: Math.ceil(t.quantity * lossRateB) }))
+                .filter(d => d.perdidos > 0);
+            coalLossesB.push({ army_id: ally.army_id, player_id: ally.player_id, name: ally.name, dead, desglose });
             await CombatModel.deleteArmyIfEmpty(client, ally.army_id);
             await ArmyModel.refreshDetectionRange(client, ally.army_id).catch(() => {});
         }
+
+        const totalDeadA = deadA + coalLossesA.reduce((s, c) => s + c.dead, 0);
+        const totalDeadB = deadB + coalLossesB.reduce((s, c) => s + c.dead, 0);
+
+        // ── DEBUG: bajas ─────────────────────────────────────────────────────
+        dbg(`Bajas — A: ${deadA} muertos (tasa=${(tasaOnA*100).toFixed(2)}%)  ` +
+            `B: ${deadB} muertos (tasa=${(tasaOnB*100).toFixed(2)}%)`);
 
         // 10. Saqueo — fracción proporcional a la diferencia de presión
         let loot = null;
@@ -466,6 +534,8 @@ class CombatService {
             const pressRatio = winnerTasa / Math.max(0.001, loserTasa);
             const lootFraction = Math.min(0.75, Math.max(0.25, (pressRatio - 1) / 4));
             loot = await CombatModel.transferProvisions(client, loser.army_id, winner.army_id, lootFraction);
+            dbg(`Saqueo — presRatio=${pressRatio.toFixed(2)} fracción=${(lootFraction*100).toFixed(0)}%` +
+                ` → oro=${loot?.gold ?? 0} comida=${loot?.food ?? 0} madera=${loot?.wood ?? 0}`);
         }
 
         // 11. Experiencia (solo tropas reales)
@@ -473,6 +543,7 @@ class CombatService {
         const survivorsB = bHasTroops ? await this._getSurvivors(client, armyBId) : [];
         const xpA = await this._distributeExperience(client, survivorsA, deadB + deadA * 2);
         const xpB = await this._distributeExperience(client, survivorsB, deadA + deadB * 2);
+        dbg(`XP — A: +${xpA} (${survivorsA.length} unidades supervivientes)  B: +${xpB} (${survivorsB.length} unidades supervivientes)`);
 
         // 12. Verificar ejércitos aniquilados
         // Los ejércitos de guardia se destruyen si personal_guard llega a 0
@@ -568,13 +639,17 @@ class CombatService {
             armyA: {
                 id: armyAId, name: armyA.name, playerId: armyA.player_id,
                 pressure: tasaOnB, dead: deadA, lossRate: lossRateA, xp: xpA,
-                destroyed: armyADestroyed, retreat: retreatA,
+                destroyed: armyADestroyed, retreat: retreatA, desglose: desgloseA,
             },
             armyB: {
                 id: armyBId, name: armyB.name, playerId: armyB.player_id,
                 pressure: tasaOnA, dead: deadB, lossRate: lossRateB, xp: xpB,
-                destroyed: armyBDestroyed, retreat: retreatB,
+                destroyed: armyBDestroyed, retreat: retreatB, desglose: desgloseB,
             },
+            coalitionA: coalLossesA,
+            coalitionB: coalLossesB,
+            totalDeadA,
+            totalDeadB,
             winner: winner ? { id: winner.army_id, name: winner.name, playerId: winner.player_id } : null,
             loser:  loser  ? { id: loser.army_id,  name: loser.name,  playerId: loser.player_id  } : null,
             loot,
@@ -589,6 +664,15 @@ class CombatService {
             `${isDraw ? 'EMPATE' : `Victoria ${winner.name}`} | Bajas: A=${deadA}, B=${deadB}` +
             (characterEvents.length ? ` | Personajes: ${characterEvents.map(e => `${e.characterName}→${e.type}`).join(', ')}` : '')
         );
+
+        // ── DEBUG: resumen final ──────────────────────────────────────────────
+        dbg('── RESULTADO FINAL ──────────────────────────────────────────────');
+        dbg(`${isDraw ? '⚖ EMPATE' : `🏆 Victoria: ${winner.name} (army ${winner.army_id})`}`);
+        dbg(`A (${armyA.name}): muertos=${deadA} destruido=${armyADestroyed} retirada=${retreatA?.retreated ? retreatA.newHex : 'no'}`);
+        dbg(`B (${armyB.name}): muertos=${deadB} destruido=${armyBDestroyed} retirada=${retreatB?.retreated ? retreatB.newHex : 'no'}`);
+        if (characterEvents.length)
+            dbg(`Personajes: ${characterEvents.map(e => `${e.characterName}→${e.type}`).join(', ')}`);
+        dbg('══════════════════════════════════════════════════════');
 
         return battleResult;
     }
@@ -614,7 +698,7 @@ class CombatService {
      * @param {number}   attackerArmyId  - Para bonus de personaje
      * @returns {Promise<number>} Tasa de bajas sobre B en [0, 1]
      */
-    async _calculateDamageRate(client, troopsA, troopsB, terrain, bIsDefender = false, attackerPlayerId = null, attackerArmyId = null) {
+    async _calculateDamageRate(client, troopsA, troopsB, terrain, bIsDefender = false, attackerPlayerId = null, attackerArmyId = null, dbg = null) {
         const K             = GAME_CONFIG.MILITARY.COMBAT_K_NORM;
         const SCALE         = GAME_CONFIG.MILITARY.COMBAT_DAMAGE_SCALE;
         const DEF_BONUS     = GAME_CONFIG.MILITARY.COMBAT_DEFENDER_BONUS;
@@ -633,24 +717,39 @@ class CombatService {
             let   atk     = parseFloat(ta.attack);
 
             // Modificador de terreno (ataque)
+            let terrainAtkMod = 1.0;
             if (terrainName) {
                 const mod = await CombatModel.getTerrainModifier(client, ta.unit_type_id, terrainName);
-                if (mod) atk *= (1 + parseFloat(mod.attack_modificator));
+                if (mod) { terrainAtkMod = 1 + parseFloat(mod.attack_modificator); atk *= terrainAtkMod; }
             }
 
             // Factor de counter ponderado por composición de B
             let counterFactor = 1.0;
             if (troopsB.length > 0) {
                 let weighted = 0;
+                const counterDetails = [];
                 for (const tb of troopsB) {
                     const mult = await CombatModel.getCombatCounter(client, ta.unit_type_id, tb.unit_type_id);
-                    weighted += (tb.quantity / totalQtyB) * mult;
+                    const w = (tb.quantity / totalQtyB) * mult;
+                    weighted += w;
+                    if (dbg) counterDetails.push(`vs ${tb.unit_name ?? tb.unit_type_id}(x${tb.weight ?? tb.quantity}): mult=${mult.toFixed(2)} w=${(w).toFixed(3)}`);
                 }
                 counterFactor = weighted;
+                if (dbg) dbg(`  counter ${ta.unit_name ?? ta.unit_type_id}: ${counterDetails.join(' | ')} → factor=${counterFactor.toFixed(3)}`);
             }
 
-            total_atk_A += ta.quantity * atk * counterFactor * morale * stamina;
+            const contrib = ta.quantity * atk * counterFactor * morale * stamina;
+            total_atk_A += contrib;
+
+            if (dbg) dbg(`  ${ta.unit_name ?? ta.unit_type_id} x${ta.quantity}` +
+                ` atk=${parseFloat(ta.attack).toFixed(2)}` +
+                ` terrainMod=${terrainAtkMod.toFixed(3)}` +
+                ` counter=${counterFactor.toFixed(3)}` +
+                ` morale=${(morale*100).toFixed(1)}%` +
+                ` stamina=${(stamina*100).toFixed(1)}%` +
+                ` → contrib=${contrib.toFixed(2)}`);
         }
+        if (dbg) dbg(`  total_atk_A (antes bonos)=${total_atk_A.toFixed(2)}`);
 
         // Bonus devotio del atacante: +5% ataque
         if (attackerPlayerId) {
@@ -660,7 +759,10 @@ class CombatService {
                 WHERE pr.status = 'active' AND rt.code = 'devotio'
                   AND pr.from_player_id = $1 LIMIT 1
             `, [attackerPlayerId]);
-            if (rows.length > 0) total_atk_A *= 1.05;
+            if (rows.length > 0) {
+                total_atk_A *= 1.05;
+                if (dbg) dbg(`  Bonus devotio +5% → total_atk_A=${total_atk_A.toFixed(2)}`);
+            }
         }
 
         // Bonus de personaje atacante: +2% por nivel mostrado (máx +20%)
@@ -668,7 +770,10 @@ class CombatService {
             const bestChar = await CharacterModel.getBestInArmy(client, attackerArmyId);
             if (bestChar) {
                 const displayLevel = Math.floor(bestChar.level / 10);
-                if (displayLevel > 0) total_atk_A *= (1 + displayLevel * 0.02);
+                if (displayLevel > 0) {
+                    total_atk_A *= (1 + displayLevel * 0.02);
+                    if (dbg) dbg(`  Bonus personaje ${bestChar.name} lv${displayLevel} +${displayLevel*2}% → total_atk_A=${total_atk_A.toFixed(2)}`);
+                }
             }
         }
 
@@ -681,17 +786,23 @@ class CombatService {
             let   def     = parseFloat(tb.defense ?? 5);
 
             // Modificador de terreno (defensa)
+            let terrainDefMod = 1.0;
             if (terrainName) {
                 const mod = await CombatModel.getTerrainModifier(client, tb.unit_type_id, terrainName);
-                if (mod) def *= (1 + parseFloat(mod.defense_modificator));
+                if (mod) { terrainDefMod = 1 + parseFloat(mod.defense_modificator); def *= terrainDefMod; }
             }
 
             total_def_B += tb.quantity * def * morale * stamina;
             total_hp_B  += tb.quantity * parseFloat(tb.health_points ?? 5);
+
+            if (dbg) dbg(`  DEF ${tb.unit_name ?? tb.unit_type_id} x${tb.quantity}` +
+                ` def=${parseFloat(tb.defense ?? 5).toFixed(2)} terrainMod=${terrainDefMod.toFixed(3)}` +
+                ` morale=${(morale*100).toFixed(1)}% stamina=${(stamina*100).toFixed(1)}%` +
+                ` hp=${tb.health_points}`);
         }
 
         let avg_def_B = total_def_B / totalQtyB;
-        if (bIsDefender) avg_def_B *= DEF_BONUS;  // +15% si B está en posición defensiva
+        if (bIsDefender) { avg_def_B *= DEF_BONUS; if (dbg) dbg(`  Bonus defensor x${DEF_BONUS} → avg_def_B=${avg_def_B.toFixed(2)}`); }
         const avg_hp_B = total_hp_B / totalQtyB;
 
         // ── Paso 3: Daño por unidad enemiga y tasa de bajas ─────────────────
@@ -699,6 +810,12 @@ class CombatService {
         const mitigation    = avg_def_B / (avg_def_B + K);
         const net_per_B     = damage_per_B * (1 - mitigation);
         const tasa          = Math.min(1.0, (net_per_B * SCALE) / avg_hp_B);
+
+        if (dbg) {
+            dbg(`  avg_def_B=${avg_def_B.toFixed(2)} avg_hp_B=${avg_hp_B.toFixed(2)} K=${K} SCALE=${SCALE}`);
+            dbg(`  damage_per_B=${damage_per_B.toFixed(4)} mitigation=${(mitigation*100).toFixed(1)}% net_per_B=${net_per_B.toFixed(4)}`);
+            dbg(`  TASA FINAL = min(1, net*SCALE/hp) = ${(tasa*100).toFixed(2)}%`);
+        }
 
         return tasa;
     }
@@ -731,10 +848,11 @@ class CombatService {
     async _resolveCoalitions(client, h3Index, armyAId, armyBId, playerAId, playerBId) {
         // Obtener otros ejércitos en el hex que no sean A ni B
         const othersRes = await client.query(`
-            SELECT a.army_id, a.player_id,
+            SELECT a.army_id, a.player_id, a.name,
                    json_agg(json_build_object(
                        'troop_id',     t.troop_id,
                        'unit_type_id', t.unit_type_id,
+                       'unit_name',    ut.name,
                        'quantity',     t.quantity,
                        'attack',       ut.attack,
                        'defense',      ut.defense,
@@ -744,11 +862,11 @@ class CombatService {
                    )) FILTER (WHERE t.troop_id IS NOT NULL) AS troops
             FROM armies a
             LEFT JOIN troops t ON t.army_id = a.army_id
-            LEFT JOIN unit_types ut ON ut.id = t.unit_type_id
+            LEFT JOIN unit_types ut ON ut.unit_type_id = t.unit_type_id
             WHERE a.h3_index = $1
               AND a.army_id NOT IN ($2, $3)
               AND a.is_naval = FALSE
-            GROUP BY a.army_id, a.player_id
+            GROUP BY a.army_id, a.player_id, a.name
         `, [h3Index, armyAId, armyBId]);
 
         const joinA = [];
@@ -757,6 +875,10 @@ class CombatService {
         for (const third of othersRes.rows) {
             if (!third.troops || third.troops.length === 0) continue;
             const T = third.player_id;
+
+            // Mismo jugador → unión automática sin necesidad de relación diplomática
+            if (T === playerAId) { joinA.push(third); continue; }
+            if (T === playerBId) { joinB.push(third); continue; }
 
             const qualifies = async (T, X) => {
                 const res = await client.query(`
@@ -1074,10 +1196,11 @@ class CombatService {
     }
 
     /**
-     * Envía notificaciones de batalla a ambos jugadores.
+     * Envía notificaciones de batalla a todos los jugadores involucrados.
      */
     async _sendBattleNotifications(battle) {
-        const { armyA, armyB, isDraw, winner, loot, h3Index, turn, characterEvents = [] } = battle;
+        const { armyA, armyB, isDraw, winner, loot, h3Index, turn, characterEvents = [],
+                coalitionA = [], coalitionB = [], totalDeadA = armyA.dead, totalDeadB = armyB.dead } = battle;
 
         const charLines = (forPlayerId) => characterEvents.map(ev => {
             if (ev.type === 'captured' && ev.originalPlayerId === forPlayerId)
@@ -1091,6 +1214,21 @@ class CombatService {
 
         const formatLoot = (l) =>
             `💰${l.gold} oro, 🍖${l.food} comida, 🌲${l.wood} madera`;
+
+        const formatDesglose = (desglose) =>
+            desglose?.length ? ' (' + desglose.map(d => `${d.nombre}: ${d.perdidos}`).join(', ') + ')' : '';
+
+        // Combina desgloses de armada principal + coalición y agrupa por tipo de unidad
+        const sideDesgloseStr = (mainDesglose, coalLosses) => {
+            const all = [...(mainDesglose ?? []), ...coalLosses.flatMap(c => c.desglose ?? [])];
+            if (!all.length) return '';
+            const grouped = Object.values(all.reduce((acc, d) => {
+                if (!acc[d.nombre]) acc[d.nombre] = { nombre: d.nombre, perdidos: 0 };
+                acc[d.nombre].perdidos += d.perdidos;
+                return acc;
+            }, {})).sort((a, b) => b.perdidos - a.perdidos);
+            return ' (' + grouped.map(d => `${d.nombre}: ${d.perdidos}`).join(', ') + ')';
+        };
 
         const retreatLine = (r) => {
             if (!r) return '';
@@ -1117,14 +1255,14 @@ class CombatService {
             contentA =
                 `⚔️ VICTORIA en ${h3Index} (Turno ${turn})\n` +
                 `${armyA.name} derrotó a ${armyB.name}\n` +
-                `Bajas propias: ${armyA.dead} | Bajas enemigas: ${armyB.dead}` +
+                `Bajas propias: ${armyA.dead}${formatDesglose(armyA.desglose)} | Bajas enemigas: ${totalDeadB}${sideDesgloseStr(armyB.desglose, coalitionB)}` +
                 lootLine +
                 (armyB.destroyed ? '\n🏳️ Ejército enemigo aniquilado.' : retreatLine(armyB.retreat)) +
                 charLines(armyA.playerId);
             contentB =
                 `⚔️ DERROTA en ${h3Index} (Turno ${turn})\n` +
                 `${armyA.name} derrotó a ${armyB.name}\n` +
-                `Bajas propias: ${armyB.dead} | Bajas enemigas: ${armyA.dead}` +
+                `Bajas propias: ${armyB.dead}${formatDesglose(armyB.desglose)} | Bajas enemigas: ${totalDeadA}` +
                 (loot ? `\n💸 Provisiones saqueadas: ${formatLoot(loot)}` : '') +
                 retreatLine(armyB.retreat) +
                 charLines(armyB.playerId);
@@ -1133,14 +1271,14 @@ class CombatService {
             contentA =
                 `⚔️ DERROTA en ${h3Index} (Turno ${turn})\n` +
                 `${armyB.name} derrotó a ${armyA.name}\n` +
-                `Bajas propias: ${armyA.dead} | Bajas enemigas: ${armyB.dead}` +
+                `Bajas propias: ${armyA.dead}${formatDesglose(armyA.desglose)} | Bajas enemigas: ${totalDeadB}` +
                 (loot ? `\n💸 Provisiones saqueadas: ${formatLoot(loot)}` : '') +
                 retreatLine(armyA.retreat) +
                 charLines(armyA.playerId);
             contentB =
                 `⚔️ VICTORIA en ${h3Index} (Turno ${turn})\n` +
                 `${armyB.name} derrotó a ${armyA.name}\n` +
-                `Bajas propias: ${armyB.dead} | Bajas enemigas: ${armyA.dead}` +
+                `Bajas propias: ${armyB.dead}${formatDesglose(armyB.desglose)} | Bajas enemigas: ${totalDeadA}${sideDesgloseStr(armyA.desglose, coalitionA)}` +
                 lootLine +
                 (armyA.destroyed ? '\n🏳️ Ejército enemigo aniquilado.' : retreatLine(armyA.retreat)) +
                 charLines(armyB.playerId);
@@ -1148,6 +1286,48 @@ class CombatService {
 
         await NotificationService.createSystemNotification(armyA.playerId, 'Militar', contentA, turn);
         await NotificationService.createSystemNotification(armyB.playerId, 'Militar', contentB, turn);
+
+        // Notificar a ejércitos de coalición
+        const isAWinner = !isDraw && winner?.id === armyA.id;
+        const isBWinner = !isDraw && winner?.id === armyB.id;
+
+        for (const ally of coalitionA) {
+            let content;
+            if (isDraw) {
+                content = `⚔️ EMPATE en ${h3Index} (Turno ${turn})\nBando: ${armyA.name}\nBajas propias: ${ally.dead} unidades`;
+            } else if (isAWinner) {
+                const lootLine = loot ? `\n💰 Botín: ${formatLoot(loot)}` : '';
+                content =
+                    `⚔️ VICTORIA en ${h3Index} (Turno ${turn})\nBando: ${armyA.name}\n` +
+                    `Bajas propias: ${ally.dead}${formatDesglose(ally.desglose)} | Bajas enemigas: ${totalDeadB}${sideDesgloseStr(armyB.desglose, coalitionB)}` +
+                    lootLine;
+            } else {
+                content =
+                    `⚔️ DERROTA en ${h3Index} (Turno ${turn})\nBando: ${armyA.name}\n` +
+                    `Bajas propias: ${ally.dead}${formatDesglose(ally.desglose)} | Bajas enemigas: ${totalDeadB}` +
+                    (loot ? `\n💸 Provisiones saqueadas: ${formatLoot(loot)}` : '');
+            }
+            await NotificationService.createSystemNotification(ally.player_id, 'Militar', content, turn);
+        }
+
+        for (const ally of coalitionB) {
+            let content;
+            if (isDraw) {
+                content = `⚔️ EMPATE en ${h3Index} (Turno ${turn})\nBando: ${armyB.name}\nBajas propias: ${ally.dead} unidades`;
+            } else if (isBWinner) {
+                const lootLine = loot ? `\n💰 Botín: ${formatLoot(loot)}` : '';
+                content =
+                    `⚔️ VICTORIA en ${h3Index} (Turno ${turn})\nBando: ${armyB.name}\n` +
+                    `Bajas propias: ${ally.dead}${formatDesglose(ally.desglose)} | Bajas enemigas: ${totalDeadA}${sideDesgloseStr(armyA.desglose, coalitionA)}` +
+                    lootLine;
+            } else {
+                content =
+                    `⚔️ DERROTA en ${h3Index} (Turno ${turn})\nBando: ${armyB.name}\n` +
+                    `Bajas propias: ${ally.dead}${formatDesglose(ally.desglose)} | Bajas enemigas: ${totalDeadA}` +
+                    (loot ? `\n💸 Provisiones saqueadas: ${formatLoot(loot)}` : '');
+            }
+            await NotificationService.createSystemNotification(ally.player_id, 'Militar', content, turn);
+        }
     }
 }
 

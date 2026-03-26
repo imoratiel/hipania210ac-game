@@ -288,7 +288,7 @@ function logGameEvent(message) {
  * @param {Object} res - Response de Express
  * @param {Function} next - Next middleware
  */
-// TODO(dead-code): Sin referencias de uso en el proyecto; revisar y eliminar si no se reutiliza.
+// [DEAD_CODE] TODO: Sin referencias de uso en el proyecto; revisar y eliminar si no se reutiliza.
 function errorLoggingMiddleware(err, req, res, next) {
     logError(err, {
         endpoint: req.originalUrl || req.url,
@@ -299,6 +299,16 @@ function errorLoggingMiddleware(err, req, res, next) {
 
     // Pasar al siguiente middleware
     next(err);
+}
+
+/**
+ * Registrar líneas de debug de combate detallado.
+ * Solo escribe si la variable de entorno DEBUG_COMBAT=true.
+ * Escribe en engine.log con prefijo [COMBAT-DEBUG].
+ */
+function logCombatDebug(message) {
+    if (process.env.DEBUG_COMBAT !== 'true') return;
+    appendToLog(LOG_FILES.actions, `[COMBAT-DEBUG] ${message}`);
 }
 
 /**
@@ -348,7 +358,13 @@ const Logger = {
      * Compatibilidad con logGameEvent
      * @param {string} message - Mensaje
      */
-    event: logGameEvent
+    event: logGameEvent,
+
+    /**
+     * Debug detallado de combate (solo cuando DEBUG_COMBAT=true en .env)
+     * @param {string} message
+     */
+    combatDebug: logCombatDebug,
 };
 
 module.exports = {

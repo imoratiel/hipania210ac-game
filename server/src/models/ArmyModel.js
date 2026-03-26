@@ -160,6 +160,13 @@ class ArmyModel {
         );
         return result.rows.map(r => r.h3_index);
     }
+    async GetPlayerFleetPositions(playerId) {
+        const result = await db.query(
+            'SELECT h3_index FROM armies WHERE player_id = $1 AND is_naval = TRUE AND transported_by IS NULL',
+            [playerId]
+        );
+        return result.rows.map(r => r.h3_index);
+    }
     async GetUnitTypes() {
         const query = `
             SELECT
