@@ -728,6 +728,80 @@ async function processExplorations(client, turn, config) {
  * @param {Object} client - PostgreSQL client (within transaction)
  * @param {number} turn - Current turn number
  */
+/**
+ * Irradia cultura mensualmente desde los templos completados.
+ * Rings 0-4 con bonus decreciente (CULTURE_TEMPLE_RINGS).
+ * Solo afecta hexes colonizados (player_id IS NOT NULL).
+ */
+async function processCultureRadiation(client, turn) {
+    try {
+        const CULTURE_COL = {
+            1: 'culture_romanos',
+            2: 'culture_cartagineses',
+            3: 'culture_iberos',
+            4: 'culture_celtas',
+        };
+        const ALL_COLS   = Object.values(CULTURE_COL);
+        const RING_BONUS = GAME_CONFIG.MILITARY.CULTURE_TEMPLE_RINGS;
+        const MAX_RING   = RING_BONUS.length - 1;  // 4
+
+        const templesRes = await client.query(`
+            SELECT fb.h3_index, b.culture_id
+            FROM fief_buildings fb
+            JOIN buildings b ON b.id = fb.building_id
+            JOIN building_types bt ON bt.building_type_id = b.type_id
+            WHERE bt.name = 'religious'
+              AND fb.is_under_construction = FALSE
+              AND fb.conservation > 20
+              AND b.culture_id IS NOT NULL
+        `);
+
+        if (templesRes.rows.length === 0) return;
+
+        for (const temple of templesRes.rows) {
+            const col = CULTURE_COL[temple.culture_id];
+            if (!col) continue;
+
+            // Construir mapa hex → bonus acumulado (un hex puede estar en varios radios si hay varios templos)
+            const hexBonus = new Map();
+            const allDisk  = h3.gridDisk(temple.h3_index, MAX_RING);
+            for (const hex of allDisk) {
+                const dist = h3.gridDistance(temple.h3_index, hex);
+                const bonus = RING_BONUS[dist] ?? 0;
+                if (bonus > 0) hexBonus.set(hex, (hexBonus.get(hex) || 0) + bonus);
+            }
+
+            // Agrupar por valor de bonus para minimizar queries
+            const byBonus = new Map();
+            for (const [hex, bonus] of hexBonus) {
+                if (!byBonus.has(bonus)) byBonus.set(bonus, []);
+                byBonus.get(bonus).push(hex);
+            }
+
+            const otherCols = ALL_COLS.filter(c => c !== col);
+            const decaySet  = otherCols.map(c => `${c} = GREATEST(0, fief_culture.${c} - 1)`).join(', ');
+
+            for (const [bonus, hexes] of byBonus) {
+                await client.query(`
+                    INSERT INTO fief_culture (h3_index, ${col}, updated_at)
+                    SELECT h.h3_index, $1, NOW()
+                    FROM h3_map h
+                    WHERE h.h3_index = ANY($2)
+                      AND h.player_id IS NOT NULL
+                    ON CONFLICT (h3_index) DO UPDATE
+                    SET ${col}     = LEAST($3, fief_culture.${col} + $1),
+                        ${decaySet},
+                        updated_at = NOW()
+                `, [bonus, hexes, GAME_CONFIG.MILITARY.CULTURE_MAX]);
+            }
+        }
+
+        Logger.engine(`[TURN ${turn}] Cultura irradiada (mensual) desde ${templesRes.rows.length} templos.`);
+    } catch (err) {
+        Logger.error(err, { context: 'processCultureRadiation', turn });
+    }
+}
+
 async function processConstructionTicks(client, turn) {
     try {
         // Decrement all buildings under construction
@@ -917,10 +991,18 @@ async function processArmyRecovery(client, turn, config, movedArmyIds = new Set(
                 a.army_id,
                 a.name,
                 a.player_id,
+                a.h3_index,
                 a.battle_recovery_turns_left,
-                p.username
+                p.username,
+                EXISTS (
+                    SELECT 1 FROM characters c
+                    WHERE c.army_id = a.army_id AND c.age >= 16
+                ) AS has_character,
+                (m.player_id = a.player_id) AS in_own_fief
             FROM armies a
             JOIN players p ON a.player_id = p.player_id
+            LEFT JOIN h3_map m ON m.h3_index = a.h3_index
+            WHERE a.is_naval = FALSE
         `);
 
         let recoveredCount = 0;
@@ -988,6 +1070,22 @@ async function processArmyRecovery(client, turn, config, movedArmyIds = new Set(
                             turn: turn,
                             armyId: army.army_id
                         });
+                    }
+
+                    // Moral pasiva: feudo propio +1/turno
+                    if (army.in_own_fief) {
+                        await client.query(
+                            `UPDATE troops SET morale = LEAST(100, morale + 1) WHERE army_id = $1`,
+                            [army.army_id]
+                        );
+                    }
+
+                    // Moral pasiva: personaje presente +5/mes (cada 30 turnos)
+                    if (army.has_character && (turn % 30) === 0) {
+                        await client.query(
+                            `UPDATE troops SET morale = LEAST(100, morale + 5) WHERE army_id = $1`,
+                            [army.army_id]
+                        );
                     }
                 }
 
@@ -1233,6 +1331,9 @@ async function processGameTurn(pool, config) {
                 // Continue processing
             }
         }
+
+        // Culture radiation from temples (monthly — day 1 of each month)
+        if (day === 1) await processCultureRadiation(client, newTurn);
 
         // Grace turns decay: decrement occupation counters (every turn)
         await processGraceTurns(client, newTurn);

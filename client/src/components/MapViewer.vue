@@ -322,12 +322,19 @@
           <div class="market-section">
             <div class="market-section-title">⛏️ Contratar Trabajador</div>
             <div class="market-hire-form">
-              <select v-model="marketHireTypeId" class="market-select">
-                <option disabled value="null">Tipo de trabajador…</option>
-                <option v-for="t in workerTypes" :key="t.id" :value="t.id">
-                  {{ t.name }} — {{ t.cost }} 💰
-                </option>
-              </select>
+              <div class="market-worker-type-buttons">
+                <button
+                  v-for="t in workerTypes"
+                  :key="t.id"
+                  class="market-worker-type-btn"
+                  :class="{ active: marketHireTypeId === t.id }"
+                  @click="marketHireTypeId = t.id"
+                >
+                  <span class="worker-type-icon">{{ workerTypeIcon(t.name) }}</span>
+                  <span class="worker-type-name">{{ t.name }}</span>
+                  <span class="worker-type-cost">{{ Number(t.cost).toLocaleString('es-ES') }} 💰</span>
+                </button>
+              </div>
               <select v-model="marketHireH3" class="market-select">
                 <option disabled value="null">Feudo de contratación…</option>
                 <option v-for="f in marketFiefs" :key="f.h3_index" :value="f.h3_index">
@@ -423,7 +430,7 @@
                     class="worker-btn worker-btn-build-active"
                     title="Construir edificio en este feudo"
                     @click="buildModalOpenedFromWorker = true; activePanel = null; openBuildModal(worker.h3_index)"
-                  >🏛️ Edificio</button>
+                  >🏛️ Construir</button>
                   <button
                     class="worker-btn worker-btn-move"
                     @click="startWorkerMoveFromPanel(worker.id, worker.h3_index)"
@@ -1329,6 +1336,11 @@ const loadingWorkers = ref(false);
 // Market panel state
 const marketHireTypeId = ref(null);
 const marketHireH3 = ref(null);
+
+const workerTypeIcon = (name) => {
+  const icons = { constructor: '⛏️', farmer: '🌾', miner: '⛰️', lumberjack: '🪵', merchant: '🛒' };
+  return icons[name?.toLowerCase()] ?? '👷';
+};
 const marketFoodAmount = ref(100);
 const marketFiefs = computed(() => myFiefs.value.filter(f =>
     f.is_capital ||
@@ -2185,7 +2197,7 @@ const renderWorkerMarkers = (workers, currentPlayerId) => {
           cursor:pointer;"
           title="${data.worker_count} ${data.worker_type}(s) · ${data.player_name}">⛏️</div>`,
         iconSize: [26, 26],
-        iconAnchor: [13, 13],
+        iconAnchor: [4, 21],
         pane: 'workerPane',
       });
 
@@ -2699,14 +2711,13 @@ const fetchAndRenderCharacters = async () => {
               <circle cx="12" cy="7" r="4"/>
               <path d="M12 13c-5 0-8 2.5-8 4v1h16v-1c0-1.5-3-4-8-4z"/>
             </svg>
-            <span class="char-map-name">${char.name.split(' ')[0]}</span>
           </div>`;
 
         const icon = L.divIcon({
           html:       iconHtml,
           className:  '',
           iconSize:   [52, 36],
-          iconAnchor: [26, 36],
+          iconAnchor: [40, 26],
         });
 
         const marker = L.marker([lat, lng], { icon, pane: 'characterPane', interactive: true });
@@ -2780,7 +2791,6 @@ const fetchAndRenderCharacters = async () => {
               <circle cx="12" cy="7" r="4"/>
               <path d="M12 13c-5 0-8 2.5-8 4v1h16v-1c0-1.5-3-4-8-4z"/>
             </svg>
-            <span class="char-map-name">${char.name.split(' ')[0]}</span>
           </div>`;
         const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [52, 36], iconAnchor: [26, 36] });
         const marker = L.marker([lat, lng], { icon, pane: 'characterPane', interactive: true });
@@ -7280,6 +7290,39 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 6px;
 }
+
+.market-worker-type-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.market-worker-type-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 12px;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(197,160,89,0.35);
+  border-radius: 6px;
+  color: #e8d5b5;
+  cursor: pointer;
+  flex: 1;
+  min-width: 80px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.market-worker-type-btn:hover {
+  background: rgba(197,160,89,0.15);
+  border-color: rgba(197,160,89,0.6);
+}
+.market-worker-type-btn.active {
+  background: rgba(197,160,89,0.25);
+  border-color: #c5a059;
+}
+.worker-type-icon  { font-size: 20px; }
+.worker-type-name  { font-size: 11px; text-transform: capitalize; }
+.worker-type-cost  { font-size: 10px; color: #9ca3af; }
 
 .market-select {
   width: 100%;
