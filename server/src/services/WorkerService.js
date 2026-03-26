@@ -5,7 +5,7 @@ const pool = require('../../db.js');
 const WorkerModel = require('../models/WorkerModel.js');
 const ArmyModel = require('../models/ArmyModel.js');
 const CharacterModel = require('../models/CharacterModel.js');
-const { GAME_CONFIG } = require('../config/constants.js');
+const GAME_CONFIG = require('../config/constants.js');
 const { buyWorker, GameActionError } = require('./gameActions.js');
 const { Logger } = require('../utils/logger.js');
 
