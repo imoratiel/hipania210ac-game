@@ -16,7 +16,7 @@
         <input
           type="text"
           v-model="searchH3Input"
-          placeholder="Índice H3..."
+          placeholder="lat lon ó h3"
           @keyup.enter="goToH3Index"
           class="h3-search-input"
         />
@@ -302,10 +302,6 @@
                 <span class="telemetry-label">Hexágonos Totales:</span>
                 <span class="telemetry-value">{{ hexagonCount }}</span>
               </div>
-              <div class="telemetry-item">
-                <span class="telemetry-label">H3 bajo cursor:</span>
-                <span class="telemetry-value telemetry-h3">{{ mouseH3Index || 'Mueve el ratón' }}</span>
-              </div>
             </div>
           </div>
 
@@ -408,10 +404,10 @@
                   <span class="worker-id">#{{ worker.id }}</span>
                 </div>
                 <div class="worker-card-info">
-                  <span title="Ubicación actual">📍 {{ worker.h3_index }}</span>
+                  <span title="Ubicación actual">📍 {{ cellToLatLng(worker.h3_index).map(v => v.toFixed(3)).join(', ') }} ({{ worker.h3_index }})</span>
                   <span v-if="worker.terrain_type" class="worker-terrain">🌍 {{ worker.terrain_type }}</span>
                   <span v-if="worker.destination_h3" class="worker-en-route" title="Destino">
-                    ➡️ {{ worker.destination_h3 }}
+                    ➡️ {{ cellToLatLng(worker.destination_h3).map(v => v.toFixed(3)).join(', ') }} ({{ worker.destination_h3 }})
                   </span>
                 </div>
                 <div class="worker-card-stats">
@@ -4398,20 +4394,37 @@ const focusOnHex = async (h3Index) => {
  * Navigate to H3 index from search input
  */
 const goToH3Index = async () => {
-  const h3Index = searchH3Input.value.trim();
+  const raw = searchH3Input.value.trim();
 
-  if (!h3Index) {
-    showToast('Por favor introduce un índice H3', 'warning');
+  if (!raw) {
+    showToast('Introduce coordenadas (lat lon) o un índice H3', 'warning');
     return;
   }
 
-  // Validate H3 index format (basic check - should be 15 character hex string)
-  if (!/^[0-9a-f]{15}$/i.test(h3Index)) {
-    showToast('Formato de índice H3 inválido', 'error');
+  // Normalize European decimal comma: "39,589 -0,550" → "39.589 -0.550"
+  const normalized = /^-?\d+,\d+\s+-?\d+,\d+$/.test(raw) ? raw.replace(/,/g, '.') : raw;
+
+  // Try lat/lon: accepts "39.589 -0.550", "39.589, -0.550", "39.589,-0.550"
+  const coordMatch = normalized.match(/^(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)$/);
+  if (coordMatch) {
+    const lat = parseFloat(coordMatch[1]);
+    const lng = parseFloat(coordMatch[2]);
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      showToast('Coordenadas fuera de rango', 'error');
+      return;
+    }
+    const h3Index = latLngToCell(lat, lng, 7);
+    await focusOnHex(h3Index);
     return;
   }
 
-  await focusOnHex(h3Index);
+  // Try H3 index (15-char hex string)
+  if (/^[0-9a-f]{15}$/i.test(raw)) {
+    await focusOnHex(raw);
+    return;
+  }
+
+  showToast('Formato no reconocido. Usa "lat lon" o un índice H3', 'error');
 };
 
 /**

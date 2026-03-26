@@ -2,6 +2,7 @@
  * popupGenerator.js
  * Genera el contenido HTML para los popups del mapa
  */
+import { cellToLatLng } from 'h3-js';
 
 
 function getBuildingIcon(name = '', typeName = '') {
@@ -63,13 +64,9 @@ export function generateCellPopupContent(cell, config) {
   // HEXAGON INFO - ID and Coordinates in one line
   popupContent += '<div class="hex-info-box">';
 
-  // Build single line: 📍 h3_index (coord_x, coord_y)
-  let hexInfo = `📍 ${h3_index}`;
-  if (cell.coord_x !== null && cell.coord_x !== undefined && cell.coord_y !== null && cell.coord_y !== undefined) {
-    hexInfo += ` (${cell.coord_x}, ${cell.coord_y})`;
-  }
-
-  popupContent += `<p class="hex-info-item">${hexInfo}</p>`;
+  const [lat, lng] = cellToLatLng(h3_index);
+  const coordStr = `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+  popupContent += `<p class="hex-info-item">📍 ${coordStr}</p>`;
   popupContent += '</div>';
 
   // OWNER - Player name or "Sin reclamar"
@@ -345,9 +342,8 @@ export function generateArmyPopup(armyData, config) {
 
     // LOCATION
     popupContent += '<div class="army-info-box">';
-    let locationInfo = `📍 ${h3_index}`;
-    if (coord_x != null && coord_y != null) locationInfo += ` (${coord_x}, ${coord_y})`;
-    popupContent += `<p class="army-location">${locationInfo}</p>`;
+    const [_lat, _lng] = cellToLatLng(h3_index);
+    popupContent += `<p class="army-location">📍 ${_lat.toFixed(3)}, ${_lng.toFixed(3)}</p>`;
     popupContent += '</div>';
 
     if (isOwnArmy) {
