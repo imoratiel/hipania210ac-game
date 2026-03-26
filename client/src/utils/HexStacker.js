@@ -128,7 +128,7 @@ function _troopsBadge(entity, isEnemy, isConflict) {
     : '0 2px 5px rgba(0,0,0,0.5)';
   const badge  = formatCount(count);
 
-  return `<div class="hs-entity hs-troops" style="background:${bg};border:2px solid ${border};border-radius:${radius};width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;box-shadow:${shadow};cursor:pointer;user-select:none;position:relative;">${glyph}<span style="position:absolute;top:-5px;right:-7px;background:#222;color:#fff;font-size:7px;font-weight:bold;border-radius:3px;padding:0 2px;line-height:11px;white-space:nowrap;border:1px solid ${border};">${badge}</span></div>`;
+  return `<div class="hs-entity hs-troops" style="background:${bg};border:2px solid ${border};border-radius:${radius};width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;box-shadow:${shadow};cursor:pointer;user-select:none;">${glyph}</div>`;
 }
 
 function _charBadge(entity, isEnemy) {
@@ -170,7 +170,7 @@ function _slotHTML(entities, pos, h3Index, side, navIdx, isConflict) {
 
   // Multiple entities: show ◀ / ▶ nav arrows
   const arw = 'background:rgba(0,0,0,0.65);color:#ccc;border:none;border-radius:2px;width:8px;height:22px;font-size:5px;cursor:pointer;padding:0;line-height:1;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
-  return `<div style="position:absolute;left:${pos.left.toFixed(1)}%;top:${pos.top.toFixed(1)}%;transform:translate(-50%,-50%);z-index:3;pointer-events:auto;display:flex;align-items:center;gap:1px;"><button class="hs-nav-btn" data-h3="${h3Index}" data-side="${side}" data-dir="-1" data-count="${count}" style="${arw}">◀</button><div style="position:relative;">${badge}<span style="position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);background:#222;color:#aaa;font-size:6px;border-radius:2px;padding:0 2px;line-height:10px;white-space:nowrap;">${navIdx + 1}/${count}</span></div><button class="hs-nav-btn" data-h3="${h3Index}" data-side="${side}" data-dir="1" data-count="${count}" style="${arw}">▶</button></div>`;
+  return `<div style="position:absolute;left:${pos.left.toFixed(1)}%;top:${pos.top.toFixed(1)}%;transform:translate(-50%,-50%);z-index:3;pointer-events:auto;display:flex;align-items:center;gap:1px;"><button class="hs-nav-btn" data-h3="${h3Index}" data-side="${side}" data-dir="-1" data-count="${count}" style="${arw}">◀</button><div style="position:relative;">${badge}</div><button class="hs-nav-btn" data-h3="${h3Index}" data-side="${side}" data-dir="1" data-count="${count}" style="${arw}">▶</button></div>`;
 }
 
 // ─── Core HTML builder ─────────────────────────────────────────────────────

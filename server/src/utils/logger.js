@@ -308,7 +308,7 @@ function errorLoggingMiddleware(err, req, res, next) {
  */
 function logCombatDebug(message) {
     if (process.env.DEBUG_COMBAT !== 'true') return;
-    appendToLog(LOG_FILES.engine, `[COMBAT-DEBUG] ${message}`);
+    appendToLog(LOG_FILES.actions, `[COMBAT-DEBUG] ${message}`);
 }
 
 /**
