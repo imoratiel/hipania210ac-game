@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/imoratiel/hipania210ac-game/compare/v0.4.0...v0.5.0) (2026-03-27)
+
+
+### Nuevas funcionalidades
+
+* resto de paneles, titulos ajustados a version movil ([4776823](https://github.com/imoratiel/hipania210ac-game/commit/47768233e85bef768ed140615f97f72978a5f670))
+
 ## [0.4.0](https://github.com/imoratiel/hipania210ac-game/compare/v0.3.0...v0.4.0) (2026-03-27)
 
 
