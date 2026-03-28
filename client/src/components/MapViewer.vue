@@ -212,32 +212,32 @@
           <span class="username">{{ currentUser.culture_id === 1 ? 'Gens' : 'Casa' }} {{ currentUser.display_name || currentUser.username }}</span>
           <span v-if="currentUser.culture_name" class="culture-badge">{{ currentUser.culture_name }}</span>
         </button>
-        <button
-          v-if="currentUser && currentUser.role === 'admin'"
-          class="footer-button admin-button"
-          :class="{ active: activeOverlay === 'admin' }"
-          title="Panel de Administración"
-          @click="openOverlay('admin')"
-        >
-          <span class="footer-icon">⚙️</span>
-        </button>
-        <button
-          v-if="currentUser"
-          class="footer-button changelog-button"
-          :class="{ active: showChangelog }"
-          title="Novedades"
-          @click="showChangelog = !showChangelog"
-        >
-          <span class="footer-icon">📋</span>
-        </button>
-        <button
-          v-if="currentUser"
-          class="footer-button logout-button"
-          @click="handleLogout"
-          title="Cerrar Sesión"
-        >
-          <span class="footer-icon">🚪</span>
-        </button>
+        <div v-if="currentUser" class="footer-actions">
+          <button
+            v-if="currentUser.role === 'admin'"
+            class="footer-button admin-button"
+            :class="{ active: activeOverlay === 'admin' }"
+            title="Panel de Administración"
+            @click="openOverlay('admin')"
+          >
+            <span class="footer-icon">⚙️</span>
+          </button>
+          <button
+            class="footer-button changelog-button"
+            :class="{ active: showChangelog }"
+            title="Novedades"
+            @click="showChangelog = !showChangelog"
+          >
+            <span class="footer-icon">📋</span>
+          </button>
+          <button
+            class="footer-button logout-button"
+            @click="handleLogout"
+            title="Cerrar Sesión"
+          >
+            <span class="footer-icon">🚪</span>
+          </button>
+        </div>
       </div>
       <div class="legal-links">
         <a href="/legal/privacidad.html" target="_blank" rel="noopener">Privacidad</a>
@@ -629,21 +629,11 @@
           <div class="profile-edit-section">
             <p class="profile-field-label">Nombre de personaje</p>
             <input
-              v-model="profileDisplayName"
-              class="profile-input"
+              :value="profileDisplayName"
+              class="profile-input profile-input--readonly"
               type="text"
-              maxlength="20"
-              placeholder="Nombre visible en el mapa..."
-              @keyup.enter="saveProfile"
+              readonly
             />
-            <p class="profile-hint">3–20 caracteres. Solo letras, números y espacios. Visible para todos los jugadores.</p>
-            <button
-              class="profile-save-button"
-              :disabled="savingProfile || profileDisplayName.trim().length < 3"
-              @click="saveProfile"
-            >
-              {{ savingProfile ? 'Guardando...' : '💾 Guardar nombre' }}
-            </button>
           </div>
         </div>
       </div>
@@ -5430,6 +5420,7 @@ const getBuildingIcon = (name = '', typeName = '') => {
   if (n.includes('astillero') || n.includes('shipyard') ||
       n.includes('portus') || n.includes('cothon') ||
       n.includes('emporio') || n.includes('embarcadero') || t === 'maritime') return '⛵';
+  if (n.includes('castellum') || n.includes('fortaleza') || n.includes('castillo')) return '🏰';
   if (n.includes('mina') || n.includes('mine')) return '⛏️';
   if (n.includes('aserradero') || n.includes('lumber')) return '🌲';
   if (n.includes('mercado') || n.includes('market') || n.includes('foro') || n.includes('factor') || n.includes('lonja') || n.includes('feria')) return '⚖️';
@@ -6901,9 +6892,16 @@ const handleKeyDown = (event) => {
     actionTaken = true;
   }
 
-  // PRIORIDAD 4: Cerrar panel de usuario si está abierto
+  // PRIORIDAD 4: Cerrar panel de novedades si está abierto
+  if (!actionTaken && showChangelog.value) {
+    console.log('[MapViewer] ⭐ PRIORIDAD 4: Cerrando panel de novedades');
+    showChangelog.value = false;
+    actionTaken = true;
+  }
+
+  // PRIORIDAD 5: Cerrar panel de usuario si está abierto
   if (!actionTaken && showUserPanel.value) {
-    console.log('[MapViewer] ⭐ PRIORIDAD 4: Cerrando panel de usuario');
+    console.log('[MapViewer] ⭐ PRIORIDAD 5: Cerrando panel de usuario');
     showUserPanel.value = false;
     actionTaken = true;
   }
@@ -7291,6 +7289,12 @@ onBeforeUnmount(() => {
     0 -2px 10px rgba(0, 0, 0, 0.5);
 }
 
+.footer-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+}
+
 .user-info-footer {
   font-size: 10px;
   color: var(--color-text-dim);
@@ -7381,6 +7385,12 @@ onBeforeUnmount(() => {
   border-color: rgba(197, 160, 89, 0.7);
 }
 
+.profile-input--readonly {
+  opacity: 0.6;
+  cursor: default;
+  border-color: rgba(197, 160, 89, 0.15);
+}
+
 .profile-hint {
   font-size: 0.75rem;
   color: #a89875;
@@ -7413,6 +7423,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 1;
   padding: 10px;
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid var(--color-border);
