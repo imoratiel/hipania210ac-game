@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.3] - 2026-03-28
+
+### Nuevas Funcionalidades
+
+* mostrar cultura del propietario en popup de feudos ajenos (4588bda)
+
 ## [0.1.1] - 2026-03-28
 
 # Changelog
