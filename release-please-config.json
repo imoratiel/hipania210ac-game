@@ -1,0 +1,22 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": true,
+      "changelog-path": "CHANGELOG.md",
+      "changelog-sections": [
+        { "type": "feat",     "section": "Nuevas Funcionalidades" },
+        { "type": "fix",      "section": "Correcciones" },
+        { "type": "perf",     "section": "Mejoras de rendimiento" },
+        { "type": "refactor", "section": "Refactorizaciones", "hidden": true },
+        { "type": "chore",    "hidden": true },
+        { "type": "docs",     "hidden": true },
+        { "type": "style",    "hidden": true },
+        { "type": "test",     "hidden": true },
+        { "type": "build",    "hidden": true },
+        { "type": "ci",       "hidden": true }
+      ]
+    }
+  }
+}
