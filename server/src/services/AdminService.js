@@ -67,13 +67,35 @@ class AdminService {
     }
     async UpdateConfig(req, res) {
         try {
-            const { turn_interval_seconds } = req.body;
-            if (!turn_interval_seconds) return res.status(400).json({ success: false, message: 'turn_interval_seconds requerido' });
+            const { turn_interval_minutes } = req.body;
+            if (!turn_interval_minutes) return res.status(400).json({ success: false, message: 'turn_interval_minutes requerido' });
 
-            Logger.action(`Acceso administrativo a /admin/config - Actualizando intervalo de turnos a ${turn_interval_seconds}s`, req.user.player_id);
-            await AdminModel.UpsertConfig('gameplay', 'turn_duration_seconds', turn_interval_seconds);
-            Logger.action(`Configuración actualizada: turn_interval_seconds = ${turn_interval_seconds}`, req.user.player_id);
-            res.json({ success: true, message: 'Configuración actualizada. Reinicie el servidor para aplicar el nuevo intervalo de tiempo.' });
+            const minutes = parseFloat(turn_interval_minutes);
+            if (isNaN(minutes) || minutes < 1 || minutes > 60) {
+                return res.status(400).json({ success: false, message: 'El intervalo debe estar entre 1 y 60 minutos' });
+            }
+
+            const seconds  = Math.round(minutes * 60);
+            const intervalMs = seconds * 1000;
+
+            // Next boundary for the new interval — engine will fire there first
+            const { msUntilNextBoundary } = require('../utils/gameCalendar');
+            const nextBoundaryMs = Date.now() + msUntilNextBoundary(intervalMs);
+            const nextBoundaryTs = new Date(nextBoundaryMs).toISOString();
+
+            Logger.action(`Actualizando intervalo de turnos a ${minutes}min (${seconds}s), nuevo epoch: ${nextBoundaryTs}`, req.user.player_id);
+
+            await AdminModel.UpsertConfig('gameplay', 'turn_duration_seconds', seconds);
+            await pool.query(
+                `UPDATE world_state SET game_epoch_timestamp = $1, current_turn = 0 WHERE id = 1`,
+                [nextBoundaryTs]
+            );
+
+            Logger.action(`Configuración actualizada: ${minutes}min/turno, epoch=${nextBoundaryTs}`, req.user.player_id);
+            res.json({
+                success: true,
+                message: `Intervalo actualizado a ${minutes} min. El primer turno será a las ${new Date(nextBoundaryMs).toUTCString()}.`
+            });
         } catch (error) {
             Logger.error(error, { endpoint: '/admin/config', method: 'POST', userId: req.user?.player_id, payload: req.body });
             res.status(500).json({ success: false, message: 'Error al actualizar configuración', error: error.message });

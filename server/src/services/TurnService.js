@@ -1,4 +1,5 @@
 const { Logger } = require('../utils/logger');
+const { msUntilNextBoundary } = require('../utils/gameCalendar');
 const cache = require('./CacheService.js');
 const WorldStateModel = require('../models/TurnModel.js');
 const AdminModel = require('../models/AdminModel.js');
@@ -83,11 +84,10 @@ class TurnService {
             const turnDurationSeconds = CONFIG.gameplay?.turn_duration_seconds || 60;
             const turnDurationMs = turnDurationSeconds * 1000;
 
-            // Time since last turn and estimated time to next
-            const lastTurnAt = state.last_updated ? new Date(state.last_updated) : null;
-            const timeSinceLastMs = lastTurnAt ? Date.now() - lastTurnAt.getTime() : null;
-            const nextTurnInMs = (isEngineActive() && !state.is_paused && timeSinceLastMs !== null)
-                ? Math.max(0, turnDurationMs - timeSinceLastMs)
+            // Time until next turn aligned to clock boundary
+            const lastTurnAt  = state.last_updated ? new Date(state.last_updated) : null;
+            const nextTurnInMs = (isEngineActive() && !state.is_paused)
+                ? msUntilNextBoundary(turnDurationMs)
                 : null;
 
             const engineRunning = isEngineActive();

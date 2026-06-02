@@ -1,6 +1,7 @@
 const NotificationService = require('../services/NotificationService');
 const CombatService      = require('../services/CombatService');
-const { Logger } = require('../utils/logger');
+const { Logger }          = require('../utils/logger');
+const { isCampaignSeason } = require('../utils/gameCalendar');
 const h3 = require('h3-js');
 
 // ── Parámetros de rebelión ────────────────────────────────────────────────────
@@ -252,14 +253,20 @@ async function processComarcaResistance(client, turn) {
                 resistance = Math.max(40, resistance);
             }
 
-            // 7. Comprobación de umbral de rebelión
+            // 7. Comprobación de umbral de rebelión (bloqueado en invierno)
             if (resistance + aftershock >= REBELLION_THRESHOLD) {
-                await triggerRebellion(
-                    client, row.division_id, row.player_id,
-                    row.comarca_name, row.capital_h3, dominantCultureId, turn
-                );
-                resistance = RESISTANCE_AFTER_REBEL;
-                aftershock = 0;
+                if (isCampaignSeason()) {
+                    await triggerRebellion(
+                        client, row.division_id, row.player_id,
+                        row.comarca_name, row.capital_h3, dominantCultureId, turn
+                    );
+                    resistance = RESISTANCE_AFTER_REBEL;
+                    aftershock = 0;
+                } else {
+                    // Invierno: la resistencia se congela en el umbral hasta que llegue la campaña
+                    resistance = REBELLION_THRESHOLD;
+                    Logger.engine(`[TURN ${turn}] Rebelión bloqueada (invierno) comarca ${row.division_id} — resistencia congelada en ${REBELLION_THRESHOLD}`);
+                }
             }
 
             await client.query(`
@@ -610,6 +617,12 @@ const HAPPINESS_REBEL_TROOPS    = 300;  // Efectivos del ejército rebelde
 const HAPPINESS_MIN_AGE_TURNS   = 90;   // La comarca debe tener al menos 90 turnos de antigüedad
 
 async function processHappinessRebellion(client, currentTurn) {
+    // Rebeliones por felicidad bloqueadas durante el invierno
+    if (!isCampaignSeason()) {
+        Logger.engine(`[TURN ${currentTurn}] processHappinessRebellion omitida (invierno)`);
+        return;
+    }
+
     const { rows: fiefs } = await client.query(`
         SELECT
             m.h3_index,

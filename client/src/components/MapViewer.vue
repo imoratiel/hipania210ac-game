@@ -99,6 +99,34 @@
             <span class="date-icon">⚔️</span>
             <span class="date-label">Turno {{ currentTurn }}</span>
           </div>
+          <div class="date-row season-row">
+            <span class="date-icon">{{ gameSeason.isCampaign ? '⚔️' : '❄️' }}</span>
+            <span class="date-label season-badge" :class="gameSeason.isCampaign ? 'season-campaign' : 'season-winter'">
+              {{ gameSeason.month }}
+              <span class="season-sublabel">{{ gameSeason.isCampaign ? 'Campaña' : 'Invierno' }}</span>
+            </span>
+            <span class="season-tooltip">
+              <template v-if="gameSeason.isCampaign">
+                <strong>⚔️ Temporada de Campaña</strong>
+                <ul>
+                  <li>✅ Atacar ejércitos enemigos</li>
+                  <li>✅ Colonizar y conquistar territorios</li>
+                  <li>✅ Trabajadores activos con normalidad</li>
+                  <li>⚠️ Posibles rebeliones en comarcas descontentas</li>
+                </ul>
+              </template>
+              <template v-else>
+                <strong>❄️ Invierno</strong>
+                <ul>
+                  <li>❌ No se puede atacar</li>
+                  <li>❌ No hay rebeliones</li>
+                  <li>✅ Colonizar y construir con normalidad</li>
+                  <li>✅ Reclutamiento y movimiento de ejércitos</li>
+                  <li>✅ Trabajadores activos con normalidad</li>
+                </ul>
+              </template>
+            </span>
+          </div>
           <div class="date-row harvest-row">
             <span class="date-icon">🌾</span>
             <span class="harvest-text">{{ nextHarvestLabel }}</span>
@@ -1581,6 +1609,9 @@ const gameDate = ref({ day: 1, month: 1, year: 210, era: 'BC' });
 const formattedDate = ref('1 de marzo de 1039');
 const formattedDateShort = computed(() => formattedDate.value.split(', anno')[0]);
 const isTurnProcessing = ref(false);
+
+// Season / calendar
+const gameSeason = ref({ month: 'Enero', isCampaign: false, nextTransitionMinutes: 0, nextSeason: 'Campaña' });
 
 // Day of year based on current turn (1-365)
 const dayOfYear = computed(() => {
@@ -3859,6 +3890,18 @@ const fetchWorldState = async () => {
     }
   } catch (err) {
     console.error('Failed to fetch world state:', err);
+  }
+};
+
+/**
+ * Fetch current game season (campaign vs winter)
+ */
+const fetchGameSeason = async () => {
+  try {
+    const data = await mapApi.getGameSeason();
+    gameSeason.value = data;
+  } catch (err) {
+    console.error('Failed to fetch game season:', err);
   }
 };
 
@@ -7902,6 +7945,8 @@ onMounted(() => {
   initMap();
   fetchTerrainTypes();
   fetchWorldState();
+  fetchGameSeason();
+  setInterval(fetchGameSeason, 5 * 60 * 1000); // refresca cada 5 min (la hora cambia cada 60 min)
   loadExplorationConfig(); // Load exploration configuration
   updateFiefsUI(); // Load initial fiefs list
   fetchArmyCapacity(); // Load army limit based on fief count
@@ -8155,6 +8200,76 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--color-border);
   padding-top: 8px;
   margin-top: 6px;
+}
+
+.season-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.season-sublabel {
+  font-size: 9px;
+  font-family: var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.season-campaign .season-sublabel {
+  color: #f4c430;
+  background: rgba(244,196,48,0.12);
+  border: 1px solid rgba(244,196,48,0.3);
+}
+.season-winter .season-sublabel {
+  color: #90caf9;
+  background: rgba(144,202,249,0.10);
+  border: 1px solid rgba(144,202,249,0.25);
+}
+.season-campaign { color: #f4e8a0; }
+.season-winter   { color: #b0c8e8; }
+
+.season-row {
+  position: relative;
+  cursor: default;
+}
+.season-tooltip {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 9999;
+  background: #1a1408;
+  border: 1px solid #4a3a1a;
+  border-radius: 6px;
+  padding: 10px 12px;
+  width: 210px;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  color: #c8b87a;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  pointer-events: none;
+}
+.season-tooltip strong {
+  display: block;
+  font-size: 0.78rem;
+  color: #e8d48a;
+  margin-bottom: 6px;
+}
+.season-tooltip ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.season-tooltip li {
+  font-size: 0.72rem;
+  color: #a89860;
+  line-height: 1.4;
+}
+.season-row:hover .season-tooltip {
+  display: block;
 }
 
 /* Sidebar harvest text - specific selector to override banner style */

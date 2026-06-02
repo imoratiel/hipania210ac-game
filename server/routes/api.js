@@ -95,6 +95,10 @@ module.exports = function () {
 
     router.get('/game/world-state', TurnService.GetWorldState);
     router.get('/game/my-fiefs', authenticateToken, KingdomService.GetMyFiefs);
+    router.get('/game/season', (req, res) => {
+        const { getSeasonSnapshot } = require('../src/utils/gameCalendar.js');
+        return res.json(getSeasonSnapshot());
+    });
 
     // ============================================
     // TERRITORY AND INFRASTRUCTURE
