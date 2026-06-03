@@ -210,6 +210,15 @@
           <span class="nav-icon">🗺️</span>
           <span class="nav-label">Mapa</span>
         </button>
+        <button
+          class="nav-button"
+          :class="{ active: showHelp }"
+          @click="showHelp = true"
+          title="Ayuda"
+        >
+          <span class="nav-icon">📖</span>
+          <span class="nav-label">Ayuda</span>
+        </button>
       </nav>
 
       <!-- Sidebar Footer -->
@@ -246,16 +255,6 @@
           >
             <span class="footer-icon">📋</span>
           </button>
-          <a
-            class="footer-button"
-            href="https://www.notion.so/Manual-de-Juego-326c5a6157a28107b01edc275cd89f21"
-            target="_blank"
-            rel="noopener"
-            title="Manual de Juego"
-            style="text-decoration:none;"
-          >
-            <span class="footer-icon">❓</span>
-          </a>
           <button
             class="footer-button logout-button"
             @click="handleLogout"
@@ -1378,6 +1377,7 @@
 
   <!-- Changelog Panel (fuera del sidebar para evitar clipping por transform) -->
   <ChangelogPanel v-if="showChangelog" @close="showChangelog = false" />
+  <HelpPanel v-if="showHelp" @close="showHelp = false" />
 
   <!-- ── Confirmación de construcción de puente ────────────────────────── -->
   <div v-if="pendingBridgeConfirm" class="bridge-confirm-backdrop" @click.self="pendingBridgeConfirm = null">
@@ -1552,6 +1552,7 @@ import DiplomacyPanel from './DiplomacyPanel.vue';
 import NavalPanel from './NavalPanel.vue';
 import CreateFleetModal from './CreateFleetModal.vue';
 import ChangelogPanel from './ChangelogPanel.vue';
+import HelpPanel from './HelpPanel.vue';
 
 const mapContainer = ref(null);
 const loading = ref(false);
@@ -1570,6 +1571,7 @@ const mouseH3Index = ref(''); // H3 index under cursor
 const currentUser = ref(null);       // Current logged-in user { player_id, username, role }
 const showWelcomePanel = ref(false); // Epic Initialization overlay for new players
 const showChangelog = ref(false);
+const showHelp      = ref(false);
 const playerId = computed(() => currentUser.value?.player_id || 1); // Player ID from session
 const playerGold = ref(0); // Oro inicial (se carga del servidor)
 const playerHexes = ref(new Set()); // Track player's owned hexagons for adjacency checks
