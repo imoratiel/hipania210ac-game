@@ -51,7 +51,7 @@ async function redirectToGoogle(req, res) {
         res.redirect(url);
     } catch (err) {
         Logger.error(err, { endpoint: '/api/auth/google', method: 'GET' });
-        res.redirect('/?error=oauth');
+        res.redirect(`${process.env.FRONTEND_URL || ''}/?error=oauth`);
     }
 }
 
@@ -63,7 +63,7 @@ async function handleGoogleCallback(req, res) {
     const { code, error } = req.query;
 
     if (error || !code) {
-        return res.redirect('/?error=cancelado');
+        return res.redirect(`${process.env.FRONTEND_URL || ''}/?error=cancelado`);
     }
 
     try {
@@ -110,7 +110,7 @@ async function handleGoogleCallback(req, res) {
                 if (err.code === '23505') {
                     // Email ya registrado con otra cuenta de Google → multicuenta
                     Logger.action(`Intento multicuenta bloqueado: email ${email}`, null);
-                    return res.redirect('/?error=multicuenta');
+                    return res.redirect(`${process.env.FRONTEND_URL || ''}/?error=multicuenta`);
                 }
                 throw err;
             } finally {
@@ -140,11 +140,12 @@ async function handleGoogleCallback(req, res) {
             maxAge: 7 * 24 * 60 * 60 * 1000  // 7 days
         });
 
-        res.redirect('/map');
+        const frontend = process.env.FRONTEND_URL || '';
+        res.redirect(`${frontend}/map`);
 
     } catch (err) {
         Logger.error(err, { endpoint: '/api/auth/google/callback', method: 'GET' });
-        res.redirect('/?error=oauth');
+        res.redirect(`${process.env.FRONTEND_URL || ''}/?error=oauth`);
     }
 }
 
