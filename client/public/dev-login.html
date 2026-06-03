@@ -172,7 +172,7 @@
       </form>
 
       <div class="footer-links">
-        <a href="/login.html">← Volver al login</a>
+        <a href="/">← Volver al inicio</a>
       </div>
     </div>
   </div>
@@ -219,7 +219,7 @@
             }
           } catch (err) { /* ignorar */ }
 
-          setTimeout(() => { window.location.href = '/'; }, 1000);
+          setTimeout(() => { window.location.href = '/map'; }, 1000);
         } else {
           showAlert('error', data.message || 'Error al iniciar sesión');
           loginButton.disabled = false;
@@ -242,7 +242,7 @@
       try {
         const response = await fetch(`${API_URL}/api/auth/me`, { credentials: 'include' });
         const data = await response.json();
-        if (data.success) window.location.replace('/');
+        if (data.success) window.location.replace('/map');
       } catch (e) { /* no hay sesión */ }
     });
   </script>

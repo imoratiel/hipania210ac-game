@@ -4,6 +4,32 @@ const PlayerModel = require('../models/PlayerModel');
 const pool = require('../../db');
 const { Logger } = require('../utils/logger');
 
+async function sendNewPlayerNotification(name, email) {
+    try {
+        const adminEmail = process.env.ADMIN_EMAIL;
+        const apiKey     = process.env.RESEND_API_KEY;
+        if (!adminEmail || !apiKey) return;
+
+        const { Resend } = require('resend');
+        const resend = new Resend(apiKey);
+        await resend.emails.send({
+            from: 'noreply@hispania210.com',
+            to:   adminEmail,
+            subject: `[Hispania 210] Nuevo jugador: ${name}`,
+            html: `
+                <div style="font-family:serif;max-width:500px;background:#0a0804;color:#d4c4a0;padding:32px;border:1px solid #c9a84c33;border-radius:6px;">
+                    <h2 style="color:#c9a84c;font-size:1.3rem;margin-bottom:16px;">⚔️ Nuevo jugador en la beta</h2>
+                    <p><strong>Nombre:</strong> ${name}</p>
+                    <p><strong>Email:</strong> ${email}</p>
+                    <p style="margin-top:16px;color:#7a6128;font-size:0.85rem;">hispania210.com</p>
+                </div>
+            `
+        });
+    } catch (err) {
+        Logger.error(err, { context: 'sendNewPlayerNotification', email });
+    }
+}
+
 const getClient = () => new OAuth2Client(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
@@ -25,7 +51,7 @@ async function redirectToGoogle(req, res) {
         res.redirect(url);
     } catch (err) {
         Logger.error(err, { endpoint: '/api/auth/google', method: 'GET' });
-        res.redirect('/login.html?error=oauth');
+        res.redirect('/?error=oauth');
     }
 }
 
@@ -37,7 +63,7 @@ async function handleGoogleCallback(req, res) {
     const { code, error } = req.query;
 
     if (error || !code) {
-        return res.redirect('/login.html?error=cancelado');
+        return res.redirect('/?error=cancelado');
     }
 
     try {
@@ -78,12 +104,13 @@ async function handleGoogleCallback(req, res) {
                 });
                 await dbClient.query('COMMIT');
                 Logger.action(`Registro OAuth Google: nuevo player ${playerId} (${email})`, playerId);
+                sendNewPlayerNotification(name, email);
             } catch (err) {
                 await dbClient.query('ROLLBACK');
                 if (err.code === '23505') {
                     // Email ya registrado con otra cuenta de Google → multicuenta
                     Logger.action(`Intento multicuenta bloqueado: email ${email}`, null);
-                    return res.redirect('/login.html?error=multicuenta');
+                    return res.redirect('/?error=multicuenta');
                 }
                 throw err;
             } finally {
@@ -113,11 +140,11 @@ async function handleGoogleCallback(req, res) {
             maxAge: 7 * 24 * 60 * 60 * 1000  // 7 days
         });
 
-        res.redirect('/');
+        res.redirect('/map');
 
     } catch (err) {
         Logger.error(err, { endpoint: '/api/auth/google/callback', method: 'GET' });
-        res.redirect('/login.html?error=oauth');
+        res.redirect('/?error=oauth');
     }
 }
 

@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hispania 210 — Estrategia en la Península Ibérica</title>
+  <meta name="description" content="Juego de estrategia multijugador ambientado en la Hispania del año 210 a.C. Conquista territorios, forma alianzas y lidera tu cultura a la gloria.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Cinzel+Decorative:wght@400;700&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --gold:      #c9a84c;
+      --gold-light:#f4e8a0;
+      --gold-dim:  #7a6128;
+      --bg-deep:   #0a0804;
+      --bg-dark:   #110e07;
+      --bg-card:   #16120a;
+      --bg-card2:  #1c1710;
+      --border:    rgba(201,168,76,0.2);
+      --text:      #d4c4a0;
+      --text-dim:  #8a7a58;
+      --red-dim:   #7a2020;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg-deep);
+      color: var(--text);
+      font-family: 'EB Garamond', Georgia, serif;
+      font-size: 18px;
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    /* ── HERO ─────────────────────────────────────────────────── */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 60px 24px;
+      position: relative;
+      background:
+        radial-gradient(ellipse at 50% 0%, rgba(201,168,76,0.08) 0%, transparent 65%),
+        radial-gradient(ellipse at 20% 80%, rgba(120,60,20,0.15) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 70%, rgba(60,40,10,0.2) 0%, transparent 50%),
+        var(--bg-deep);
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        repeating-linear-gradient(0deg, transparent, transparent 60px, rgba(201,168,76,0.03) 60px, rgba(201,168,76,0.03) 61px),
+        repeating-linear-gradient(90deg, transparent, transparent 60px, rgba(201,168,76,0.03) 60px, rgba(201,168,76,0.03) 61px);
+      pointer-events: none;
+    }
+
+    .hero-year {
+      font-family: 'Cinzel', serif;
+      font-size: 0.9rem;
+      letter-spacing: 6px;
+      color: var(--gold-dim);
+      text-transform: uppercase;
+      margin-bottom: 24px;
+    }
+
+    .hero-title {
+      font-family: 'Cinzel Decorative', serif;
+      font-size: clamp(3rem, 10vw, 7rem);
+      font-weight: 700;
+      color: var(--gold-light);
+      text-shadow: 0 0 60px rgba(201,168,76,0.4), 0 2px 20px rgba(0,0,0,0.8);
+      line-height: 1.05;
+      margin-bottom: 8px;
+    }
+
+    .hero-subtitle-num {
+      font-family: 'Cinzel', serif;
+      font-size: clamp(1.5rem, 4vw, 2.8rem);
+      color: var(--gold);
+      letter-spacing: 8px;
+      margin-bottom: 32px;
+    }
+
+    .hero-divider {
+      width: 200px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      margin: 0 auto 32px;
+    }
+
+    .hero-tagline {
+      font-size: clamp(1rem, 2.5vw, 1.3rem);
+      color: var(--text);
+      max-width: 600px;
+      margin: 0 auto 48px;
+      font-style: italic;
+      opacity: 0.85;
+    }
+
+    .btn-google {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      background: linear-gradient(135deg, rgba(201,168,76,0.15), rgba(201,168,76,0.05));
+      border: 1px solid var(--gold);
+      color: var(--gold-light);
+      font-family: 'Cinzel', serif;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 2px;
+      padding: 16px 36px;
+      border-radius: 4px;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.25s;
+      box-shadow: 0 0 30px rgba(201,168,76,0.1), inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+
+    .btn-google:hover {
+      background: linear-gradient(135deg, rgba(201,168,76,0.25), rgba(201,168,76,0.1));
+      box-shadow: 0 0 50px rgba(201,168,76,0.25);
+      transform: translateY(-2px);
+    }
+
+    .btn-google svg { flex-shrink: 0; }
+
+    .hero-note {
+      margin-top: 20px;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      font-family: 'Cinzel', serif;
+      letter-spacing: 1px;
+    }
+
+    .scroll-hint {
+      position: absolute;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      color: var(--gold-dim);
+      font-size: 0.7rem;
+      font-family: 'Cinzel', serif;
+      letter-spacing: 2px;
+      animation: bounce 2s infinite;
+    }
+    @keyframes bounce {
+      0%,100% { transform: translateX(-50%) translateY(0); }
+      50%      { transform: translateX(-50%) translateY(6px); }
+    }
+
+    /* ── SECTIONS ─────────────────────────────────────────────── */
+    section { padding: 80px 24px; }
+
+    .container { max-width: 1100px; margin: 0 auto; }
+
+    .section-label {
+      font-family: 'Cinzel', serif;
+      font-size: 0.75rem;
+      letter-spacing: 5px;
+      color: var(--gold-dim);
+      text-transform: uppercase;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-family: 'Cinzel', serif;
+      font-size: clamp(1.6rem, 4vw, 2.4rem);
+      font-weight: 700;
+      color: var(--gold-light);
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
+    .section-intro {
+      text-align: center;
+      color: var(--text-dim);
+      max-width: 680px;
+      margin: 0 auto 56px;
+      font-size: 1.05rem;
+    }
+
+    /* ── QUÉ ES ───────────────────────────────────────────────── */
+    .what-section {
+      background: linear-gradient(180deg, var(--bg-deep) 0%, var(--bg-dark) 100%);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .what-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: center;
+    }
+
+    .what-text p {
+      margin-bottom: 20px;
+      color: var(--text);
+      font-size: 1.05rem;
+    }
+
+    .what-map {
+      position: relative;
+      aspect-ratio: 1;
+      max-width: 420px;
+      margin: 0 auto;
+    }
+
+    .hex-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 3px;
+      padding: 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .hex {
+      aspect-ratio: 1;
+      border-radius: 4px;
+      opacity: 0.7;
+      transition: opacity 0.3s;
+    }
+    .hex:hover { opacity: 1; }
+    .hex-1 { background: #2a5c2a; }
+    .hex-2 { background: #3d7a3d; }
+    .hex-3 { background: #4a6b3a; }
+    .hex-4 { background: #5a8a30; }
+    .hex-5 { background: #8b7355; }
+    .hex-6 { background: #6b8b5a; }
+    .hex-7 { background: #2a4a6b; }
+    .hex-8 { background: #1a3a5a; }
+    .hex-9 { background: #3d6b2a; }
+    .hex-gold { background: rgba(201,168,76,0.5); border: 1px solid var(--gold); }
+    .hex-enemy { background: rgba(180,40,40,0.5); }
+
+    /* ── MECÁNICAS ────────────────────────────────────────────── */
+    .mechanics-section {
+      background: var(--bg-dark);
+    }
+
+    .mechanics-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+
+    .mechanic-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 32px 24px;
+      text-align: center;
+      transition: border-color 0.3s, transform 0.2s;
+    }
+
+    .mechanic-card:hover {
+      border-color: rgba(201,168,76,0.5);
+      transform: translateY(-4px);
+    }
+
+    .mechanic-icon {
+      font-size: 2.8rem;
+      margin-bottom: 16px;
+      display: block;
+      filter: drop-shadow(0 0 12px rgba(201,168,76,0.3));
+    }
+
+    .mechanic-card h3 {
+      font-family: 'Cinzel', serif;
+      font-size: 1rem;
+      color: var(--gold);
+      margin-bottom: 10px;
+      letter-spacing: 1px;
+    }
+
+    .mechanic-card p {
+      font-size: 0.9rem;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    /* ── CAMPAÑA ──────────────────────────────────────────────── */
+    .campaign-section {
+      background: linear-gradient(180deg, var(--bg-dark) 0%, var(--bg-deep) 100%);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .season-visual {
+      display: flex;
+      gap: 0;
+      max-width: 800px;
+      margin: 0 auto 48px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    .season-half {
+      flex: 1;
+      padding: 36px 28px;
+      text-align: center;
+    }
+
+    .season-half.campaign {
+      background: linear-gradient(135deg, rgba(180,120,20,0.15), rgba(201,168,76,0.05));
+      border-right: 1px solid var(--border);
+    }
+
+    .season-half.winter {
+      background: linear-gradient(135deg, rgba(40,60,100,0.15), rgba(80,100,140,0.05));
+    }
+
+    .season-half h3 {
+      font-family: 'Cinzel', serif;
+      font-size: 1.1rem;
+      margin-bottom: 6px;
+    }
+
+    .season-half.campaign h3 { color: var(--gold); }
+    .season-half.winter h3   { color: #90c0f0; }
+
+    .season-time {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      font-family: 'Cinzel', serif;
+      letter-spacing: 1px;
+      margin-bottom: 16px;
+    }
+
+    .season-list {
+      list-style: none;
+      text-align: left;
+      font-size: 0.88rem;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .season-list li { color: var(--text-dim); }
+    .season-list li.ok   { color: #6fcf97; }
+    .season-list li.warn { color: #f4c430; }
+    .season-list li.no   { color: #f87171; }
+
+    .season-icon { font-size: 2rem; margin-bottom: 12px; display: block; }
+
+    /* ── FACCIONES ────────────────────────────────────────────── */
+    .factions-section {
+      background: var(--bg-dark);
+    }
+
+    .factions-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+    }
+
+    .faction-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 28px 20px;
+      text-align: center;
+      transition: border-color 0.3s, transform 0.2s;
+      cursor: default;
+    }
+
+    .faction-card:hover {
+      transform: translateY(-3px);
+    }
+
+    .faction-card.romano:hover  { border-color: rgba(200,160,60,0.6); }
+    .faction-card.cartago:hover { border-color: rgba(180,60,60,0.6); }
+    .faction-card.ibero:hover   { border-color: rgba(60,160,80,0.6); }
+    .faction-card.celta:hover   { border-color: rgba(80,120,200,0.6); }
+
+    .faction-shield {
+      width: 72px;
+      height: 86px;
+      margin: 0 auto 16px;
+      display: block;
+    }
+
+    .faction-card h3 {
+      font-family: 'Cinzel', serif;
+      font-size: 0.95rem;
+      color: var(--gold);
+      margin-bottom: 6px;
+      letter-spacing: 1px;
+    }
+
+    .faction-epithet {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      font-style: italic;
+      margin-bottom: 12px;
+    }
+
+    .faction-unit {
+      font-size: 0.75rem;
+      color: var(--gold-dim);
+      font-family: 'Cinzel', serif;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── CTA FINAL ────────────────────────────────────────────── */
+    .cta-section {
+      background:
+        radial-gradient(ellipse at 50% 50%, rgba(201,168,76,0.06) 0%, transparent 70%),
+        var(--bg-deep);
+      border-top: 1px solid var(--border);
+      text-align: center;
+      padding: 100px 24px;
+    }
+
+    .cta-section .hero-title { font-size: clamp(2rem, 6vw, 4rem); margin-bottom: 16px; }
+
+    .cta-section p {
+      font-size: 1.1rem;
+      color: var(--text-dim);
+      max-width: 520px;
+      margin: 0 auto 48px;
+      font-style: italic;
+    }
+
+    /* ── FOOTER ───────────────────────────────────────────────── */
+    footer {
+      background: var(--bg-deep);
+      border-top: 1px solid rgba(201,168,76,0.1);
+      padding: 32px 24px;
+      text-align: center;
+      font-family: 'Cinzel', serif;
+      font-size: 0.7rem;
+      letter-spacing: 2px;
+      color: var(--text-dim);
+    }
+
+    /* ── NAV ──────────────────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 32px;
+      background: rgba(10,8,4,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(201,168,76,0.1);
+    }
+
+    .nav-logo {
+      font-family: 'Cinzel Decorative', serif;
+      font-size: 1rem;
+      color: var(--gold);
+      text-decoration: none;
+      letter-spacing: 1px;
+    }
+
+    .nav-links { display: flex; gap: 28px; align-items: center; }
+
+    .nav-links a {
+      font-family: 'Cinzel', serif;
+      font-size: 0.72rem;
+      letter-spacing: 2px;
+      color: var(--text-dim);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--gold); }
+
+    .nav-cta {
+      background: rgba(201,168,76,0.1);
+      border: 1px solid rgba(201,168,76,0.4);
+      color: var(--gold) !important;
+      padding: 7px 20px;
+      border-radius: 4px;
+      transition: background 0.2s !important;
+    }
+    .nav-cta:hover { background: rgba(201,168,76,0.2) !important; }
+
+    /* ── ERROR BANNER ─────────────────────────────────────────── */
+    .error-banner {
+      display: none;
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(120,20,20,0.95);
+      border: 1px solid rgba(248,113,113,0.4);
+      color: #fca5a5;
+      font-family: 'Cinzel', serif;
+      font-size: 0.8rem;
+      letter-spacing: 1px;
+      padding: 12px 24px;
+      border-radius: 4px;
+      z-index: 200;
+    }
+
+    /* ── RESPONSIVE ───────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .what-grid         { grid-template-columns: 1fr; }
+      .mechanics-grid    { grid-template-columns: 1fr; }
+      .factions-grid     { grid-template-columns: 1fr 1fr; }
+      .season-visual     { flex-direction: column; }
+      .season-half.campaign { border-right: none; border-bottom: 1px solid var(--border); }
+      .hex-grid          { display: none; }
+      nav                { padding: 14px 20px; }
+      .nav-links a:not(.nav-cta) { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── NAV ─────────────────────────────────────────────────── -->
+<nav>
+  <a href="/" class="nav-logo">Hispania 210</a>
+  <div class="nav-links">
+    <a href="#mecanicas">Juego</a>
+    <a href="#campana">Temporadas</a>
+    <a href="#facciones">Facciones</a>
+    <a href="/api/auth/google" class="nav-cta">Entrar</a>
+  </div>
+</nav>
+
+<!-- ── ERROR BANNER ─────────────────────────────────────────── -->
+<div class="error-banner" id="errorBanner"></div>
+
+<!-- ── HERO ─────────────────────────────────────────────────── -->
+<section class="hero">
+  <p class="hero-year">Península Ibérica · 210 a.C.</p>
+  <h1 class="hero-title">Hispania</h1>
+  <p class="hero-subtitle-num">· C C X ·</p>
+  <div class="hero-divider"></div>
+  <p class="hero-tagline">
+    La Península Ibérica es un tablero de guerra. Romanos, cartagineses, íberos y celtas
+    pugnan por cada valle, cada río, cada ciudad. ¿Qué cultura llevará a la gloria?
+  </p>
+  <a href="/api/auth/google" class="btn-google">
+    <svg width="20" height="20" viewBox="0 0 24 24">
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+    </svg>
+    Unirse a la Beta
+  </a>
+  <p class="hero-note">Acceso gratuito · Sin datos de pago</p>
+  <div class="scroll-hint">
+    <span>DESCUBRIR</span>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M6 9l6 6 6-6"/>
+    </svg>
+  </div>
+</section>
+
+<!-- ── QUÉ ES ────────────────────────────────────────────────── -->
+<section class="what-section" id="que-es">
+  <div class="container">
+    <p class="section-label">El juego</p>
+    <h2 class="section-title">Un imperio se forja hex a hex</h2>
+    <div class="what-grid">
+      <div class="what-text">
+        <p>
+          Hispania 210 es un juego de estrategia multijugador por turnos ambientado en la
+          Península Ibérica en el año 210 a.C., en plena Segunda Guerra Púnica.
+        </p>
+        <p>
+          El mapa está dividido en miles de hexágonos que representan valles, ríos, bosques
+          y montañas. Cada uno puede ser colonizado, defendido o arrebatado al rival.
+        </p>
+        <p>
+          Recluta ejércitos, construye edificios, gestiona tus comarcas y asegúrate de que
+          tu pueblo esté alimentado y sea feliz — o las rebeliones harán el trabajo por tus enemigos.
+        </p>
+      </div>
+      <div class="what-map">
+        <div class="hex-grid" id="hexGrid"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── MECÁNICAS ─────────────────────────────────────────────── -->
+<section class="mechanics-section" id="mecanicas">
+  <div class="container">
+    <p class="section-label">Mecánicas</p>
+    <h2 class="section-title">De la tierra a la leyenda</h2>
+    <p class="section-intro">Todo está conectado. Un ejército cansado pierde batallas. Un pueblo hambriento se rebela. Un río puede ser tu mejor defensa.</p>
+    <div class="mechanics-grid">
+      <div class="mechanic-card">
+        <span class="mechanic-icon">⚔️</span>
+        <h3>Conquista</h3>
+        <p>Mueve tus ejércitos por el mapa hexagonal y toma el control de territorios enemigos. El terreno importa — los bosques y las montañas frenan incluso a la mejor caballería.</p>
+      </div>
+      <div class="mechanic-card">
+        <span class="mechanic-icon">🏛️</span>
+        <h3>Construcción</h3>
+        <p>Levanta granjas, mercados, cuarteles y murallas. Cada edificio cambia las posibilidades de tu feudo — y destruir los del enemigo puede cambiar el curso de la guerra.</p>
+      </div>
+      <div class="mechanic-card">
+        <span class="mechanic-icon">👥</span>
+        <h3>Diplomacia</h3>
+        <p>Forma señoríos con tus territorios, negocia tributos y forja alianzas. La resistencia cultural de tus comarcas depende de cuánto respetes a sus habitantes.</p>
+      </div>
+      <div class="mechanic-card">
+        <span class="mechanic-icon">🌾</span>
+        <h3>Economía</h3>
+        <p>Gestiona comida, oro y población. Recauda impuestos sin asfixiar a tu gente. Los ejércitos necesitan ser pagados — o desertan.</p>
+      </div>
+      <div class="mechanic-card">
+        <span class="mechanic-icon">🐴</span>
+        <h3>Ejércitos</h3>
+        <p>Cada unidad tiene velocidad, stamina y experiencia. La caballería vuela por la llanura pero se agota en la montaña. Los sitiadores son lentos pero devastadores.</p>
+      </div>
+      <div class="mechanic-card">
+        <span class="mechanic-icon">🔥</span>
+        <h3>Rebeliones</h3>
+        <p>Si la felicidad de una comarca cae demasiado, el pueblo se alza en armas. Los ejércitos rebeldes intentarán liberar su territorio — con o sin tu permiso.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── TEMPORADA DE CAMPAÑA ──────────────────────────────────── -->
+<section class="campaign-section" id="campana">
+  <div class="container">
+    <p class="section-label">Sistema de Temporadas</p>
+    <h2 class="section-title">La guerra tiene horario</h2>
+    <p class="section-intro">
+      El calendario de juego sigue el reloj real. Las batallas solo ocurren en los meses de campaña —
+      de abril a septiembre — que coinciden con las horas diurnas en España.
+    </p>
+    <div class="season-visual">
+      <div class="season-half campaign">
+        <span class="season-icon">⚔️</span>
+        <h3>Temporada de Campaña</h3>
+        <p class="season-time">Abril – Septiembre · 12:00 – 00:00</p>
+        <ul class="season-list">
+          <li class="ok">✅ Atacar ejércitos enemigos</li>
+          <li class="ok">✅ Conquistar territorios</li>
+          <li class="ok">✅ Construir y reclutar</li>
+          <li class="warn">⚠️ Riesgo de rebeliones</li>
+        </ul>
+      </div>
+      <div class="season-half winter">
+        <span class="season-icon">❄️</span>
+        <h3>Invierno</h3>
+        <p class="season-time">Octubre – Marzo · 00:00 – 12:00</p>
+        <ul class="season-list">
+          <li class="no">❌ Sin combate</li>
+          <li class="no">❌ Sin rebeliones</li>
+          <li class="ok">✅ Construir y reclutar</li>
+          <li class="ok">✅ Mover ejércitos</li>
+        </ul>
+      </div>
+    </div>
+    <p style="text-align:center; color: var(--text-dim); font-size:0.9rem; font-style:italic;">
+      Un año de juego dura 24 horas reales · Los turnos avanzan cada 10 minutos
+    </p>
+  </div>
+</section>
+
+<!-- ── FACCIONES ─────────────────────────────────────────────── -->
+<section class="factions-section" id="facciones">
+  <div class="container">
+    <p class="section-label">Culturas</p>
+    <h2 class="section-title">Cuatro pueblos, un destino</h2>
+    <p class="section-intro">Cada cultura tiene sus propias unidades militares y características. Elige la que mejor se adapte a tu estilo de juego.</p>
+    <div class="factions-grid">
+      <div class="faction-card romano">
+        <svg class="faction-shield" viewBox="0 0 60 72" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4,4 L56,4 L56,52 L30,68 L4,52 Z" fill="#2e0e0e" stroke="#c04040" stroke-width="3" stroke-linejoin="round"/>
+          <path d="M9,9 L51,9 L51,49 L30,63 L9,49 Z" fill="none" stroke="#c04040" stroke-width="1" opacity="0.5"/>
+          <text x="30" y="43" text-anchor="middle" font-size="24" fill="#f0c070">⚔</text>
+        </svg>
+        <h3>Roma</h3>
+        <p class="faction-epithet">Disciplina y legión</p>
+        <p class="faction-unit">Hastati · Triarii · Equites</p>
+      </div>
+      <div class="faction-card cartago">
+        <svg class="faction-shield" viewBox="0 0 60 72" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4,4 L56,4 L56,52 L30,68 L4,52 Z" fill="#1e0e33" stroke="#8040c0" stroke-width="3" stroke-linejoin="round"/>
+          <path d="M9,9 L51,9 L51,49 L30,63 L9,49 Z" fill="none" stroke="#8040c0" stroke-width="1" opacity="0.5"/>
+          <text x="30" y="43" text-anchor="middle" font-size="24" fill="#d4a020">✦</text>
+        </svg>
+        <h3>Cartago</h3>
+        <p class="faction-epithet">Mercenarios y elefantes</p>
+        <p class="faction-unit">Elefantes · Mercenarios Galos</p>
+      </div>
+      <div class="faction-card ibero">
+        <svg class="faction-shield" viewBox="0 0 60 72" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4,4 L56,4 L56,52 L30,68 L4,52 Z" fill="#11213e" stroke="#4a78c8" stroke-width="3" stroke-linejoin="round"/>
+          <path d="M9,9 L51,9 L51,49 L30,63 L9,49 Z" fill="none" stroke="#4a78c8" stroke-width="1" opacity="0.5"/>
+          <text x="30" y="43" text-anchor="middle" font-size="24" fill="#e8c830">☀</text>
+        </svg>
+        <h3>Íberos</h3>
+        <p class="faction-epithet">Agilidad y territorio</p>
+        <p class="faction-unit">Caetrati · Scutarii · Devotio</p>
+      </div>
+      <div class="faction-card celta">
+        <svg class="faction-shield" viewBox="0 0 60 72" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4,4 L56,4 L56,52 L30,68 L4,52 Z" fill="#162b16" stroke="#4a9e4e" stroke-width="3" stroke-linejoin="round"/>
+          <path d="M9,9 L51,9 L51,49 L30,63 L9,49 Z" fill="none" stroke="#4a9e4e" stroke-width="1" opacity="0.5"/>
+          <text x="30" y="43" text-anchor="middle" font-size="24" fill="#8fde74">☘</text>
+        </svg>
+        <h3>Celtas</h3>
+        <p class="faction-epithet">Furia del norte</p>
+        <p class="faction-unit">Celtíberos · Lanceros · Carros</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA FINAL ─────────────────────────────────────────────── -->
+<section class="cta-section">
+  <div class="container">
+    <h2 class="section-title" style="font-size:clamp(1.8rem,5vw,3rem); margin-bottom:16px;">¿Lista tu legión?</h2>
+    <p>La Península Ibérica aguarda. Únete a la beta y reclama tu primer territorio.</p>
+    <a href="/api/auth/google" class="btn-google">
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+      </svg>
+      Unirse a la Beta con Google
+    </a>
+    <p class="hero-note" style="margin-top:16px;">Beta abierta · Acceso gratuito</p>
+  </div>
+</section>
+
+<!-- ── FOOTER ─────────────────────────────────────────────────── -->
+<footer>
+  <p>© 2025 HISPANIA 210 · BETA · hispania210.com</p>
+</footer>
+
+<script>
+  // Hex grid decorativo
+  const colors = ['hex-1','hex-2','hex-3','hex-4','hex-5','hex-6','hex-7','hex-8','hex-9','hex-gold','hex-enemy'];
+  const weights = [8,8,8,6,5,6,4,3,6,2,1];
+  const pool = colors.flatMap((c,i) => Array(weights[i]).fill(c));
+  const grid = document.getElementById('hexGrid');
+  if (grid) {
+    for (let i = 0; i < 49; i++) {
+      const d = document.createElement('div');
+      d.className = 'hex ' + pool[Math.floor(Math.random() * pool.length)];
+      grid.appendChild(d);
+    }
+  }
+
+  // Error banner
+  const params = new URLSearchParams(window.location.search);
+  const err = params.get('error');
+  if (err) {
+    const msgs = {
+      cancelado:   'Has cancelado el acceso con Google.',
+      multicuenta: 'Este email ya está registrado con otra cuenta.',
+      oauth:       'Error al conectar con Google. Inténtalo de nuevo.',
+    };
+    const banner = document.getElementById('errorBanner');
+    banner.textContent = msgs[err] || 'Ha ocurrido un error. Inténtalo de nuevo.';
+    banner.style.display = 'block';
+    setTimeout(() => banner.style.display = 'none', 6000);
+  }
+</script>
+</body>
+</html>
