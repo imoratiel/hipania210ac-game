@@ -74,6 +74,10 @@
         />
         <button @click="goToH3Index" class="h3-search-btn">🔍</button>
       </div>
+      <button class="bug-report-map-btn" @click="showBugReport = true" title="Reportar un error">
+        <span class="bug-emoji">🐛</span>
+        <span class="bug-btn-label">Reportar error</span>
+      </button>
     </div>
 
     <!-- Main Sidebar -->
@@ -254,6 +258,15 @@
             @click="showChangelog = !showChangelog"
           >
             <span class="footer-icon">📋</span>
+          </button>
+          <button
+            v-if="currentUser?.role === 'admin'"
+            class="footer-button"
+            :class="{ active: showBugReportsAdmin }"
+            @click="showBugReportsAdmin = true"
+            title="Ver reportes de error"
+          >
+            <span class="footer-icon">🐛</span>
           </button>
           <button
             class="footer-button logout-button"
@@ -1377,7 +1390,9 @@
 
   <!-- Changelog Panel (fuera del sidebar para evitar clipping por transform) -->
   <ChangelogPanel v-if="showChangelog" @close="showChangelog = false" />
-  <HelpPanel v-if="showHelp" @close="showHelp = false" />
+  <HelpPanel       v-if="showHelp"      @close="showHelp = false" />
+  <BugReportPanel       v-if="showBugReport"       @close="showBugReport = false" />
+  <BugReportsAdminPanel v-if="showBugReportsAdmin" @close="showBugReportsAdmin = false" />
 
   <!-- ── Confirmación de construcción de puente ────────────────────────── -->
   <div v-if="pendingBridgeConfirm" class="bridge-confirm-backdrop" @click.self="pendingBridgeConfirm = null">
@@ -1552,7 +1567,9 @@ import DiplomacyPanel from './DiplomacyPanel.vue';
 import NavalPanel from './NavalPanel.vue';
 import CreateFleetModal from './CreateFleetModal.vue';
 import ChangelogPanel from './ChangelogPanel.vue';
-import HelpPanel from './HelpPanel.vue';
+import HelpPanel       from './HelpPanel.vue';
+import BugReportPanel       from './BugReportPanel.vue';
+import BugReportsAdminPanel from './BugReportsAdminPanel.vue';
 
 const mapContainer = ref(null);
 const loading = ref(false);
@@ -1572,6 +1589,8 @@ const currentUser = ref(null);       // Current logged-in user { player_id, user
 const showWelcomePanel = ref(false); // Epic Initialization overlay for new players
 const showChangelog = ref(false);
 const showHelp      = ref(false);
+const showBugReport       = ref(false);
+const showBugReportsAdmin = ref(false);
 const playerId = computed(() => currentUser.value?.player_id || 1); // Player ID from session
 const playerGold = ref(0); // Oro inicial (se carga del servidor)
 const playerHexes = ref(new Set()); // Track player's owned hexagons for adjacency checks
@@ -13918,6 +13937,42 @@ onBeforeUnmount(() => {
 
 .h3-search-input::placeholder {
   color: #7a6a4a;
+}
+
+.bug-report-map-btn {
+  position: fixed;
+  top: 50px;
+  left: 312px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px 10px 12px;
+  background: rgba(17, 15, 13, 0.92);
+  border: 1px solid rgba(200, 120, 50, 0.7);
+  border-radius: 5px;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+}
+.bug-report-map-btn:hover {
+  background: rgba(40, 25, 10, 0.97);
+  border-color: rgba(240, 150, 60, 1);
+  box-shadow: 0 2px 16px rgba(200,100,30,0.35);
+}
+.bug-emoji {
+  font-size: 22px;
+  line-height: 1;
+  filter: saturate(1.5) brightness(1.15);
+}
+.bug-btn-label {
+  font-size: 13px;
+  color: #d4a070;
+  font-family: sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
 }
 
 .h3-search-input:focus {
