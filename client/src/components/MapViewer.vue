@@ -7257,7 +7257,7 @@ const checkAuth = async () => {
       currentUser.value = null;
       localStorage.removeItem('user');
       console.log('[Auth] ⚠️ No active session');
-      window.location.replace('/login.html');
+      window.location.replace('/');
     }
   } catch (err) {
     // 401 is handled by the global axios interceptor in mapApi.js
@@ -7266,7 +7266,7 @@ const checkAuth = async () => {
       console.error('[Auth] Error checking authentication:', err);
       currentUser.value = null;
       localStorage.removeItem('user');
-      window.location.replace('/login.html');
+      window.location.replace('/');
     }
   }
 };
@@ -7359,9 +7359,8 @@ const handleLogout = async () => {
     // Show toast notification
     showToast('Sesión cerrada. ¡Hasta pronto!', 'success');
 
-    // Redirect to login page
     setTimeout(() => {
-      window.location.href = '/login.html';
+      window.location.href = '/';
     }, 1000);
   }
 };

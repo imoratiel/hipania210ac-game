@@ -45,21 +45,40 @@
       text-align: center;
       padding: 60px 24px;
       position: relative;
-      background:
-        radial-gradient(ellipse at 50% 0%, rgba(201,168,76,0.08) 0%, transparent 65%),
-        radial-gradient(ellipse at 20% 80%, rgba(120,60,20,0.15) 0%, transparent 50%),
-        radial-gradient(ellipse at 80% 70%, rgba(60,40,10,0.2) 0%, transparent 50%),
-        var(--bg-deep);
+      background-image: url('/screenshots/map-full.jpg');
+      background-size: cover;
+      background-position: center 30%;
+      background-attachment: fixed;
     }
 
     .hero::before {
       content: '';
       position: absolute;
       inset: 0;
-      background-image:
-        repeating-linear-gradient(0deg, transparent, transparent 60px, rgba(201,168,76,0.03) 60px, rgba(201,168,76,0.03) 61px),
-        repeating-linear-gradient(90deg, transparent, transparent 60px, rgba(201,168,76,0.03) 60px, rgba(201,168,76,0.03) 61px);
+      background:
+        linear-gradient(to bottom, rgba(5,4,2,0.75) 0%, rgba(5,4,2,0.55) 40%, rgba(5,4,2,0.80) 80%, rgba(5,4,2,1) 100%),
+        radial-gradient(ellipse at 50% 40%, rgba(201,168,76,0.06) 0%, transparent 60%);
       pointer-events: none;
+    }
+
+    .hero-card {
+      position: relative;
+      z-index: 1;
+      background: rgba(5, 4, 2, 0.72);
+      border: 1px solid rgba(201, 168, 76, 0.35);
+      border-radius: 8px;
+      padding: 48px 56px 40px;
+      max-width: 680px;
+      width: 100%;
+      backdrop-filter: blur(6px);
+      box-shadow: 0 8px 48px rgba(0,0,0,0.6), inset 0 1px 0 rgba(201,168,76,0.1);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    @media (max-width: 600px) {
+      .hero-card { padding: 36px 24px 32px; }
     }
 
     .hero-year {
@@ -418,6 +437,63 @@
       letter-spacing: 0.5px;
     }
 
+    /* ── CAPTURAS ─────────────────────────────────────────────── */
+    .screenshots-section {
+      background: var(--bg-deep);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .screenshots-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto auto;
+      gap: 16px;
+    }
+
+    .screenshot-card {
+      position: relative;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      cursor: default;
+      transition: border-color 0.3s, transform 0.2s;
+    }
+
+    .screenshot-card:hover {
+      border-color: rgba(201,168,76,0.5);
+      transform: translateY(-3px);
+    }
+
+    .screenshot-card.wide {
+      grid-column: 1 / -1;
+    }
+
+    .screenshot-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      filter: brightness(0.85) saturate(0.9);
+      transition: filter 0.3s;
+    }
+
+    .screenshot-card:hover img {
+      filter: brightness(1) saturate(1);
+    }
+
+    .screenshot-card .screenshot-label {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      background: linear-gradient(to top, rgba(5,4,2,0.9), transparent);
+      padding: 24px 16px 12px;
+      font-family: 'Cinzel', serif;
+      font-size: 0.75rem;
+      letter-spacing: 2px;
+      color: var(--gold);
+      text-transform: uppercase;
+    }
+
     /* ── CTA FINAL ────────────────────────────────────────────── */
     .cta-section {
       background:
@@ -522,6 +598,9 @@
       .hex-grid          { display: none; }
       nav                { padding: 14px 20px; }
       .nav-links a:not(.nav-cta) { display: none; }
+      .screenshots-grid  { grid-template-columns: 1fr; }
+      .screenshot-card.wide { grid-column: 1; }
+      .hero { background-attachment: scroll; }
     }
   </style>
 </head>
@@ -543,15 +622,16 @@
 
 <!-- ── HERO ─────────────────────────────────────────────────── -->
 <section class="hero">
-  <p class="hero-year">Península Ibérica · 210 a.C.</p>
-  <h1 class="hero-title">Hispania</h1>
-  <p class="hero-subtitle-num">· C C X ·</p>
-  <div class="hero-divider"></div>
-  <p class="hero-tagline">
-    La Península Ibérica es un tablero de guerra. Romanos, cartagineses, íberos y celtas
-    pugnan por cada valle, cada río, cada ciudad. ¿Qué cultura llevará a la gloria?
-  </p>
-  <a href="/api/auth/google" class="btn-google">
+  <div class="hero-card">
+    <p class="hero-year">Península Ibérica · 210 a.C.</p>
+    <h1 class="hero-title">Hispania</h1>
+    <p class="hero-subtitle-num">· C C X ·</p>
+    <div class="hero-divider"></div>
+    <p class="hero-tagline">
+      La Península Ibérica es un tablero de guerra. Romanos, cartagineses, íberos y celtas
+      pugnan por cada valle, cada río, cada ciudad. ¿Qué cultura llevará a la gloria?
+    </p>
+    <a href="/api/auth/google" class="btn-google">
     <svg width="20" height="20" viewBox="0 0 24 24">
       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
       <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -560,7 +640,8 @@
     </svg>
     Unirse a la Beta
   </a>
-  <p class="hero-note">Acceso gratuito · Sin datos de pago</p>
+    <p class="hero-note">Acceso gratuito · Sin datos de pago</p>
+  </div>
   <div class="scroll-hint">
     <span>DESCUBRIR</span>
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -722,6 +803,29 @@
         <h3>Celtas</h3>
         <p class="faction-epithet">Furia del norte</p>
         <p class="faction-unit">Celtíberos · Lanceros · Carros</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── CAPTURAS ──────────────────────────────────────────────── -->
+<section class="screenshots-section">
+  <div class="container">
+    <p class="section-label">El juego en acción</p>
+    <h2 class="section-title">Así se ve Hispania 210</h2>
+    <p class="section-intro">Desde la vista satélite de la Península hasta el detalle de cada batallón.</p>
+    <div class="screenshots-grid">
+      <div class="screenshot-card wide">
+        <img src="/screenshots/hexmap.jpg" alt="Vista hexagonal del mapa" />
+        <span class="screenshot-label">Mapa hexagonal — tu territorio en detalle</span>
+      </div>
+      <div class="screenshot-card">
+        <img src="/screenshots/territory.jpg" alt="Gestión de territorios" />
+        <span class="screenshot-label">Gestión del Imperium</span>
+      </div>
+      <div class="screenshot-card">
+        <img src="/screenshots/recruitment.jpg" alt="Reclutamiento de tropas" />
+        <span class="screenshot-label">Reclutamiento de tropas</span>
       </div>
     </div>
   </div>
