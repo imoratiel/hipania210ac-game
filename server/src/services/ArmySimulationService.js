@@ -21,12 +21,17 @@ class ArmySimulationService {
    * Método auxiliar interno para consumir stamina con un client específico
    * @private
    */
-  static async _consumeStaminaWithClient(client, armyId, terrainMovementCost) {
-    // Obtener todas las unidades del ejército
+  // rawTerrainCost: movement_cost del terreno antes de multiplicar (1 = llanura, 3 = bosque, etc.)
+  // Caballería paga 50% de stamina en terreno abierto (rawTerrainCost <= 1)
+  static async _consumeStaminaWithClient(client, armyId, terrainMovementCost, rawTerrainCost = 1) {
+    const cavalryFriendly = rawTerrainCost <= 1;
+
+    // Obtener todas las unidades del ejército junto con su clase
     const troopsResult = await client.query(
-      `SELECT troop_id, unit_type_id, quantity, stamina, force_rest
-       FROM troops
-       WHERE army_id = $1`,
+      `SELECT t.troop_id, t.unit_type_id, t.quantity, t.stamina, t.force_rest, ut.unit_class
+       FROM troops t
+       JOIN unit_types ut ON t.unit_type_id = ut.unit_type_id
+       WHERE t.army_id = $1`,
       [armyId]
     );
 
@@ -47,7 +52,11 @@ class ArmySimulationService {
 
     // Actualizar stamina de cada unidad
     for (const troop of troopsResult.rows) {
-      const newStamina = Math.max(0, troop.stamina - terrainMovementCost);
+      const isCavalry = troop.unit_class === 'CAVALRY_1' || troop.unit_class === 'CAVALRY_2';
+      const effectiveCost = (isCavalry && cavalryFriendly)
+        ? terrainMovementCost * 0.5
+        : terrainMovementCost;
+      const newStamina = Math.max(0, troop.stamina - effectiveCost);
       const willBeExhausted = newStamina <= 0;
 
       await client.query(
@@ -70,12 +79,16 @@ class ArmySimulationService {
       }
     }
 
-    // Calcular stamina mínima después del consumo
-    const minStaminaAfter = Math.min(...troopsResult.rows.map(t => Math.max(0, t.stamina - terrainMovementCost)));
+    // Calcular stamina mínima después del consumo (respetando el descuento de caballería)
+    const minStaminaAfter = Math.min(...troopsResult.rows.map(t => {
+      const isCav = t.unit_class === 'CAVALRY_1' || t.unit_class === 'CAVALRY_2';
+      const cost  = (isCav && cavalryFriendly) ? terrainMovementCost * 0.5 : terrainMovementCost;
+      return Math.max(0, t.stamina - cost);
+    }));
 
     // Log del consumo de stamina
     Logger.army(armyId, 'STAMINA_DECREASE',
-      `Consumo de ${terrainMovementCost} puntos. Stamina mínima: ${minStaminaBefore} → ${minStaminaAfter}`,
+      `Consumo de ${terrainMovementCost} puntos${cavalryFriendly ? ' (caballería ×0.5 en terreno abierto)' : ''}. Stamina mínima: ${minStaminaBefore} → ${minStaminaAfter}`,
       {
         cost: terrainMovementCost,
         min_stamina_before: minStaminaBefore,
@@ -715,7 +728,7 @@ class ArmySimulationService {
 
         // Descontar stamina (solo ejércitos terrestres; flotas no se cansan)
         if (!army.is_naval) {
-          const staminaResult = await this._consumeStaminaWithClient(client, armyId, staminaCost);
+          const staminaResult = await this._consumeStaminaWithClient(client, armyId, staminaCost, cost);
 
           if (staminaResult.exhaustedUnits > 0) {
             staminaExhausted = true;
