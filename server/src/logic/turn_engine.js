@@ -13,6 +13,7 @@ const { processWorkerMovements } = require('./workerMovement');
 const GAME_CONFIG = require('../config/constants');
 const { getPopulationCap } = require('../config/gameFunctions');
 const { Logger } = require('../utils/logger');
+const { calculateExpectedTurn, msUntilNextBoundary } = require('../utils/gameCalendar');
 const cache = require('../services/CacheService');
 const ArmySimulationService = require('../services/ArmySimulationService');
 const NotificationService = require('../services/NotificationService');
@@ -1737,19 +1738,40 @@ async function processGameTurn(pool, config) {
     try {
         await client.query('BEGIN');
 
-        // Check if game is paused
-        const pauseCheck = await client.query('SELECT is_paused FROM world_state WHERE id = 1');
-        if (pauseCheck.rows[0]?.is_paused === true) {
+        // Check if game is paused; also read epoch and current turn for clock-based calculation
+        const pauseCheck = await client.query(
+            'SELECT is_paused, current_turn, game_epoch_timestamp FROM world_state WHERE id = 1'
+        );
+        const worldRow = pauseCheck.rows[0];
+        if (worldRow?.is_paused === true) {
             await client.query('ROLLBACK');
             await pool.query('UPDATE world_state SET is_processing = FALSE WHERE id = 1');
             return { success: false, message: 'Game is paused', paused: true };
         }
 
-        // Increment turn
+        // Clock-based turn: derive expected turn from wall clock and fixed epoch.
+        // Falls back to current_turn + 1 if epoch not yet set (pre-migration).
+        const intervalMs = Math.max(2, config.gameplay?.turn_duration_seconds || 60) * 1000;
+        const epochMs    = worldRow.game_epoch_timestamp
+            ? new Date(worldRow.game_epoch_timestamp).getTime()
+            : null;
+        const expectedTurn = epochMs
+            ? calculateExpectedTurn(epochMs, intervalMs)
+            : (worldRow.current_turn + 1);
+
+        // Guard: never go backwards (e.g. clock skew, DST edge)
+        const newTurnValue = Math.max(worldRow.current_turn + 1, expectedTurn);
+
+        const skipped = newTurnValue - worldRow.current_turn - 1;
+        if (skipped > 0) {
+            Logger.engine(`[ENGINE] Gap detected: skipping ${skipped} turn(s), advancing game_date by ${skipped + 1} day(s)`);
+        }
+
+        // Advance turn and date (date advances by the full gap so history stays coherent)
         const newState = await client.query(`
             UPDATE world_state
-            SET current_turn = current_turn + 1,
-                game_date = game_date + INTERVAL '1 day',
+            SET current_turn = $1,
+                game_date = game_date + ($1 - current_turn) * INTERVAL '1 day',
                 last_updated = CURRENT_TIMESTAMP
             WHERE id = 1
             RETURNING
@@ -1762,7 +1784,7 @@ async function processGameTurn(pool, config) {
                      ELSE  EXTRACT(YEAR FROM game_date)::int
                 END AS year,
                 CASE WHEN game_date < '0001-01-01' THEN 'BC' ELSE 'AD' END AS era
-        `);
+        `, [newTurnValue]);
         const { current_turn: newTurn, days_per_year, day, month, year, era } = newState.rows[0];
         const newDate = { day, month, year, era };
         const dayOfYear = newTurn % (days_per_year || 365);
@@ -2080,9 +2102,9 @@ function startTimeEngine(pool, config) {
                 // Game is paused, check again in 10 seconds
                 timeoutId = setTimeout(run, 10000);
             } else if (result.success) {
-                // Normal turn processing
+                // Align next turn to the next exact clock boundary
                 const interval = Math.max(2, config.gameplay?.turn_duration_seconds || 60) * 1000;
-                timeoutId = setTimeout(run, interval);
+                timeoutId = setTimeout(run, msUntilNextBoundary(interval));
             } else {
                 // Unknown error, retry in 30 seconds
                 Logger.engine('[ENGINE] Unknown result, retrying in 30s');
@@ -2093,13 +2115,18 @@ function startTimeEngine(pool, config) {
                 context: 'turn_engine.startTimeEngine',
                 phase: 'run_loop'
             });
-            // On critical error, retry in 60 seconds
-            Logger.engine('[ENGINE] Critical error, retrying in 60s');
-            timeoutId = setTimeout(run, 60000);
+            // On critical error, retry aligned to next boundary
+            const interval = Math.max(2, config.gameplay?.turn_duration_seconds || 60) * 1000;
+            Logger.engine('[ENGINE] Critical error, retrying at next turn boundary');
+            timeoutId = setTimeout(run, msUntilNextBoundary(interval));
         }
     };
 
-    run();
+    // Wait until the first aligned boundary before starting
+    const initialInterval = Math.max(2, config.gameplay?.turn_duration_seconds || 60) * 1000;
+    const initialDelay = msUntilNextBoundary(initialInterval);
+    Logger.engine(`[ENGINE] Aligning to next turn boundary in ${(initialDelay / 1000).toFixed(1)}s`);
+    timeoutId = setTimeout(run, initialDelay);
 }
 
 /**

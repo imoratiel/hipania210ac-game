@@ -27,6 +27,7 @@ const CharacterModel                    = require('../models/CharacterModel.js')
 const NotificationService               = require('./NotificationService.js');
 const GAME_CONFIG                       = require('../config/constants.js');
 const { canPerformAction, applyCooldown } = require('./gameActions.js');
+const { isCampaignSeason }               = require('../utils/gameCalendar.js');
 
 class CombatService {
     // ─────────────────────────────────────────────────────────────────────────
@@ -148,6 +149,14 @@ class CombatService {
         }
         if (Number(attackerArmyId) === Number(targetArmyId)) {
             return res.status(400).json({ success: false, message: 'No puedes atacar tu propio ejército' });
+        }
+
+        // ── Bloqueo estacional: no se puede atacar en invierno ─────────────────
+        if (!isCampaignSeason()) {
+            return res.status(403).json({
+                success: false,
+                message: 'Es invierno — los ejércitos no pueden atacar hasta abril. La temporada de campaña comienza al mediodía.'
+            });
         }
 
         const client = await pool.connect();

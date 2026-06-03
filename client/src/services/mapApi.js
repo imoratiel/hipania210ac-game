@@ -188,6 +188,14 @@ export async function getWorldState() {
 }
 
 /**
+ * Get current game season info (campaign vs winter)
+ */
+export async function getGameSeason() {
+  const response = await axios.get(`${API_URL}/api/game/season`);
+  return response.data;
+}
+
+/**
  * Get game configuration
  */
 export async function getGameConfig() {
@@ -623,6 +631,11 @@ export async function getAdminProcessStatus() {
 
 export async function updateAdminGameConfig(group, key, value) {
   const response = await axios.put(`${API_URL}/api/admin/game-config`, { group, key, value });
+  return response.data;
+}
+
+export async function updateTurnInterval(minutes) {
+  const response = await axios.post(`${API_URL}/api/admin/config`, { turn_interval_minutes: minutes });
   return response.data;
 }
 

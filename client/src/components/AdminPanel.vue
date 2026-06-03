@@ -61,11 +61,11 @@
               <div class="timing-item">
                 <span class="timing-label">Duración de turno</span>
                 <div class="timing-edit-row">
-                  <input v-model.number="turnDurationInput" type="number" min="2" max="3600"
+                  <input v-model.number="turnDurationInput" type="number" min="1" max="60" step="0.5"
                     class="timing-input" :disabled="savingDuration" />
-                  <span class="timing-input-unit">s</span>
+                  <span class="timing-input-unit">min</span>
                   <button class="timing-save-btn"
-                    :disabled="savingDuration || turnDurationInput === status.game.turnDurationSeconds"
+                    :disabled="savingDuration || turnDurationInput === currentTurnDurationMinutes"
                     @click="handleSaveDuration">{{ savingDuration ? '⏳' : '✓' }}</button>
                 </div>
               </div>
@@ -404,6 +404,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
   getAdminProcessStatus,
   updateAdminGameConfig,
+  updateTurnInterval,
   startEngine, stopEngine,
   pauseGame, resumeGame,
   forceTurn, forceHarvest, forceExploration,
@@ -424,7 +425,10 @@ const acting  = ref(false);
 const error   = ref('');
 const message = ref('');
 const messageType = ref('msg-ok');
-const turnDurationInput = ref(60);
+const turnDurationInput = ref(10); // minutes
+const currentTurnDurationMinutes = computed(() =>
+  status.value ? (status.value.game?.turnDurationSeconds ?? 600) / 60 : 10
+);
 const savingDuration = ref(false);
 const showResetConfirm = ref(false);
 
@@ -700,7 +704,7 @@ const fetchStatus = async () => {
       status.value = data;
       // Sync input only if user is not currently editing
       if (!savingDuration.value) {
-        turnDurationInput.value = data.game.turnDurationSeconds;
+        turnDurationInput.value = (data.game?.turnDurationSeconds ?? 600) / 60;
       }
     } else {
       error.value = data.message || 'Error desconocido';
@@ -713,16 +717,16 @@ const fetchStatus = async () => {
 };
 
 const handleSaveDuration = async () => {
-  const secs = parseInt(turnDurationInput.value, 10);
-  if (!secs || secs < 2 || secs > 3600) {
-    showMsg('El valor debe estar entre 2 y 3600 segundos', 'msg-err');
+  const minutes = parseFloat(turnDurationInput.value);
+  if (!minutes || minutes < 1 || minutes > 60) {
+    showMsg('El intervalo debe estar entre 1 y 60 minutos', 'msg-err');
     return;
   }
   savingDuration.value = true;
   try {
-    const data = await updateAdminGameConfig('gameplay', 'turn_duration_seconds', secs);
+    const data = await updateTurnInterval(minutes);
     if (data.success) {
-      showMsg(`Duración de turno actualizada a ${secs}s (efecto en el próximo ciclo)`);
+      showMsg(data.message);
       await fetchStatus();
     } else {
       showMsg(data.message || 'Error al guardar', 'msg-err');
