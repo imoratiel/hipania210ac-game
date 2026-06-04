@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.21.0](https://github.com/imoratiel/hipania210ac-game/compare/v0.20.0...v0.21.0) (2026-06-04)
+
+
+### Nuevas funcionalidades
+
+* caddy para publicar el HTTPS ([23102e4](https://github.com/imoratiel/hipania210ac-game/commit/23102e4c8b95f8f799de43bf8cc54658d3b45d3a))
+* campañas de verano/invierno para evitar conquistas durante la noche ([352f87b](https://github.com/imoratiel/hipania210ac-game/commit/352f87b41d2322a4dad7ce258aded367d4a5ab97))
+* form para reportar bugs ([2972ebf](https://github.com/imoratiel/hipania210ac-game/commit/2972ebfc636dea7400b8e7d1ef5f1673ed5cd263))
+* mejoras visuales para el landing page ([b2f80bb](https://github.com/imoratiel/hipania210ac-game/commit/b2f80bb3a8c8044a44ffcc13f8d69372cb6dd238))
+* nueva landing page para apuntarse a la beta ([940abd6](https://github.com/imoratiel/hipania210ac-game/commit/940abd62e3915dc3e8211a2b75b304af46e04b1e))
+* panel de ayuda ([7d24290](https://github.com/imoratiel/hipania210ac-game/commit/7d2429028dcd237278d77f7f19c542cf47c7a1ac))
+
+
+### Correcciones
+
+* error en la redirección al entrar en la partida ([4dcc52b](https://github.com/imoratiel/hipania210ac-game/commit/4dcc52bd31f75ece2c5a87a84c58d70348ecf88f))
+
 ## [0.20.0](https://github.com/imoratiel/hipania210ac-game/compare/v0.19.0...v0.20.0) (2026-05-12)
 
 
