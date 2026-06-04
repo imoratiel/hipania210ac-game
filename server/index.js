@@ -51,9 +51,20 @@ app.use(cookieParser()); // Parse cookies for JWT extraction
 // Serve static files (map-inspector.html and other debug tools)
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Serve bug report images
+const bugReportsDir = path.join(__dirname, 'uploads/bug-reports');
+const fs = require('fs');
+if (!fs.existsSync(bugReportsDir)) fs.mkdirSync(bugReportsDir, { recursive: true });
+app.use('/uploads/bug-reports', express.static(bugReportsDir, {
+    maxAge: '7d',
+    setHeaders: (res) => {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Content-Disposition', 'inline');
+    }
+}));
+
 // Serve player avatars (dev: Express serves; prod: Nginx serves directly from shared volume)
 const avatarsDir = process.env.AVATARS_DIR || path.join(__dirname, 'uploads/avatars');
-const fs = require('fs');
 if (!fs.existsSync(avatarsDir)) fs.mkdirSync(avatarsDir, { recursive: true });
 app.use('/avatars', express.static(avatarsDir, {
     maxAge: '1d',

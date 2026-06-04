@@ -8,9 +8,8 @@ RUN npm run build
 
 # Etapa 2: Serve con Nginx
 FROM nginx:alpine
-# Copiamos la configuración que creamos arriba
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-# Copiamos solo los archivos estáticos desde el builder
 COPY --from=builder /app/dist /usr/share/nginx/html
+COPY public/landing.html /usr/share/nginx/html/landing.html
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

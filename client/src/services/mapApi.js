@@ -24,7 +24,7 @@ axios.interceptors.response.use(
     if (err.response?.status === 401 && !_redirectingToLogin) {
       _redirectingToLogin = true;
       localStorage.removeItem('user');
-      window.location.replace('/login.html');
+      window.location.replace('/');
     }
     if (err.response?.status === 503 && err.response?.data?.turn_processing) {
       // Propagar el error con flag especial para que la UI muestre mensaje amigable

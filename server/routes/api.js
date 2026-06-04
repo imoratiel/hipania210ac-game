@@ -30,11 +30,12 @@ module.exports = function () {
     const CharacterService = require('../src/services/CharacterService.js');
     const OAuthService = require('../src/services/OAuthService.js');
     const NavalService = require('../src/services/NavalService.js');
-    const ProfileService = require('../src/services/ProfileService.js');
+    const ProfileService   = require('../src/services/ProfileService.js');
+    const BugReportService = require('../src/services/BugReportService.js');
 
     // ── Turn lock: bloquea escrituras durante el procesamiento de turno ──────────
     // Excluye: auth (login/logout), rutas de solo lectura (GET) y admin (fuerza turno manual).
-    const TURN_LOCK_EXEMPT = new Set(['/auth/login', '/auth/logout', '/auth/google', '/auth/google/callback', '/profile/avatar']);
+    const TURN_LOCK_EXEMPT = new Set(['/auth/login', '/auth/logout', '/auth/google', '/auth/google/callback', '/profile/avatar', '/bug-report']);
     router.use((req, res, next) => {
         if (req.method === 'GET' || req.method === 'HEAD') return next();
         if (TURN_LOCK_EXEMPT.has(req.path)) return next();
@@ -53,6 +54,7 @@ module.exports = function () {
     router.get('/auth/me', authenticateToken, LoginService.AuthMe);
     router.put('/auth/profile', authenticateToken, (req, res) => LoginService.UpdateProfile(req, res));
     router.post('/profile/avatar', authenticateToken, (req, res) => ProfileService.UploadAvatar(req, res));
+    router.post('/bug-report', authenticateToken, BugReportService.uploadMiddleware, (req, res) => BugReportService.Submit(req, res));
 
     // OAuth — Google
     router.get('/auth/google',          OAuthService.redirectToGoogle);
@@ -242,6 +244,8 @@ module.exports = function () {
     router.post('/admin/create-pagus', authenticateToken, requireAdmin, (req, res) => AdminService.CreateAdminPagus(req, res));
     router.post('/admin/reset-explorations', authenticateToken, requireAdmin, AdminService.ResetExplorations);
     router.post('/admin/config', authenticateToken, requireAdmin, AdminService.UpdateConfig);
+    router.get('/admin/bug-reports', authenticateToken, requireAdmin, (req, res) => BugReportService.List(req, res));
+    router.patch('/admin/bug-reports/:id/status', authenticateToken, requireAdmin, (req, res) => BugReportService.UpdateStatus(req, res));
     router.get('/admin/game-config', authenticateToken, requireAdmin, AdminService.GetGameConfig);
     router.put('/admin/game-config', authenticateToken, requireAdmin, AdminService.UpdateGameConfig);
 
