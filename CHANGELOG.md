@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/imoratiel/hipania210ac-game/compare/v0.21.0...v0.22.0) (2026-06-04)
+
+
+### Nuevas funcionalidades
+
+* zona de administrador separada ([7e0de60](https://github.com/imoratiel/hipania210ac-game/commit/7e0de606c1b1cdc2463a18613ea5da569fdf5570))
+
 ## [0.21.0](https://github.com/imoratiel/hipania210ac-game/compare/v0.20.0...v0.21.0) (2026-06-04)
 
 
