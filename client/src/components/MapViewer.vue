@@ -259,14 +259,6 @@
             <span class="footer-icon">📋</span>
           </button>
           <button
-            v-if="currentUser?.role === 'admin'"
-            class="footer-button"
-            @click="openAdminPanel"
-            title="Panel de administración"
-          >
-            <span class="footer-icon">🐛</span>
-          </button>
-          <button
             class="footer-button logout-button"
             @click="handleLogout"
             title="Cerrar Sesión"
@@ -8200,7 +8192,7 @@ onBeforeUnmount(() => {
 .nav-button {
   position: relative;
   display: flex;
-  flex-direction: row; /* Horizontal con el nuevo ancho */
+  flex-direction: row;
   align-items: center;
   justify-content: flex-start;
   gap: 15px;
@@ -8247,6 +8239,62 @@ onBeforeUnmount(() => {
   text-align: left;
   line-height: 1.2;
   font-weight: 600;
+}
+
+/* Pantallas Full HD o superiores: compactar sidebar */
+@media (min-height: 900px) and (min-width: 1200px) {
+  /* Bloque superior */
+  .sidebar-header {
+    padding: 14px 16px;
+    gap: 10px;
+  }
+  .header-stat {
+    padding: 6px 8px;
+    gap: 3px;
+  }
+  .stat-icon {
+    font-size: 18px;
+  }
+  .stat-value {
+    font-size: 22px;
+  }
+  .stat-label {
+    font-size: 10px;
+  }
+  .header-date {
+    padding: 5px 6px;
+    gap: 5px;
+    font-size: 10px;
+  }
+  .harvest-row {
+    padding-top: 5px;
+    margin-top: 4px;
+  }
+  .header-date .harvest-text {
+    font-size: 0.78rem;
+  }
+
+  /* Items del menú */
+  .sidebar-nav {
+    gap: 1px;
+    padding: 6px 0;
+  }
+  .nav-button {
+    padding: 10px 16px;
+    gap: 11px;
+  }
+  .nav-button:hover {
+    padding-left: 22px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  .nav-icon {
+    font-size: 18px;
+  }
+  .nav-label {
+    font-size: 11px;
+    letter-spacing: 0.8px;
+  }
 }
 
 .nav-badge {
