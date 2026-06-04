@@ -46,7 +46,7 @@
         <button class="mobile-drawer-btn" @click="openOverlay('layers'); showMobileMenu = false"><span>🗺️</span> Mapa</button>
       </nav>
       <div class="mobile-drawer-footer">
-        <button v-if="currentUser && currentUser.role === 'admin'" class="mobile-drawer-btn" @click="openOverlay('admin'); showMobileMenu = false"><span>⚙️</span> Administración</button>
+        <button v-if="currentUser && currentUser.role === 'admin'" class="mobile-drawer-btn" @click="openAdminPanel(); showMobileMenu = false"><span>⚙️</span> Administración</button>
         <button class="mobile-drawer-btn" @click="showChangelog = !showChangelog; showMobileMenu = false"><span>📋</span> Novedades</button>
         <button class="mobile-drawer-btn mobile-drawer-logout" @click="handleLogout"><span>🚪</span> Cerrar Sesión</button>
       </div>
@@ -273,9 +273,8 @@
           <button
             v-if="currentUser.role === 'admin'"
             class="footer-button admin-button"
-            :class="{ active: activeOverlay === 'admin' }"
             title="Panel de Administración"
-            @click="openOverlay('admin')"
+            @click="openAdminPanel"
           >
             <span class="footer-icon">⚙️</span>
           </button>
@@ -290,9 +289,8 @@
           <button
             v-if="currentUser?.role === 'admin'"
             class="footer-button"
-            :class="{ active: showBugReportsAdmin }"
-            @click="showBugReportsAdmin = true"
-            title="Ver reportes de error"
+            @click="openAdminPanel"
+            title="Panel de administración"
           >
             <span class="footer-icon">🐛</span>
           </button>
@@ -1619,6 +1617,7 @@ const showChangelog = ref(false);
 const showHelp      = ref(false);
 const showBugReport       = ref(false);
 const showBugReportsAdmin = ref(false);
+function openAdminPanel() { window.open('/admin', '_blank'); }
 const playerId = computed(() => currentUser.value?.player_id || 1); // Player ID from session
 const playerGold = ref(0); // Oro inicial (se carga del servidor)
 const playerHexes = ref(new Set()); // Track player's owned hexagons for adjacency checks

@@ -8,7 +8,7 @@ const JWT_EXPIRES_IN = '7d';
  * Extracts and verifies JWT from 'access_token' cookie
  * Sets req.user with decoded payload: { player_id, username, role }
  */
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
     const { Logger } = require('../utils/logger');
 
     try {
@@ -30,6 +30,21 @@ const authenticateToken = (req, res, next) => {
 
         // Verify JWT signature and decode payload
         const decoded = jwt.verify(token, JWT_SECRET);
+
+        // Check if player is blocked
+        try {
+            const pool = require('../../db');
+            const { rows } = await pool.query(
+                'SELECT is_blocked, blocked_reason FROM players WHERE player_id = $1',
+                [decoded.player_id]
+            );
+            if (rows[0]?.is_blocked) {
+                return res.status(403).json({
+                    success: false,
+                    message: `Tu cuenta ha sido bloqueada. ${rows[0].blocked_reason || 'Contacta con un administrador.'}`,
+                });
+            }
+        } catch (_) { /* fail open: si falla la DB no bloqueamos */ }
 
         // Attach user data to request object
         req.user = {
