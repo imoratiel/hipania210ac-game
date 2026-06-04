@@ -244,6 +244,12 @@ module.exports = function () {
     router.patch('/admin/bug-reports/:id/status', authenticateToken, requireAdmin, (req, res) => BugReportService.UpdateStatus(req, res));
     router.get('/admin/game-config', authenticateToken, requireAdmin, AdminService.GetGameConfig);
     router.put('/admin/game-config', authenticateToken, requireAdmin, AdminService.UpdateGameConfig);
+    router.get('/admin/dashboard',   authenticateToken, requireAdmin, (req, res) => AdminService.GetDashboard(req, res));
+    router.get('/admin/players',                   authenticateToken, requireAdmin, (req, res) => AdminService.ListPlayers(req, res));
+    router.patch('/admin/players/:id/block',       authenticateToken, requireAdmin, (req, res) => AdminService.BlockPlayer(req, res));
+    router.patch('/admin/players/:id/role',        authenticateToken, requireAdmin, (req, res) => AdminService.ChangePlayerRole(req, res));
+    router.delete('/admin/players/:id',            authenticateToken, requireAdmin, (req, res) => AdminService.DeletePlayer(req, res));
+    router.post('/admin/players/:id/message',      authenticateToken, requireAdmin, (req, res) => AdminService.SendPlayerMessage(req, res));
 
     // ============================================
     // MARKET

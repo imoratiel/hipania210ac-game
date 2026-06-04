@@ -342,6 +342,197 @@ class AdminService {
             res.status(500).json({ success: false, message: 'Error al generar estadísticas' });
         }
     }
+
+    async ListPlayers(req, res) {
+        const { search = '', page = 1, per_page = 30 } = req.query;
+        const offset = (parseInt(page) - 1) * parseInt(per_page);
+        try {
+            const searchClause = search
+                ? `AND (p.display_name ILIKE $4 OR p.username ILIKE $4)`
+                : '';
+            const params = [parseInt(per_page), offset, false];
+            if (search) params.push(`%${search}%`);
+
+            const { rows } = await pool.query(`
+                SELECT
+                    p.player_id, p.username, p.display_name, p.role,
+                    p.is_blocked, p.blocked_reason, p.deleted,
+                    p.is_initialized, p.gold, p.color, p.capital_h3, p.created_at,
+                    c.name AS culture_name,
+                    COUNT(DISTINCT m.h3_index)::int AS territory_count
+                FROM players p
+                LEFT JOIN cultures c  ON c.id = p.culture_id
+                LEFT JOIN h3_map m    ON m.player_id = p.player_id
+                WHERE p.is_ai = $3 AND p.deleted = $3 ${searchClause}
+                GROUP BY p.player_id, c.name
+                ORDER BY p.created_at DESC
+                LIMIT $1 OFFSET $2
+            `, params);
+
+            const countParams = [false];
+            if (search) countParams.push(`%${search}%`);
+            const { rows: cnt } = await pool.query(
+                `SELECT COUNT(*)::int AS total FROM players WHERE is_ai = $1 AND deleted = $1${search ? ' AND (display_name ILIKE $2 OR username ILIKE $2)' : ''}`,
+                countParams
+            );
+
+            return res.json({ success: true, players: rows, total: cnt[0].total });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/admin/players', userId: req.user?.player_id });
+            return res.status(500).json({ success: false, message: 'Error al obtener jugadores.' });
+        }
+    }
+
+    async BlockPlayer(req, res) {
+        const { id } = req.params;
+        const { block, reason = '' } = req.body;
+        if (parseInt(id) === req.user.player_id) {
+            return res.status(400).json({ success: false, message: 'No puedes bloquearte a ti mismo.' });
+        }
+        try {
+            const { rowCount } = await pool.query(
+                `UPDATE players SET is_blocked = $1, blocked_reason = $2 WHERE player_id = $3 AND is_ai = FALSE`,
+                [!!block, reason, id]
+            );
+            if (rowCount === 0) return res.status(404).json({ success: false, message: 'Jugador no encontrado.' });
+            Logger.action(`Jugador ${id} ${block ? 'bloqueado' : 'desbloqueado'} por admin. Motivo: ${reason}`, req.user.player_id);
+            return res.json({ success: true });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/admin/players/:id/block', userId: req.user?.player_id });
+            return res.status(500).json({ success: false, message: 'Error al actualizar estado.' });
+        }
+    }
+
+    async ChangePlayerRole(req, res) {
+        const { id } = req.params;
+        const { role } = req.body;
+        if (!['player', 'admin'].includes(role)) {
+            return res.status(400).json({ success: false, message: 'Rol inválido. Usa "player" o "admin".' });
+        }
+        if (parseInt(id) === req.user.player_id) {
+            return res.status(400).json({ success: false, message: 'No puedes cambiar tu propio rol.' });
+        }
+        try {
+            const { rowCount } = await pool.query(
+                `UPDATE players SET role = $1 WHERE player_id = $2 AND is_ai = FALSE`,
+                [role, id]
+            );
+            if (rowCount === 0) return res.status(404).json({ success: false, message: 'Jugador no encontrado.' });
+            Logger.action(`Rol de jugador ${id} cambiado a "${role}" por admin`, req.user.player_id);
+            return res.json({ success: true });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/admin/players/:id/role', userId: req.user?.player_id });
+            return res.status(500).json({ success: false, message: 'Error al cambiar rol.' });
+        }
+    }
+
+    async DeletePlayer(req, res) {
+        const { id } = req.params;
+        if (parseInt(id) === req.user.player_id) {
+            return res.status(400).json({ success: false, message: 'No puedes eliminarte a ti mismo.' });
+        }
+        try {
+            const { rowCount } = await pool.query(
+                `UPDATE players SET deleted = TRUE WHERE player_id = $1 AND is_ai = FALSE`,
+                [id]
+            );
+            if (rowCount === 0) return res.status(404).json({ success: false, message: 'Jugador no encontrado.' });
+            Logger.action(`Jugador ${id} marcado como eliminado por admin`, req.user.player_id);
+            return res.json({ success: true });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/admin/players/:id', userId: req.user?.player_id });
+            return res.status(500).json({ success: false, message: 'Error al eliminar jugador.' });
+        }
+    }
+
+    async SendPlayerMessage(req, res) {
+        const { id } = req.params;
+        const { subject, body } = req.body;
+        if (!subject?.trim() || !body?.trim()) {
+            return res.status(400).json({ success: false, message: 'Asunto y mensaje son obligatorios.' });
+        }
+        try {
+            const result = await pool.query(
+                `INSERT INTO messages (sender_id, receiver_id, subject, body) VALUES ($1, $2, $3, $4) RETURNING id`,
+                [req.user.player_id, id, subject.trim(), body.trim()]
+            );
+            const newId = result.rows[0].id;
+            await pool.query('UPDATE messages SET thread_id = $1 WHERE id = $1', [newId]);
+            Logger.action(`Admin envió mensaje a jugador ${id}: "${subject}"`, req.user.player_id);
+            return res.json({ success: true });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/admin/players/:id/message', userId: req.user?.player_id });
+            return res.status(500).json({ success: false, message: 'Error al enviar mensaje.' });
+        }
+    }
+
+    async GetDashboard(req, res) {
+        try {
+            const { isEngineActive, getEngineInfo } = require('../logic/turn_engine');
+            const { CONFIG } = require('../config.js');
+
+            const spainHour = parseInt(
+                new Intl.DateTimeFormat('es-ES', {
+                    hour: 'numeric', hour12: false, timeZone: 'Europe/Madrid',
+                }).format(new Date()), 10
+            );
+
+            const turnDurationSeconds = CONFIG.gameplay?.turn_duration_seconds || 600;
+            const turnDurationMs = turnDurationSeconds * 1000;
+            const elapsed = Date.now() % turnDurationMs;
+            const nextTurnMs = elapsed === 0 ? turnDurationMs : turnDurationMs - elapsed;
+
+            const [worldRow, playersRow, territoriesRow] = await Promise.all([
+                pool.query('SELECT current_turn, game_date, is_paused, last_updated FROM world_state WHERE id = 1'),
+                pool.query('SELECT COUNT(*)::int AS total FROM players'),
+                pool.query('SELECT COUNT(*)::int AS total FROM h3_map WHERE player_id IS NOT NULL'),
+            ]);
+
+            let bugMap = {};
+            try {
+                const bugsRow = await pool.query(
+                    `SELECT status, COUNT(*)::int AS cnt FROM bug_reports GROUP BY status`
+                );
+                for (const r of bugsRow.rows) bugMap[r.status] = r.cnt;
+            } catch (_) {}
+
+            const world = worldRow.rows[0];
+            const engineInfo = getEngineInfo();
+
+            return res.json({
+                success: true,
+                world: {
+                    current_turn: world.current_turn,
+                    game_date: world.game_date,
+                    is_paused: world.is_paused,
+                    last_updated: world.last_updated,
+                },
+                engine: {
+                    running: isEngineActive(),
+                    uptime_ms: engineInfo.uptimeMs,
+                },
+                players:     { total: playersRow.rows[0].total },
+                territories: { total: territoriesRow.rows[0].total },
+                bugs: {
+                    nuevo:     bugMap['Nuevo'] || 0,
+                    pendiente: bugMap['Pendiente de arreglo'] || 0,
+                    corregido: bugMap['Corregido'] || 0,
+                },
+                turn: {
+                    duration_seconds: turnDurationSeconds,
+                    next_turn_ms:     nextTurnMs,
+                },
+                season: {
+                    is_campaign: spainHour >= 12,
+                    spain_hour:  spainHour,
+                    label:       spainHour >= 12 ? 'Campaña' : 'Invierno',
+                },
+            });
+        } catch (error) {
+            Logger.error(error, { endpoint: '/admin/dashboard', method: 'GET', userId: req.user?.player_id });
+            return res.status(500).json({ success: false, message: 'Error al obtener dashboard.' });
+        }
+    }
 }
 
 module.exports = new AdminService();
